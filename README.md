@@ -23,3 +23,6 @@ Checkout the [GitLab repositories](https://git.rwth-aachen.de/nfdi4earth/pilotsi
 
 This work has been funded by the German Research Foundation (NFDI4Earth,
 DFG project no. 460036893, https://www.nfdi4earth.de/).
+
+# MaRESS
+## **Ma**pping **R**esearch in **E**arth **S**ystem **S**ciences
