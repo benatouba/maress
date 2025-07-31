@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
+from app.models import ItemCreate
 from app.tests.utils.item import create_random_item
 
 
@@ -28,6 +29,7 @@ def test_read_item(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
     item = create_random_item(db)
+    assert isinstance(item, ItemCreate)
     response = client.get(
         f"{settings.API_V1_STR}/items/{item.id}",
         headers=superuser_token_headers,
@@ -64,7 +66,6 @@ def test_read_item_not_enough_permissions(
     content = response.json()
     assert content["detail"] == "Not enough permissions"
 
-
 def test_read_items(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
@@ -77,6 +78,30 @@ def test_read_items(
     assert response.status_code == 200
     content = response.json()
     assert len(content["data"]) >= 2
+
+def test_import_zotero_items(
+    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+) -> None:
+    data = {
+        "zotero_user_id": settings.ZOTERO_USER_ID,
+        "zotero_api_key": settings.ZOTERO_API_KEY,
+        "zotero_library_type": "group",
+    }
+    response = client.post(
+        f"{settings.API_V1_STR}/items/import_from_zotero/",
+        headers=superuser_token_headers,
+        json=data,
+    )
+    assert response.status_code == 200
+    content = response.json()
+    assert "data" in content
+    assert isinstance(content["data"], list)
+    assert len(content["data"]) > 0
+    for item in content["data"]:
+        assert "id" in item
+        assert "title" in item
+        assert "description" in item
+        assert "owner_id" in item
 
 
 def test_update_item(
