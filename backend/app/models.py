@@ -45,6 +45,10 @@ class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
     items: list["Item"] = Relationship(back_populates="owner", cascade_delete=True)
+    tags: list["Tag"] = Relationship(back_populates="owner", cascade_delete=True)
+    collections: list["Collection"] = Relationship(
+        back_populates="owner", cascade_delete=True
+    )
 
 
 # Properties to return via API, id is always required
@@ -57,35 +61,108 @@ class UsersPublic(SQLModel):
     count: int
 
 
-class Tag(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
+class TagBase(SQLModel):
     name: str = Field(max_length=64)
+
+
+class Tag(TagBase, table=True):
+    id: int | None = Field(default=None, primary_key=True)
     item_id: uuid.UUID = Field(foreign_key="item.id")
     item: Optional["Item"] = Relationship(back_populates="tags")
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=True, ondelete="SET NULL")
+    owner: User | None = Relationship(back_populates="tags")
 
 
-class Creator(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
+class TagCreate(TagBase):
+    pass
+
+
+class TagPublic(TagBase):
+    id: int
+    item_id: uuid.UUID
+
+
+class TagsPublic(SQLModel):
+    data: list[TagPublic]
+    count: int
+
+
+class CreatorBase(SQLModel):
     creatorType: str = Field(max_length=32)
     firstName: str = Field(max_length=64)
     lastName: str = Field(max_length=64)
+
+
+class Creator(CreatorBase, table=True):
+    id: int | None = Field(default=None, primary_key=True)
     item_id: uuid.UUID = Field(foreign_key="item.id")
     item: Optional["Item"] = Relationship(back_populates="creators")
 
 
-class Collection(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
+class CreatorCreate(CreatorBase):
+    pass
+
+
+class CreatorPublic(CreatorBase):
+    id: int
+    item_id: uuid.UUID
+
+
+class CreatorsPublic(SQLModel):
+    data: list[CreatorPublic]
+    count: int
+
+
+class CollectionBase(SQLModel):
     name: str = Field(max_length=64)
+
+
+class Collection(CollectionBase, table=True):
+    id: int | None = Field(default=None, primary_key=True)
     item_id: uuid.UUID = Field(foreign_key="item.id")
     item: Optional["Item"] = Relationship(back_populates="collections")
+    owner_id: uuid.UUID = Field(foreign_key="user.id", ondelete="CASCADE")
+    owner: User | None = Relationship(back_populates="collections")
+
+
+class CollectionCreate(CollectionBase):
+    pass
+
+
+# Properties to return via API, id is always required
+class CollectionPublic(CollectionBase):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+
+
+class CollectionsPublic(SQLModel):
+    data: list[CollectionPublic]
+    count: int
+
+
+class RelationBase(SQLModel):
+    key: str = Field(max_length=255)
+    value: str = Field(max_length=255)
 
 
 class Relation(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    key: str = Field(max_length=255)
-    value: str = Field(max_length=255)
     item_id: uuid.UUID = Field(foreign_key="item.id")
     item: Optional["Item"] = Relationship(back_populates="relations")
+
+
+class RelationCreate(RelationBase):
+    pass
+
+
+class RelationPublic(RelationBase):
+    id: int
+    item_id: uuid.UUID
+
+
+class RelationsPublic(SQLModel):
+    data: list[RelationPublic]
+    count: int
 
 
 # Shared properties
@@ -117,6 +194,7 @@ class ItemBase(SQLModel):
     extra: str = Field(default="", max_length=255)
     dateAdded: str = Field(min_length=20, max_length=32)
     dateModified: str = Field(min_length=20, max_length=32)
+    key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
 
 
 # Properties to receive on item creation
@@ -140,7 +218,6 @@ class Item(ItemBase, table=True):
     collections: list[Collection] = Relationship(back_populates="item")
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
-    key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
     relations: list[Relation] = Relationship(back_populates="item")
 
 
