@@ -4,14 +4,15 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
-from app.models import ItemCreate
+from app.models import Item, ItemCreate
+from app.tests.factories import ItemFactory
 from app.tests.utils.item import create_random_item
 
 
 def test_create_item(
     client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:
-    data = {"title": "Foo", "description": "Fighters"}
+    data = ItemFactory.build().model_dump(exclude_unset=True, mode="json")
     response = client.post(
         f"{settings.API_V1_STR}/items/",
         headers=superuser_token_headers,
@@ -29,7 +30,7 @@ def test_read_item(
     client: TestClient, superuser_token_headers: dict[str, str], db: Session
 ) -> None:
     item = create_random_item(db)
-    assert isinstance(item, ItemCreate)
+    assert isinstance(item, Item)
     response = client.get(
         f"{settings.API_V1_STR}/items/{item.id}",
         headers=superuser_token_headers,
@@ -58,6 +59,7 @@ def test_read_item_not_enough_permissions(
     client: TestClient, normal_user_token_headers: dict[str, str], db: Session
 ) -> None:
     item = create_random_item(db)
+    assert isinstance(item, Item)
     response = client.get(
         f"{settings.API_V1_STR}/items/{item.id}",
         headers=normal_user_token_headers,
@@ -87,10 +89,10 @@ def test_import_zotero_items(
         "zotero_api_key": settings.ZOTERO_API_KEY,
         "zotero_library_type": "group",
     }
-    response = client.post(
+    response = client.get(
         f"{settings.API_V1_STR}/items/import_from_zotero/",
         headers=superuser_token_headers,
-        json=data,
+        # json=data,
     )
     assert response.status_code == 200
     content = response.json()

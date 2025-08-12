@@ -190,7 +190,7 @@ def get_creators(
 
 
 def create_creator(
-    session: Session, creator_in: CreatorCreate, item_id: str
+    session: Session, creator_in: CreatorCreate, item_id: uuid.UUID
 ) -> Creator:
     """Create a new Creator with linked item_id."""
     creator = Creator.model_validate(creator_in, update={"item_id": item_id})

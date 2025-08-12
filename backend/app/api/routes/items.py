@@ -1,8 +1,10 @@
 import uuid
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from magic import Magic
 from sqlmodel import func, select
 
 from app.api.deps import CurrentUser, SessionDep
@@ -82,7 +84,9 @@ def import_zotero_items(
         api_key=settings.ZOTERO_API_KEY,
     )
     # TODO: handle pagination properly and get all items, not just top-level
-    zot_items: ZoteroItemList = zot.collection_items("AQXEVQ8C", limit=limit, start=skip)
+    zot_items: ZoteroItemList = zot.collection_items(
+        "AQXEVQ8C", limit=limit, start=skip
+    )
     zot_items_data = [item["data"] for item in zot_items]
     local_items, _ = read_zotero_items(session, current_user, skip, limit)
     local_keys = [item.key for item in local_items]
@@ -99,24 +103,52 @@ def import_zotero_items(
         session.refresh(item)
     return ItemsPublic(data=new_items, count=len(new_items))  # pyright: ignore[reportArgumentType]
 
+
+@router.get("/import_from_zotero/{id}", response_model=ItemPublic)
 def import_file_from_zotero(
-    session: SessionDep, current_user: CurrentUser, file_id: str
-) -> ItemPublic:
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+) -> Any:
     """Import a single item from Zotero by file ID."""
     zot = Zotero(
         library_id=settings.ZOTERO_USER_ID,
         library_type=settings.ZOTERO_LIBRARY_TYPE,
         api_key=settings.ZOTERO_API_KEY,
     )
-    zot_item = zot.item(file_id)
+
+    item: ItemPublic = read_item(session, current_user, id)
+    zot_item = zot.item(item.key)
     if not zot_item:
         raise HTTPException(status_code=404, detail="Zotero item not found")
-    item_data = zot_item["data"]
-    item = Item.model_validate(item_data, update={"owner_id": current_user.id})
-    session.add(item)
-    session.commit()
-    session.refresh(item)
+    if not zot_item["links"]["attachment"]["href"]:
+        raise HTTPException(status_code=404, detail="Zotero item attachment not found")
+    file_key = str(zot_item["links"]["attachment"]["href"].split("/")[-1])
+    file_path: Path = Path.cwd() / "zotero_files" / (file_key + ".pdf")
+    with file_path.open("wb") as f:
+        file: bytes = zot.file(file_key)
+        if not isinstance(file, bytes):
+            raise HTTPException(
+                status_code=400, detail="Zotero file is not a valid byte stream"
+            )
+        if not file:
+            raise HTTPException(status_code=404, detail="Zotero file not found")
+        m = Magic(mime=True)
+        if not m.from_buffer(file) == "application/pdf":
+            raise HTTPException(
+                status_code=400, detail="Only PDF files can be imported from Zotero"
+            )
+        # FIXME: More malware checking should be done here (e.g. yara rules, and )
+        f.write(file)
+
+    updated_item = ItemUpdate(attachment=str(file_path))
+    item = update_item(
+        session=session,
+        current_user=current_user,
+        id=id,
+        item_in=updated_item,
+        create_item=False,
+    )
     return item
+
 
 @router.put("/{id}", response_model=ItemPublic)
 def update_item(
