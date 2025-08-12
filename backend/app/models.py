@@ -1,8 +1,9 @@
 import uuid
+from datetime import UTC, datetime
 from typing import Optional
 
 from pydantic import EmailStr
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
 
 
 # Shared properties
@@ -69,7 +70,9 @@ class Tag(TagBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     item_id: uuid.UUID = Field(foreign_key="item.id")
     item: Optional["Item"] = Relationship(back_populates="tags")
-    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=True, ondelete="SET NULL")
+    owner_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=True, ondelete="SET NULL"
+    )
     owner: User | None = Relationship(back_populates="tags")
 
 
@@ -169,8 +172,57 @@ class RelationsPublic(SQLModel):
 class ItemBase(SQLModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=255)
-    version: int = Field(ge=1)
+    version: int | None = Field(default=None, ge=1)
     itemType: str = Field(min_length=1, max_length=64)
+    abstractNote: str = Field(default="", min_length=0, max_length=8192)
+    publicationTitle: str = Field(default="", min_length=0, max_length=255)
+    volume: str | None = Field(default=None, max_length=32)
+    issue: str | None = Field(default=None, max_length=32)
+    pages: str | None = Field(default=None, max_length=32)
+    date: str | None = Field(default=None, min_length=4, max_length=20)
+    series: str = Field(default="", max_length=128)
+    seriesTitle: str = Field(default="", max_length=128)
+    seriesText: str = Field(default="", max_length=255)
+    journalAbbreviation: str | None = Field(default=None, max_length=64)
+    language: str | None = Field(default=None, max_length=8)
+    doi: str | None = Field(default=None, max_length=128, alias="DOI")
+    issn: str | None = Field(default=None, max_length=32, alias="ISSN")
+    shortTitle: str = Field(default="", max_length=255)
+    url: str = Field(default="", max_length=512)
+    archive: str = Field(default="", max_length=128)
+    archiveLocation: str = Field(default="", max_length=255)
+    libraryCatalog: str | None = Field(default=None, max_length=255)
+    callNumber: str = Field(default="", max_length=64)
+    rights: str | None = Field(default=None, max_length=255)
+    extra: str = Field(default="", max_length=255)
+    dateAdded: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
+    dateModified: datetime | None = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), onupdate=func.now()),
+    )
+    attachment: str | None = Field(default=None, max_length=512)
+
+    # get datetime of string if type of dateAdded or dateModified is str
+    @classmethod
+    def model_validate(cls, obj, **kwargs):
+        if isinstance(obj, dict):
+            if "dateAdded" in obj and isinstance(obj["dateAdded"], str):
+                obj["dateAdded"] = datetime.fromisoformat(obj["dateAdded"])
+            if "dateModified" in obj and isinstance(obj["dateModified"], str):
+                obj["dateModified"] = datetime.fromisoformat(obj["dateModified"])
+        return super().model_validate(obj, **kwargs)
+
+
+# Properties to receive on item creation
+class ItemCreate(ItemBase):
+    key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
+
+
+# Properties to receive on item update
+class ItemUpdate(ItemBase):
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=255)
+    itemType: str = Field(default="journalArticl", min_length=1, max_length=64)
     abstractNote: str = Field(default="", min_length=0, max_length=8192)
     publicationTitle: str = Field(default="", min_length=0, max_length=255)
     volume: str | None = Field(default=None, max_length=32)
@@ -192,19 +244,6 @@ class ItemBase(SQLModel):
     callNumber: str = Field(default="", max_length=64)
     rights: str | None = Field(default=None, max_length=255)
     extra: str = Field(default="", max_length=255)
-    dateAdded: str = Field(min_length=20, max_length=32)
-    dateModified: str = Field(min_length=20, max_length=32)
-    key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
-
-
-# Properties to receive on item creation
-class ItemCreate(ItemBase):
-    pass
-
-
-# Properties to receive on item update
-class ItemUpdate(ItemBase):
-    title: str | None = Field(default=None, min_length=1, max_length=255)  # type: ignore
 
 
 # Database model, database table inferred from class name
@@ -219,6 +258,7 @@ class Item(ItemBase, table=True):
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
     relations: list[Relation] = Relationship(back_populates="item")
+    key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
 
 
 # Properties to return via API, id is always required
