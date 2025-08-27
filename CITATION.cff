@@ -1,0 +1,38 @@
+cff-version: 1.2.0
+title: "NFDI4Earth"
+authors:
+  - family-names: YourLastName
+    given-names: YourFirstName
+    affiliation: YourAffiliation
+    orcid: "https://orcid.org/0000-0002-5607-9040"
+message: "Custome message like: If you use this software, please cite it using these metadata."
+abstract: This software implements methods to do things.
+license:
+ - MIT
+keywords:
+  - "awesome software"
+type: software
+identifiers:
+  - description: "DOI of this project"
+    type: doi
+    value: 10.5281/zenodo.7586901
+references:
+  - authors:
+      - name: "The Dependency Project"
+    date-released: "2021-07-26"
+    year: "2021"
+    doi: 10.5281/zenodo.x1234567
+    repository-code: "https://github.com/dependency-project/dependency"
+    title: Dependency
+    type: software
+    version: 0.13.4
+  - authors:
+      - name: von Bielefeld, Arthur
+    doi: 10.9999/hardscifi-lang.42132
+    issue: 13
+    journal: "Journal of Hard Science Fiction"
+    scope: "Cite this paper if you want to reference the general concepts of the software."
+    title: "Towards a 100% accuracy syntax parser for all languages"
+    type: article
+    volume: 42
+    year: 2099
