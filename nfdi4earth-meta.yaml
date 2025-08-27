@@ -1,0 +1,54 @@
+name: NFDI4Earth example incubator/pilot project
+description: some-description # optional
+keywords: # optional
+  - some keyword1
+  - some keyword2
+subjectArea: # optional
+  - dfgfo:3.41-02 # values must start with dfgfo:
+  - dfgfo:3.41-01 # + values must be from https://github.com/tibonto/DFG-Fachsystematik-Ontology/blob/main/dfgfo.ttl
+## INTERNAL NOTE: consider adding to schema:
+## fundingStartedAt, fundingEndedAt
+hasOutcome:
+  # outcomes may be: SoftwareSourceCode, Publication, LHBArticle, Dataset 
+  - type: SoftwareSourceCode # Allowed: SoftwareSourceCode or Article
+    citationFile: CITATION.cff # required
+    # citationFile can be a path in this local git repository, or the URL to
+    # the raw (!) remote file
+    # e.g.:
+    # - somefolder-in-this-gitlab/thepath/CITATION.cff
+    # - https://raw.githubusercontent.com/citation-file-format/citation-file-format/main/CITATION.cff # URL to the file
+    # - https://gitlib.com/[...]/raw/master/CITATION.cff
+    # Be careful to add the real URL to the "raw" file, not the HTML landing
+    # page in Github/ Gitlab
+
+    # If citationFile is not provided, then it is assumed to be the CITATION.cff
+    # in the same repository in the same directory as this metadata file.
+
+    # The CFF file must have a value for the field repository-code (!) as
+    # a fallback it can be provided here:
+    repository-code: https://git.rwth-aachen.de/nfdi4earth/pilotsincubatorlab/incubator/scraiber
+
+    # optional addtional properties which are not representable in CIFF at
+    # the moment:
+    hasNotebook: https://git.rwth-aachen.de/nfdi4earth/pilotsincubatorlab/incubator/camerardy/-/raw/main/tutorial.ipynb
+    hasContainerFile: https://git.rwth-aachen.de/nfdi4earth/pilotsincubatorlab/incubator/camerardy/-/raw/main/Dockerfile
+    targetProduct: http://example.org/the-interactive-service # the URL to a running service where the software is deployed
+  - type: Publication
+    # For type Article it is mandatory to add the doi of the article
+    # It must be a doi which is resolvable at Zenodo (later: will extent
+    # to any publication which is findable at datacite).
+    # Zenodo: Use the concept doi, which always points to the latest version of
+    # a document
+    doi: 10.5281/zenodo.8139082
+  - type: LHBArticle
+    # provide URL of the article in the Living Handbook 
+    url: https://nfdi4earth.pages.rwth-aachen.de/livinghandbook/livinghandbook/Pilot_GMSDA.md_1/
+  - type: Dataset
+    # provide URL of the dataset's landing page
+    url: https://doi.pangaea.de/10.1594/PANGAEA.946783 
+hasContributedTo:
+  # contributions can be made to: SoftwareSourceCode, Publication, LHBArticle, Dataset  
+  # provide the information in the same way as described above for hasOutcome, for example: 
+  - type: SoftwareSourceCode
+    citationFile: https://raw.githubusercontent.com/citation-file-format/citation-file-format/main/CITATION.cff # URL to the file
+    repository-code: https://github.com/citation-file-format/citation-file-format
