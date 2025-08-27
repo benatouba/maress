@@ -1,17 +1,11 @@
 ---
-name: ELaborate Particle Analysis from Satellite Observations - EL PASO
+name: Mapping Research in Earth System Sciences (MaRESS): Developing an Application for Data Integration and AI-assisted Information Management
 
 description: 
-We propose a new Python package for processing satellite data of particle measurements in
-Earth’s magnetosphere. While most particle measurements of the radiation belts are openly
-available, they still must be processed (which may include time binning, calculation of equatorial
-pitch angles and invariants, converting flux to phase space density, etc) to be used in
-publications. Currently, each research group processes data individually without a standard
-procedure, making published data challenging to reproduce. An open, easy-to-use package
-would help new students handle the data and reproduce previous results.
+Abstract
 
 author: 
-  - name: Bernhard Haas
+  - name: your name
     orcidid: 
   
 
@@ -75,22 +69,16 @@ version: 0.1
 #toDo: convert your project description to markdown by copying the text and adapting headings, links and reference. References could be stored in the bib.bib file in bibtex format and can cites as discripted in th LHB (https://nfdi4earth.pages.rwth-aachen.de/livinghandbook/livinghandbook/#LHB_author-guidelines/#references)
 ---
 
-# ELaborate Particle Analysis from Satellite Observations - EL PASO
+# Mapping Research in Earth System Sciences (MaRESS): Developing an Application for Data Integration and AI-assisted Information Management
 
 
 
 ## Abstract
-We propose a new Python package for processing satellite data of particle measurements in
-Earth’s magnetosphere. While most particle measurements of the radiation belts are openly
-available, they still must be processed (which may include time binning, calculation of equatorial
-pitch angles and invariants, converting flux to phase space density, etc) to be used in
-publications. Currently, each research group processes data individually without a standard
-procedure, making published data challenging to reproduce. An open, easy-to-use package
-would help new students handle the data and reproduce previous results.
+Abstract of project
 
 ## Outcomes and Trends
 Open
 
 
 ## Resources
-* Code repository ([GitLab](https://git.rwth-aachen.de/nfdi4earth/pilotsincubatorlab/incubator/el-paso ))
+* Code repository ([GitLab](https://git.rwth-aachen.de/nfdi4earth/pilotsincubatorlab/incubator/maress ))
