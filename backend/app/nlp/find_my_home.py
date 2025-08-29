@@ -1,39 +1,22 @@
-import logging
 import re
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, final, override
+from typing import final
 
-import camelot
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-import pypdf
 import spacy
 from geopy.geocoders import Nominatim
+from geopy.point import Point
 from pydantic import BaseModel, Field
 from pydantic_extra_types.coordinate import Coordinate, Latitude, Longitude
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-file_handler = logging.FileHandler("nlp.log")
-file_handler.setLevel(logging.DEBUG)  # Logs all levels to file
-console_handler = logging.StreamHandler()
-console_handler.setLevel(
-    logging.INFO
-)  # Only logs INFO, WARNING, ERROR, CRITICAL to console
+from maress_types import CoordinateExtractionMethod, CoordinateSourceType
 
-file_formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-console_formatter = logging.Formatter("%(name)s - %(levelname)s - %(message)s")
-
-file_handler.setFormatter(file_formatter)
-console_handler.setFormatter(console_formatter)
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
+from .nlp_logger import logger
+from .pdf_extractors import CamelotTableExtractor, PyPDFTextExtractor
 
 
 class CoordinateCandidate(BaseModel):
@@ -41,11 +24,13 @@ class CoordinateCandidate(BaseModel):
 
     latitude: Latitude  # validates -90 <= value <= 90
     longitude: Longitude  # validates -180 <= value <= 180
-    confidence_score: float
-    source_type: str  # e.g. 'text', 'table', 'caption'
-    context: str
-    page_number: int
-    extraction_method: str  # e.g. 'regex', 'table_parsing', 'ner'
+    confidence_score: float = Field(ge=0.0)
+    source_type: CoordinateSourceType = Field(
+        description="Source type of the coordinate extraction"
+    )
+    context: str = Field(description="Context around the coordinate in the text")
+    page_number: int = Field(ge=1)
+    extraction_method: CoordinateExtractionMethod
 
 
 class LocationCandidate(BaseModel):
@@ -53,7 +38,7 @@ class LocationCandidate(BaseModel):
 
     name: str
     confidence_score: float
-    source_type: str
+    source_type: CoordinateSourceType
     context: str
     page_number: int
     # Optional coordinates, validated as lat/lon if present
@@ -69,139 +54,6 @@ class StudySiteResult(BaseModel):
     locations: list[LocationCandidate] = Field(default_factory=list)
     validation_score: float = 0.0
     primary_study_site: CoordinateCandidate | None = None
-
-
-class TextExtractor(ABC):
-    """Abstract base class for text extraction from PDFs."""
-
-    @abstractmethod
-    def extract_text(self, pdf_path: Path) -> dict[str, Any]:
-        pass
-
-
-class PyPDFTextExtractor(TextExtractor):
-    """Text extraction using PyPDF."""
-
-    SECTION_SKIP_PATTERNS: list[re.Pattern[str]] = [
-        re.compile(
-            r"^(?:references?|bibliography|appendix|supplementary|notes|data)$",
-            re.IGNORECASE,
-        ),
-        # line with the word "references" or similar and non-alphabetical characters before or after
-        # re.compile(r"^\s*[-—–—]*\s*(?:references?|bibliography|appendix|supplementary|notes|data)\s*[-—–—]*\s*$", re.IGNORECASE),
-    ]
-
-    def strip_non_alpha_ends(self, s: str) -> str:
-        return s.strip("0123456789!@#$%^&*()_+-=~`[]{}|\\:;\"'<>,.?/ \t\n\r")
-
-    def _is_nonprose_section(self, text: str) -> bool:
-        """Checks if a page/line contains the start of a non-prose section."""
-        for pattern in self.SECTION_SKIP_PATTERNS:
-            if pattern.search(text):
-                logger.info(f"Detected non-prose section header: {text.strip()}")
-                return True
-        return False
-
-    @override
-    def extract_text(self, pdf_path: Path) -> dict[str, Any]:
-        try:
-            with open(pdf_path, "rb") as file:
-                reader = pypdf.PdfReader(file)
-                pages_text = []
-                found_section_cutoff = False
-
-                for page_num, page in enumerate(reader.pages, 1):
-                    text = page.extract_text()
-                    if not text:
-                        continue
-
-                    for i, line in enumerate(text.splitlines()):
-                        cleaned_line = self.strip_non_alpha_ends(line.strip())
-                        logger.debug(
-                            f"Processing line {i + 1} on page {page_num}: {cleaned_line}"
-                        )
-                        if self._is_nonprose_section(cleaned_line):
-                            msg = f"Skipping page {page_num} due to non-prose section header."
-                            logger.info(msg)
-                            # Stop adding pages after hitting references etc.
-                            found_section_cutoff = True
-                            text = "\n".join(text.splitlines()[:i])
-                            break
-
-                    if found_section_cutoff:
-                        # Stop adding pages after hitting references etc.
-                        break
-
-                    if page_num <= 2 and "introduction" in text.lower():
-                        idx = text.lower().find("introduction")
-                        if idx != -1:
-                            text = text[idx:]
-                    # go through lines and lstrip numbers
-                    text_lines = text.splitlines()
-                    text_lines = [
-                        line.strip("0123456789. ")
-                        for line in text_lines
-                        if line.strip()
-                    ]
-                    text = "\n".join(text_lines)
-                    # Remove text in parentheses
-                    text = re.sub(r"\(.*?\)", "", text)
-                    # Remove extra whitespace
-                    text = re.sub(r"\s+", " ", text).strip()
-                    logger.debug(
-                        f"Extracted text from page {page_num}: {text[:100]}...{text[-100:]}"
-                    )
-                    pages_text.append(
-                        {
-                            "page_number": page_num,
-                            "text": text,
-                            "word_count": len(text.split()),
-                        }
-                    )
-
-                return {
-                    "pages": pages_text,
-                    "full_text": "\n".join([p["text"] for p in pages_text]),
-                    "total_pages": len(pages_text),  # Use filtered count
-                }
-        except Exception as e:
-            logger.error(f"Error extracting text from {pdf_path}: {e}")
-            return {"pages": [], "full_text": "", "total_pages": 0}
-
-
-class CamelotTableExtractor:
-    """Table extraction using Camelot."""
-
-    def extract_tables(self, pdf_path: Path) -> list[pd.DataFrame]:
-        """Extract tables from PDF using Camelot."""
-        try:
-            # Try lattice first (for tables with borders)
-            tables = camelot.read_pdf(str(pdf_path), pages="all", flavor="lattice")
-
-            tables_detected = any(t.df.all().all() for t in tables) if tables else False
-            if not tables_detected:
-                # Fall back to stream (for tables without borders)
-                tables = camelot.read_pdf(str(pdf_path), pages="all", flavor="stream")
-
-            table_data = []
-            for i, table in enumerate(tables):
-                df = table.df
-                if df.empty or not df.all().all():
-                    logger.debug(
-                        f"Skipping empty or invalid table {i + 1} on page {table.parsing_report['page']}"
-                    )
-                    continue
-                df.attrs["page_number"] = table.parsing_report["page"]
-                df.attrs["table_number"] = i + 1
-                df.attrs["accuracy"] = table.accuracy
-                table_data.append(df)
-
-            logger.info(f"Extracted {len(table_data)} tables from {pdf_path}")
-            return table_data
-
-        except Exception as e:
-            logger.error(f"Error extracting tables from {pdf_path}: {e}")
-            return []
 
 
 class CoordinateExtractor:
@@ -405,7 +257,7 @@ class CoordinateExtractor:
 class LocationExtractor:
     """Extract named locations using spaCy NER."""
 
-    def __init__(self, model_name: str = "en_core_web_sm"):
+    def __init__(self, model_name: str = "en_core_web_lg"):
         try:
             self.nlp = spacy.load(model_name)
         except OSError:
@@ -442,12 +294,12 @@ class LocationExtractor:
         return candidates
 
     def geocode_locations(
-        self, locations: list[LocationCandidate]
+        self, locations: list[LocationCandidate], near_point: Point | None = None
     ) -> list[LocationCandidate]:
         """Geocode location names to coordinates."""
         for location in locations:
             try:
-                geocoded = self.geocoder.geocode(location.name, timeout=10)
+                geocoded = self.geocoder.geocode(location.name, timeout=10, viewbox=near_point)
                 if geocoded:
                     location.coordinates = Coordinate(
                         Latitude(geocoded.latitude), Longitude(geocoded.longitude)
@@ -544,7 +396,9 @@ class CoordinateClusterer:
             logger.info("Only one cluster found or all points are noise.")
             return coordinates
         cluster_labels = labels[labels != -1]
-        label_largest_cluster: int = max(set(cluster_labels), key=list(cluster_labels).count)
+        label_largest_cluster: int = max(
+            set(cluster_labels), key=list(cluster_labels).count
+        )
 
         return [
             coord
@@ -640,7 +494,7 @@ class StudySiteValidator:
 class StudySiteExtractor:
     """Main class orchestrating the study site extraction process."""
 
-    def __init__(self, spacy_model: str = "en_core_web_sm"):
+    def __init__(self, spacy_model: str = "en_core_web_lg"):
         self.text_extractor = PyPDFTextExtractor()
         self.table_extractor = CamelotTableExtractor()
         self.coordinate_extractor = CoordinateExtractor()
@@ -648,13 +502,37 @@ class StudySiteExtractor:
         self.validator = StudySiteValidator()
         self.clusterer = CoordinateClusterer(eps_km=100.0)
 
-    def extract_study_site(self, pdf_path: Path) -> StudySiteResult:
+    def extract_site_from_title(self, title: str) -> LocationCandidate | None:
+        """Extract location from the paper title."""
+        locations = self.location_extractor.extract_locations(title, page_number=0)
+        if locations:
+            geocoded_locations = self.location_extractor.geocode_locations(locations)
+            if geocoded_locations:
+                # Return the highest confidence location
+                return max(
+                    geocoded_locations,
+                    key=lambda loc: loc.confidence_score,
+                    default=None,
+                )
+        return None
+
+    def extract_study_site(self, pdf_path: Path, title: str | None = None) -> StudySiteResult:
         """Main method to extract study site from a PDF paper."""
         logger.info(f"Processing PDF: {pdf_path}")
 
         # Initialize result
         result = StudySiteResult()
 
+        if title:
+            title_location = self.extract_site_from_title(title)
+            if title_location:
+                result.locations.append(title_location)
+                logger.info(f"Extracted location from title: {title_location.name}")
+            title_coords = Point(
+                latitude=title_location.latitude, longitude=title_location.longitude
+            ) if title_location and title_location.coordinates else None
+        else:
+            title_coords = None
         text_data = self.text_extractor.extract_text(pdf_path)
         if not text_data["full_text"]:
             logger.warning(f"No text extracted from {pdf_path}")
@@ -684,7 +562,7 @@ class StudySiteExtractor:
             result.locations.extend(locations)
 
         # Geocode locations
-        result.locations = self.location_extractor.geocode_locations(result.locations)
+        result.locations = self.location_extractor.geocode_locations(result.locations, title_coords)
 
         coords_list: list[tuple[float, float]] = [
             (c.latitude, c.longitude) for c in result.coordinates
