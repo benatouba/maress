@@ -16,12 +16,18 @@ from app.tests.utils.utils import get_superuser_token_headers
 def db() -> Generator[Session, None, None]:
     with Session(engine) as session:
         init_db(session)
-        yield session
-        statement = delete(Item)
-        session.execute(statement)
-        statement = delete(User)
-        session.execute(statement)
-        session.commit()
+        try:
+            yield session
+            statement = delete(Item)
+            session.execute(statement)
+            statement = delete(User)
+            session.execute(statement)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
 
 
 @pytest.fixture(scope="module")
