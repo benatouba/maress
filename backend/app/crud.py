@@ -72,7 +72,7 @@ def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -
 
 
 def get_all_items(
-    *, session: Session, skip: int = 0, limit: int = 100
+    *, session: Session, skip: int = 0, limit: int = 500
 ) -> Sequence[Item]:
     statement = select(Item).offset(skip).limit(limit)
     return session.exec(statement).all()

@@ -1,9 +1,48 @@
 import uuid
 from datetime import UTC, datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import EmailStr
+from pydantic_extra_types.coordinate import Latitude, Longitude
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
+
+from maress_types import CoordinateExtractionMethod, CoordinateSourceType
+
+if TYPE_CHECKING:
+    from app.models import Item  # Avoid circular import issues for type hints
+
+
+class StudySite(SQLModel, table=True):
+    """Database model for study site extraction results."""
+
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+    )
+    item: Optional["Item"] = Relationship(
+        back_populates="study_site",
+        sa_relationship_kwargs={"uselist": False},
+    )
+    # item_id: uuid.UUID | None = Field(default=None, foreign_key="item.id", unique=True)
+    validation_score: float = 0.0
+    latitude: Latitude
+    longitude: Longitude  # validates -180 <= value <= 180
+    confidence_score: float
+    source_type: CoordinateSourceType = Field(
+        description="Type of source from which the study site was extracted"
+    )
+    context: str
+    page_number: int
+    extraction_method: CoordinateExtractionMethod
+    owner_id: uuid.UUID = Field(
+        foreign_key="user.id", nullable=True, ondelete="SET NULL"
+    )
+
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), onupdate=func.now()),
+    )
 
 
 # Shared properties
@@ -179,7 +218,7 @@ class ItemBase(SQLModel):
     volume: str | None = Field(default=None, max_length=32)
     issue: str | None = Field(default=None, max_length=32)
     pages: str | None = Field(default=None, max_length=32)
-    date: str | None = Field(default=None, min_length=4, max_length=20)
+    date: str | None = Field(default=None, max_length=20)
     series: str = Field(default="", max_length=128)
     seriesTitle: str = Field(default="", max_length=128)
     seriesText: str = Field(default="", max_length=255)
@@ -218,32 +257,35 @@ class ItemCreate(ItemBase):
     key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
 
 
-# Properties to receive on item update
-class ItemUpdate(ItemBase):
+class ItemUpdate(SQLModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=255)
-    itemType: str = Field(default="journalArticl", min_length=1, max_length=64)
-    abstractNote: str = Field(default="", min_length=0, max_length=8192)
-    publicationTitle: str = Field(default="", min_length=0, max_length=255)
+    abstractNote: str | None = Field(default=None, min_length=0, max_length=8192)
+    publicationTitle: str | None = Field(default=None, min_length=0, max_length=255)
     volume: str | None = Field(default=None, max_length=32)
     issue: str | None = Field(default=None, max_length=32)
     pages: str | None = Field(default=None, max_length=32)
-    date: str | None = Field(default=None, min_length=4, max_length=10)
-    series: str = Field(default="", max_length=128)
-    seriesTitle: str = Field(default="", max_length=128)
-    seriesText: str = Field(default="", max_length=255)
+    date: str | None = Field(default=None, max_length=20)
+    series: str | None = Field(default=None, max_length=128)
+    seriesTitle: str | None = Field(default=None, max_length=128)
+    seriesText: str | None = Field(default=None, max_length=255)
     journalAbbreviation: str | None = Field(default=None, max_length=64)
     language: str | None = Field(default=None, max_length=8)
     doi: str | None = Field(default=None, max_length=128, alias="DOI")
     issn: str | None = Field(default=None, max_length=32, alias="ISSN")
-    shortTitle: str = Field(default="", max_length=255)
-    url: str = Field(default="", max_length=512)
-    archive: str = Field(default="", max_length=128)
-    archiveLocation: str = Field(default="", max_length=255)
+    shortTitle: str | None = Field(default=None, max_length=255)
+    url: str | None = Field(default=None, max_length=512)
+    archive: str | None = Field(default=None, max_length=128)
+    archiveLocation: str | None = Field(default=None, max_length=255)
     libraryCatalog: str | None = Field(default=None, max_length=255)
-    callNumber: str = Field(default="", max_length=64)
+    callNumber: str | None = Field(default=None, max_length=64)
     rights: str | None = Field(default=None, max_length=255)
-    extra: str = Field(default="", max_length=255)
+    extra: str | None = Field(default=None, max_length=255)
+    attachment: str | None = Field(default=None, max_length=512)
+    model_config = {
+        "extra": "forbid",           # reject unapproved keys
+        "populate_by_name": True,    # accept either alias or field name (e.g., DOI or doi)
+    }
 
 
 # Database model, database table inferred from class name
@@ -258,6 +300,10 @@ class Item(ItemBase, table=True):
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
     relations: list[Relation] = Relationship(back_populates="item")
+    study_site_id: uuid.UUID | None = Field(
+        default=None, foreign_key="studysite.id", unique=True
+    )
+    study_site: StudySite | None = Relationship(back_populates="item")
     key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
 
 
@@ -265,6 +311,8 @@ class Item(ItemBase, table=True):
 class ItemPublic(ItemBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    study_site_id: uuid.UUID | None
+    study_site: StudySite | None
 
 
 class ItemsPublic(SQLModel):

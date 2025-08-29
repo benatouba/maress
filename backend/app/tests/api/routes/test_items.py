@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
-from app.models import Item, ItemCreate
+from app.models import Item
 from app.tests.factories import ItemFactory
 from app.tests.utils.item import create_random_item
 
@@ -117,7 +117,7 @@ def test_update_item(
         json=data,
     )
     assert response.status_code == 200
-    content = response.json()
+    content = response.json()  # pyright: ignore[reportAny]
     assert content["title"] == data["title"]
     assert content["description"] == data["description"]
     assert content["id"] == str(item.id)
