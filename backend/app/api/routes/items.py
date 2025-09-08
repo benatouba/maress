@@ -6,7 +6,6 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from magic import Magic
-from sqlalchemy.orm import selectinload
 from sqlmodel import func, select
 
 from app.api.deps import CurrentUser, SessionDep
@@ -143,7 +142,9 @@ def import_file_from_zotero(
     if not zot_item:
         raise HTTPException(status_code=404, detail="Zotero item not found")
     if "links" not in zot_item:
-        logger.warning(f"Zotero item {item.key} does not have links. The item is: {zot_item}")
+        logger.warning(
+            f"Zotero item {item.key} does not have links. The item is: {zot_item}"
+        )
         return item
     if "attachment" not in zot_item["links"]:
         logger.warning(
@@ -168,7 +169,7 @@ def import_file_from_zotero(
                 raise HTTPException(status_code=404, detail="Zotero file not found")
             m = Magic(mime=True)
             if not m.from_buffer(file) == "application/pdf":
-                logger.warning( "Only PDF files can be imported from Zotero")
+                logger.warning("Only PDF files can be imported from Zotero")
                 return item
             # TODO: More malware checking should be done here (e.g. yara rules, and )
             f.write(file)
@@ -243,7 +244,7 @@ def delete_item(
 
 @router.post("/study_sites/", response_model=Any)
 def extract_study_site(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID | None = None
+    session: SessionDep, current_user: CurrentUser, id: uuid.UUID | None = None, force: bool = False
 ) -> Any:
     """Use StudySiteExtractor to get study site from items."""
 
@@ -264,13 +265,12 @@ def extract_study_site(
             new_study_sites_items.append(new_item)
         return ItemsPublic(data=new_study_sites_items, count=len(new_study_sites_items))  # pyright: ignore[reportArgumentType]
 
-    print(id)
     if id is None or id == "null":
         # If no ID is provided, extract study sites for all items
         return extract_study_sites(session, current_user)
 
     item = read_item(session, current_user, id)
-    if item.study_site_id:
+    if item.study_site_id and not force:
         return item  # Study site already exists, return the item
     if not item.attachment:
         msg = "Item does not have an attachment"
@@ -281,7 +281,7 @@ def extract_study_site(
         msg = f"File {path} does not exist in the filesystem"
         raise FileNotFoundError(msg)
     extractor = StudySiteExtractor()
-    result = extractor.extract_study_site(path)
+    result = extractor.extract_study_site(path, title=item.title or None)
     if not result or not result.primary_study_site:
         logger.warning(
             f"Study site not found in the item {item.id} with attachment {item.attachment}"
