@@ -11,7 +11,6 @@ declare module 'vue' {
     BaseMap: typeof import('./components/common/BaseMap.vue')['default']
     Footer: typeof import('./components/layout/Footer.vue')['default']
     LoadingSpinner: typeof import('./components/common/LoadingSpinner.vue')['default']
-    Login: typeof import('./components/Login.vue')['default']
     PaperCard: typeof import('./components/papers/PaperCard.vue')['default']
     PaperList: typeof import('./components/papers/PaperList.vue')['default']
     PaperMap: typeof import('./components/papers/PaperMap.vue')['default']

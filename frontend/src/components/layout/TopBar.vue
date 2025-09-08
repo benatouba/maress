@@ -13,7 +13,7 @@
       <v-btn icon to="/profile">
         {{ authStore.user?.username?.charAt(0).toUpperCase() }}
       </v-btn>
-      <v-btn text @click="handleLogout">Logout</v-btn>
+      <v-btn text :active="authStore.loading" @click="handleLogout">Logout</v-btn>
     </div>
     <div v-else>
       <v-btn text to="/login">Login</v-btn>
@@ -26,14 +26,12 @@
 <script setup lang="ts">
 import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notification'
-const notificationStore = useNotificationStore()
 
 const showUserMenu = ref(false)
-const isLoading = ref(false)
 const authStore = useAuthStore()
 const handleLogout = async () => {
   try {
-    await authStore.logout()
+    authStore.logout()
     showUserMenu.value = false
   } catch (error) {
     console.error('Logout error:', error)
