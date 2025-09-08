@@ -100,6 +100,9 @@ class UsersPublic(SQLModel):
     data: list[UserPublic]
     count: int
 
+class ItemTagLink(SQLModel, table=True):
+    item_id: uuid.UUID | None = Field(default=None, foreign_key="item.id", primary_key=True)
+    tag_id: int | None = Field(default=None, foreign_key="tag.id", primary_key=True)
 
 class TagBase(SQLModel):
     name: str = Field(max_length=64)
@@ -107,8 +110,8 @@ class TagBase(SQLModel):
 
 class Tag(TagBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    item_id: uuid.UUID = Field(foreign_key="item.id")
-    item: Optional["Item"] = Relationship(back_populates="tags")
+    name: str = Field(index=True, max_length=64)
+    items: list["Item"] = Relationship(back_populates="tags", link_model=ItemTagLink)
     owner_id: uuid.UUID = Field(
         foreign_key="user.id", nullable=True, ondelete="SET NULL"
     )
@@ -295,7 +298,7 @@ class Item(ItemBase, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE"
     )
     owner: User | None = Relationship(back_populates="items")
-    tags: list[Tag] = Relationship(back_populates="item")
+    tags: list[Tag] = Relationship(back_populates="item", link_model=ItemTagLink)
     collections: list[Collection] = Relationship(back_populates="item")
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
