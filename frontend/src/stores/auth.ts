@@ -91,15 +91,13 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
     loading.value = true
 
     try {
-      const response = await axios.post<RegisterResponse>('/auth/register', userData)
-      const { access_token } = response.data
+      const response = await axios.post<RegisterResponse>('/users/signup', userData)
+      const { user } = response.data
 
-      token.value = access_token
-      localStorage.setItem('token', access_token)
-      setAuthHeader(access_token)
-
-      await fetchUser()
-      notificationStore.showNotification('Successfully registered!', 'success')
+      useNotificationStore().showNotification(
+        `Registration successful! Please check ${user.email} for confirmation email!.`,
+        'success',
+      )
       return true
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>
@@ -109,6 +107,12 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       )
       return false
     } finally {
+      // Auto-login after registration
+      await login({
+        email: userData.email,
+        password: userData.password,
+      })
+
       loading.value = false
     }
   }

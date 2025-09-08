@@ -23,7 +23,9 @@
           type="password"
           required></v-text-field>
         <v-row>
-          <v-col cols="3">
+          <v-col
+            cols="12"
+            justify-center>
             <v-btn
               block
               color="primary"
@@ -33,14 +35,20 @@
             </v-btn>
           </v-col>
         </v-row>
-        <v-span>Don't have an account yet?</v-span>
-        <v-btn
-          text
-          to="/register"
-          justify-end
-          align-right>
-          Sign up
-        </v-btn>
+        <v-row>
+          <v-col
+            cols="8"
+            align-self="center">
+            <span>Don't have an account yet?</span>
+          </v-col>
+          <v-col cols="4">
+            <v-btn
+              text
+              to="/register">
+              Sign up
+            </v-btn>
+          </v-col>
+        </v-row>
       </v-form>
     </v-card-text>
   </v-card>
