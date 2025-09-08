@@ -23,11 +23,9 @@ declare module 'vue-router/auto-routes' {
     '/Items': RouteRecordInfo<'/Items', '/Items', Record<never, never>, Record<never, never>>,
     '/Login': RouteRecordInfo<'/Login', '/Login', Record<never, never>, Record<never, never>>,
     '/Map': RouteRecordInfo<'/Map', '/Map', Record<never, never>, Record<never, never>>,
-    '/MapView': RouteRecordInfo<'/MapView', '/MapView', Record<never, never>, Record<never, never>>,
     '/NotFound': RouteRecordInfo<'/NotFound', '/NotFound', Record<never, never>, Record<never, never>>,
     '/PaperDetail': RouteRecordInfo<'/PaperDetail', '/PaperDetail', Record<never, never>, Record<never, never>>,
     '/Papers': RouteRecordInfo<'/Papers', '/Papers', Record<never, never>, Record<never, never>>,
-    '/PapersView': RouteRecordInfo<'/PapersView', '/PapersView', Record<never, never>, Record<never, never>>,
     '/Profile': RouteRecordInfo<'/Profile', '/Profile', Record<never, never>, Record<never, never>>,
     '/Register': RouteRecordInfo<'/Register', '/Register', Record<never, never>, Record<never, never>>,
   }
@@ -63,10 +61,6 @@ declare module 'vue-router/auto-routes' {
       routes: '/Map'
       views: never
     }
-    'src/pages/MapView.vue': {
-      routes: '/MapView'
-      views: never
-    }
     'src/pages/NotFound.vue': {
       routes: '/NotFound'
       views: never
@@ -77,10 +71,6 @@ declare module 'vue-router/auto-routes' {
     }
     'src/pages/Papers.vue': {
       routes: '/Papers'
-      views: never
-    }
-    'src/pages/PapersView.vue': {
-      routes: '/PapersView'
       views: never
     }
     'src/pages/Profile.vue': {
