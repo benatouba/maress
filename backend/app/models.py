@@ -100,9 +100,13 @@ class UsersPublic(SQLModel):
     data: list[UserPublic]
     count: int
 
+
 class ItemTagLink(SQLModel, table=True):
-    item_id: uuid.UUID | None = Field(default=None, foreign_key="item.id", primary_key=True)
+    item_id: uuid.UUID | None = Field(
+        default=None, foreign_key="item.id", primary_key=True
+    )
     tag_id: int | None = Field(default=None, foreign_key="tag.id", primary_key=True)
+
 
 class TagBase(SQLModel):
     name: str = Field(max_length=64)
@@ -119,17 +123,23 @@ class Tag(TagBase, table=True):
 
 
 class TagCreate(TagBase):
-    pass
+    item_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class TagPublic(TagBase):
     id: int
-    item_id: uuid.UUID
+    owner_id: uuid.UUID
+    items: list["ItemSummary"] | None = None
 
 
 class TagsPublic(SQLModel):
     data: list[TagPublic]
     count: int
+
+
+class ItemSummary(SQLModel):
+    id: uuid.UUID
+    name: str  # or whatever fields you want to expose
 
 
 class CreatorBase(SQLModel):
@@ -286,8 +296,8 @@ class ItemUpdate(SQLModel):
     extra: str | None = Field(default=None, max_length=255)
     attachment: str | None = Field(default=None, max_length=512)
     model_config = {
-        "extra": "forbid",           # reject unapproved keys
-        "populate_by_name": True,    # accept either alias or field name (e.g., DOI or doi)
+        "extra": "forbid",  # reject unapproved keys
+        "populate_by_name": True,  # accept either alias or field name (e.g., DOI or doi)
     }
 
 
@@ -298,7 +308,7 @@ class Item(ItemBase, table=True):
         foreign_key="user.id", nullable=False, ondelete="CASCADE"
     )
     owner: User | None = Relationship(back_populates="items")
-    tags: list[Tag] = Relationship(back_populates="item", link_model=ItemTagLink)
+    tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
     collections: list[Collection] = Relationship(back_populates="item")
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")

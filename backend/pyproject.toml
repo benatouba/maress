@@ -69,6 +69,7 @@ future-annotations = true
 ignore = [
   "E501", # line too long, handled by black
   "B008", # do not perform function calls in argument defaults
+  "TC001",   # Ignore "imported but unused" when inside TYPE_CHECKING blocks
   # "W191",  # indentation contains tabs
   "B904", # Allow raising exceptions without from e, for HTTPException
 ]
