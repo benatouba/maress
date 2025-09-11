@@ -2,7 +2,8 @@ import logging
 import uuid
 from typing import Any
 
-from sqlmodel import Sequence, Session, select
+from sqlalchemy.orm import selectinload
+from sqlmodel import Sequence, Session, func, select
 
 from app.core.security import get_password_hash, verify_password
 from app.models import (
@@ -80,7 +81,8 @@ def get_all_items(
 
 def get_tag(session: Session, tag_id: int) -> Tag | None:
     """Get a tag by ID."""
-    return session.get(Tag, tag_id)
+    query = select(Tag).options(selectinload(Tag.items)).where(Tag.id == tag_id)
+    return session.exec(query).first()
 
 
 def get_tags(
@@ -90,7 +92,7 @@ def get_tags(
 
     Returns a tuple (tags list, total count).
     """
-    query = select(Tag)
+    query = select(Tag).options(selectinload(Tag.items))
     count_query = select(func.count()).select_from(Tag)
 
     if owner_id is not None:
@@ -99,13 +101,21 @@ def get_tags(
 
     total = session.exec(count_query).one()
     tags = session.exec(query.offset(skip).limit(limit)).all()
-    return tags, total
+    return list(tags), total
 
 
 def create_tag(session: Session, tag_in: TagCreate, owner_id: uuid.UUID) -> Tag:
     """Create a new Tag with owner assigned."""
     tag = Tag.model_validate(tag_in, update={"owner_id": owner_id})
     session.add(tag)
+
+    if tag_in.item_ids:
+        session.flush()  # Get the tag ID before adding associations
+        for item_id in tag_in.item_ids:
+            item = session.get(Item, item_id)
+            if item:  # Only associate if item exists
+                tag.items.append(item)
+
     try:
         session.commit()
         session.refresh(tag)
