@@ -8,6 +8,7 @@
     <v-toolbar-title>MaRESS</v-toolbar-title>
     <v-btn text to="/items">Zotero</v-btn>
     <v-btn text to="/map">Map</v-btn>
+    <v-btn text to="/graph">Graph</v-btn>
     <v-spacer></v-spacer>
     <div v-if="authStore.isAuthenticated">
       <v-btn icon to="/profile">
