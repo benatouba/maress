@@ -2,7 +2,8 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": [
     "typescript",
-    "unicorn"
+    "unicorn",
+		"vitest"
   ],
   "categories": {
     "correctness": "off"
@@ -99,7 +100,12 @@
     "curly": "off",
     "unicorn/empty-brace-spaces": "off",
     "unicorn/no-nested-ternary": "off",
-    "unicorn/number-literal-case": "off"
+    "unicorn/number-literal-case": "off",
+		"vue/no-multiple-slot-arg": "error",
+		"vue/define-emits-declaration": "error",
+		"vue/define-props-declaration": "error",
+		"vue/valid-define-props": "error",
+		"vue/valid-define-emits": "error"
   },
   "overrides": [
     {
