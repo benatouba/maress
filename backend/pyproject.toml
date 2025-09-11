@@ -1,86 +1,127 @@
 [project]
-name = "maress"
-version = "0.1.0"
+dependencies = [
+  "fastapi[standard-no-fastapi-cloud-cli]>=0.116.0,<1.0.0",
+  "python-multipart<1.0.0,>=0.0.7",
+  "email-validator<3.0.0,>=2.3.0",
+  "tenacity>=9.0.0",
+  "pydantic>2.0",
+  "pydantic-settings<3.0.0,>=2.10.1",
+  "pydantic-extra-types[pycountry]>=2.10.5",
+  "emails<1.0,>=0.6",
+  "jinja2<4.0.0,>=3.1.4",
+  "alembic<2.0.0,>=1.12.1",
+  "httpx<1.0.0,>=0.25.1",
+  "psycopg[binary]<4.0.0,>=3.2.9",
+  "sqlmodel<1.0.0,>=0.0.24",
+  "pwdlib[argon2]>=0.2.1",
+  "pyjwt<3.0.0,>=2.8.0",
+  "camelot-py>=1.0.0",
+  "geopy>=2.4.1",
+  "pypdf>=5.9.0",
+  "python-magic>=0.4.27",
+  "pyzotero>=1.6.11",
+  "scikit-learn>=1.7.1",
+  "spacy>=3.8.7",
+  "en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
+  "yara-python>=4.5.4",
+]
 description = "Add your description here"
+name = "maress"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = [
-    "fastapi[standard-no-fastapi-cloud-cli]>=0.116.0,<1.0.0",
-    "python-multipart<1.0.0,>=0.0.7",
-    "email-validator<3.0.0,>=2.3.0",
-    "tenacity>=9.0.0",
-    "pydantic>2.0",
-    "pydantic-settings<3.0.0,>=2.10.1",
-    "pydantic-extra-types[pycountry]>=2.10.5",
-    "emails<1.0,>=0.6",
-    "jinja2<4.0.0,>=3.1.4",
-    "alembic<2.0.0,>=1.12.1",
-    "httpx<1.0.0,>=0.25.1",
-    "psycopg[binary]<4.0.0,>=3.2.9",
-    "sqlmodel<1.0.0,>=0.0.24",
-    "pwdlib[argon2]>=0.2.1",
-    "pyjwt<3.0.0,>=2.8.0",
-    "camelot-py>=1.0.0",
-    "geopy>=2.4.1",
-    "pypdf>=5.9.0",
-    "python-magic>=0.4.27",
-    "pyzotero>=1.6.11",
-    "scikit-learn>=1.7.1",
-    "spacy>=3.8.7",
-    "en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
-    "yara-python>=4.5.4",
-]
+version = "0.1.0"
 
 [tool.uv]
 dev-dependencies = [
-    "coverage>=7.10.5",
-    "ipython>=9.4.0",
-    "pandas-stubs>=2.3.0.250703",
-    "polyfactory>=2.22.1",
-    "pre-commit>=4.0.0",
-    "pytest-cov>=6.2.1",
-    "pytest-xdist>=3.8.0",
-    "pytest>=8.0.0",
-    "types-jinja2>=2.11.9",
+  "coverage>=7.10.5",
+  "ipython>=9.4.0",
+  "pandas-stubs>=2.3.0.250703",
+  "polyfactory>=2.22.1",
+  "pre-commit>=4.0.0",
+  "pytest-cov>=6.2.1",
+  "pytest-xdist>=3.8.0",
+  "pytest>=8.0.0",
+  "types-jinja2>=2.11.9",
 ]
-environments = [
-  "sys_platform == 'linux'",
-]
+environments = ["sys_platform == 'linux'"]
 
 [build-system]
-requires = ["hatchling"]
 build-backend = "hatchling.build"
+requires      = ["hatchling"]
 
 [tool.hatch.build.targets.wheel]
-packages=["app"]
+packages = ["app"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
 
 [tool.mypy]
-strict = true
 exclude = ["venv", ".venv", "alembic"]
+strict  = true
 
 [tool.ruff]
+exclude        = ["alembic"]
 target-version = "py312"
-exclude = ["alembic"]
 
 [tool.ruff.lint]
-select = [
-    "E",  # pycodestyle errors
-    "W",  # pycodestyle warnings
-    "F",  # pyflakes
-    "I",  # isort
-    "B",  # flake8-bugbear
-    "C4",  # flake8-comprehensions
-    "UP",  # pyupgrade
-    "ARG001", # unused arguments in functions
-]
+fixable = ["ALL"]
+future-annotations = true
 ignore = [
-    "E501",  # line too long, handled by black
-    "B008",  # do not perform function calls in argument defaults
-    "W191",  # indentation contains tabs
-    "B904",  # Allow raising exceptions without from e, for HTTPException
+  "E501", # line too long, handled by black
+  "B008", # do not perform function calls in argument defaults
+  # "W191",  # indentation contains tabs
+  "B904", # Allow raising exceptions without from e, for HTTPException
+]
+select = [
+  "A",     # flake8-builtins
+  "ANN",   # flake8-annotations
+  "ARG",   # unused arguments in functions
+  "ASYNC", # flake8-async
+  "B",     # flake8-bugbear
+  "BLE",   # flake8-blind-except
+  "C4",    # flake8-comprehensions
+  "COM",   # flake8-commas
+  "D",     # pydocstyle
+  "DOC",   # docstring
+  "DTZ",   # flake8-datetimez
+  "E",     # pycodestyle errors
+  "EM",    # flake8-err-msg
+  "F",     # pyflakes
+  "FA",    # future annotations
+  "FAST",  # fastapi-specific linting rules
+  "FBT",   # flake8-boolean-trap
+  "FIX",   # FIXME
+  "FLY",   # flynt
+  "FURB",  # refurb
+  "G",     # flake8-logging-format
+  "I",     # isort
+  "I",     # isort
+  "ICN",   # flake8-import-conventions
+  "INP",   # flake8-implicit-namespaces
+  "INT",   # flake8-gettext
+  "ISC",   # flake8-implicit-str-concat
+  "LOG",   # flake8-logging
+  "N",     # flake8 naming conventions
+  "N",     # naming conventions
+  "NPY",   # numpy
+  "PD",    # pandas
+  "PERF",  # performance
+  "PIE",   # flake8-pie
+  "PL",    # pylint
+  "PT",    # flake8-pytest-style
+  "PTH",   # flake8-pathlib
+  "Q",     # flake8-quotes
+  "RET",   # flake8-return
+  "RSE",   # flake8-raise
+  "RUF",   # ruff
+  "S",     # flake8-bandit (security lints)
+  "SIM",   # flake8-simplify
+  "TC",    # flake8-typechecking
+  "TD",    # flake8-todos
+  "TRY",   # tryceratops
+  "UP",    # pyupgrade
+  "W",     # pycodestyle warnings
+  "YTT",   # flake8-2020
 ]
 
 [tool.ruff.lint.pyupgrade]
@@ -88,14 +129,14 @@ ignore = [
 keep-runtime-typing = true
 
 [tool.basedpyright]
-reportExplicitAny = false
+reportExplicitAny      = false
 reportUnusedCallResult = false
 
 [tool.pytest.ini_options]
 addopts = [
-    "--cov=app",
-    "--cov-report=term-missing",
-    "--cov-report=html:coverage_html_report",
+  "--cov=app",
+  "--cov-report=term-missing",
+  "--cov-report=html:coverage_html_report",
 ]
 
 [tool.ty.environment]
