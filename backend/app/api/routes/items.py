@@ -33,7 +33,10 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 
 def read_db_items(
-    session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 500
+    session: SessionDep,
+    current_user: CurrentUser,
+    skip: int = 0,
+    limit: int = 500,
 ) -> tuple[Sequence[Item], int]:
     """Helper function to retrieve items with pagination."""
     if current_user.is_superuser:
@@ -60,7 +63,10 @@ def read_db_items(
 
 @router.get("/")
 def read_items(
-    session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 10
+    session: SessionDep,
+    current_user: CurrentUser,
+    skip: int = 0,
+    limit: int = 10,
 ) -> ItemsPublic:
     """Retrieve items."""
     items, count = read_db_items(session, current_user, skip, limit)
@@ -232,17 +238,17 @@ def import_file_from_zotero(
         raise HTTPException(status_code=404, detail="Zotero item not found")
     if "links" not in zot_item:
         logger.warning(
-            f"Zotero item {item.key} does not have links. The item is: {zot_item}"
+            f"Zotero item {item.key} does not have links. The item is: {zot_item}",
         )
         return item
     if "attachment" not in zot_item["links"]:
         logger.warning(
-            f"Zotero item {item.key} does not have an attachment link. The item links are: {zot_item['links']}"
+            f"Zotero item {item.key} does not have an attachment link. The item links are: {zot_item['links']}",
         )
         return item
     if not zot_item["links"]["attachment"].get("href"):
         logger.warning(
-            f"Zotero item {item.key} does not have a valid attachment link. The item links are: {zot_item['links']}"
+            f"Zotero item {item.key} does not have a valid attachment link. The item links are: {zot_item['links']}",
         )
         return item
     file_key = str(zot_item["links"]["attachment"]["href"].split("/")[-1])
@@ -252,7 +258,8 @@ def import_file_from_zotero(
             file: bytes = zot.file(file_key)
             if not isinstance(file, bytes):
                 raise HTTPException(
-                    status_code=400, detail="Zotero file is not a valid byte stream"
+                    status_code=400,
+                    detail="Zotero file is not a valid byte stream",
                 )
             if not file:
                 raise HTTPException(status_code=404, detail="Zotero file not found")
@@ -275,7 +282,10 @@ def import_file_from_zotero(
 
 @router.get("/import_file_zotero/", response_model=ItemsPublic)
 def import_files_from_zotero(
-    session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 10
+    session: SessionDep,
+    current_user: CurrentUser,
+    skip: int = 0,
+    limit: int = 10,
 ) -> Any:
     items, _ = read_db_items(session, current_user, skip, limit)
     for item in items:
@@ -327,7 +337,9 @@ def update_item(
 
 @router.delete("/{id}")
 def delete_item(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
 ) -> Message:
     """Delete an item."""
     item = session.get(Item, id)
