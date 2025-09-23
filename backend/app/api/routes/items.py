@@ -143,20 +143,45 @@ def create_item(
     return item
 
 
+@router.get("/zotero_collections/{library_type}")
+def get_zotero_collections(
+    session: SessionDep,
+    current_user: CurrentUser,
+    library_type: Literal["group", "user"],
+) -> Any:
+    db_user = crud.get_user_by_email(session=session, email=current_user.email)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    zot = Zotero(
+        user=db_user,
+        library_type=library_type,
+    )
+    return zot.collections()
+
+
 @router.get("/import_from_zotero/")
 def import_zotero_items(
-    session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 500
+    session: SessionDep,
+    current_user: CurrentUser,
+    skip: int = 0,
+    limit: int = 500,
+    *,
+    reload: bool = False,
+    library_type: Literal["group", "user"] = "user",
 ):
+    db_user = crud.get_user_by_email(session=session, email=current_user.email)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     zot = Zotero(
-        library_id=settings.ZOTERO_USER_ID,
-        library_type=settings.ZOTERO_LIBRARY_TYPE,
-        api_key=settings.ZOTERO_API_KEY,
+        user=db_user,
+        library_type=library_type,
     )
     # if not limit or limit is greater than 100, repeat until all items are fetched
     zot_items: ZoteroItemList = []
     start = skip
     while True:
-        batch: ZoteroItemList = zot.collection_items_top("AQXEVQ8C", start=start)
+        batch: ZoteroItemList = zot.collection_items("AQXEVQ8C", start=start)  # pyright: ignore[reportUnknownMemberType]
         if not batch:
             break
         zot_items.extend(batch)
@@ -185,13 +210,19 @@ def import_zotero_items(
 
 @router.get("/import_file_zotero/{id}", response_model=ItemPublic)
 def import_file_from_zotero(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    library_type: Literal["group", "user"] = "group",
 ) -> Any:
     """Import a single item from Zotero by file ID."""
+    db_user = crud.get_user_by_email(session=session, email=current_user.email)
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
     zot = Zotero(
-        library_id=settings.ZOTERO_USER_ID,
-        library_type=settings.ZOTERO_LIBRARY_TYPE,
-        api_key=settings.ZOTERO_API_KEY,
+        user=db_user,
+        library_type=library_type,
     )
 
     item: Item = read_item(session, current_user, id)

@@ -51,6 +51,36 @@ class UserBase(SQLModel):
     is_active: bool = True
     is_superuser: bool = False
     full_name: str | None = Field(default=None, max_length=255)
+    zotero_id: str | None = Field(default=None, max_length=32)
+    enc_zotero_api_key: str | None = Field(
+        default=None,
+        alias="zotero_api_key",
+        description="Your Zotero API key. It will be encrypted for security",
+    )
+
+    @field_validator("enc_zotero_api_key", mode="before")
+    @classmethod
+    def encrypt_api_key(cls, v: str | None) -> str | None:
+        """Encrypt API key before storing."""
+        if v is None or v == "":
+            return None
+        if v.startswith("gAAAAAB"):  # Not already encrypted
+            return cipher_suite.encrypt(v.encode()).decode()
+        return v
+
+    @field_serializer("enc_zotero_api_key", when_used="json")
+    def serialize_api_key(self, value: str | None) -> str | None:
+        """Return masked value in JSON responses."""
+        return "****" if value else None
+
+    def get_zotero_api_key(self) -> str | None:
+        """Decrypt and return the actual API key."""
+        if not self.enc_zotero_api_key:
+            return None
+        try:
+            return cipher_suite.decrypt(self.enc_zotero_api_key.encode()).decode()
+        except Exception:
+            return None
 
 
 # Properties to receive via API on creation
@@ -66,13 +96,15 @@ class UserRegister(SQLModel):
 
 # Properties to receive via API on update, all are optional
 class UserUpdate(UserBase):
-    email: EmailStr | None = Field(default=None, max_length=255)  # type: ignore
+    email: EmailStr | None = Field(default=None, max_length=255)  # pyright: ignore[reportIncompatibleVariableOverride]
     password: str | None = Field(default=None, min_length=8, max_length=40)
 
 
 class UserUpdateMe(SQLModel):
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = Field(default=None, max_length=255)
+    zotero_id: str | None = Field(default=None, max_length=32)
+    enc_zotero_api_key: str | None = Field(default=None)
 
 
 class UpdatePassword(SQLModel):
