@@ -614,7 +614,7 @@ class StudySiteExtractor:
 
     def extract_site_from_title(self, title: str) -> LocationCandidate | None:
         """Extract location from the paper title."""
-        locations = self.location_extractor.extract_locations(title, page_number=0)
+        locations = self.location_extractor.extract_locations(title, page_number=1)
         if locations:
             geocoded_locations = self.location_extractor.geocode_locations(locations)
             if geocoded_locations:
