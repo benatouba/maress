@@ -298,12 +298,18 @@ def delete_item(
 
 @router.post("/study_sites/", response_model=Any)
 def extract_study_site(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID | None = None, force: bool = False
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID | None = None,
+    force: bool = False,
 ) -> Any:
     """Use StudySiteExtractor to get study site from items."""
 
     def extract_study_sites(
-        session: SessionDep, current_user: CurrentUser, skip: int = 0, limit: int = 500
+        session: SessionDep,
+        current_user: CurrentUser,
+        skip: int = 0,
+        limit: int = 500,
     ) -> ItemsPublic:
         """Get all items with study sites."""
         items, _ = read_db_items(session, current_user, skip, limit)
@@ -338,7 +344,7 @@ def extract_study_site(
     result = extractor.extract_study_site(path, title=item.title or None)
     if not result or not result.primary_study_site:
         logger.warning(
-            f"Study site not found in the item {item.id} with attachment {item.attachment}"
+            f"Study site not found in the item {item.id} with attachment {item.attachment}",
         )
         return item
     primary_candidate = result.primary_study_site
@@ -375,7 +381,9 @@ def extract_study_site(
 
 @router.get("/study_sites/{id}", response_model=StudySite)
 def get_study_site(
-    session: SessionDep, current_user: CurrentUser, id: uuid.UUID
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
 ) -> StudySite:
     """Get study site by item ID."""
     study_site = session.get(StudySite, id)
@@ -388,7 +396,8 @@ def get_study_site(
 
 @router.get("/study_sites/", response_model=Sequence[StudySite])
 def get_study_sites(
-    session: SessionDep, current_user: CurrentUser
+    session: SessionDep,
+    current_user: CurrentUser,
 ) -> Sequence[StudySite]:
     """Get all study sites."""
     statement = select(StudySite).where(StudySite.owner_id == current_user.id)
@@ -398,3 +407,22 @@ def get_study_sites(
     if not study_sites:
         raise HTTPException(status_code=404, detail="No study sites found")
     return study_sites
+
+@router.patch("/study_sites/{id}", response_model=StudySite)
+def patch_study_site(
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+    study_site_in: dict[str, Any],
+) -> StudySite:
+    """Get study site by item ID."""
+    study_site = session.get(StudySite, id)
+    if not study_site:
+        raise HTTPException(status_code=404, detail="StudySite not found")
+    if not current_user.is_superuser and (study_site.owner_id != current_user.id):
+        raise HTTPException(status_code=400, detail="Not enough permissions")
+    return crud.update_study_site(
+        session=session,
+        db_study_site=study_site,
+        study_site_in=study_site_in,
+    )
