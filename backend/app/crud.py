@@ -15,6 +15,8 @@ from app.models import (
     ItemCreate,
     Relation,
     RelationCreate,
+    StudySite,
+    StudySiteUpdate,
     Tag,
     TagCreate,
     User,
@@ -54,6 +56,10 @@ def get_user_by_email(*, session: Session, email: str) -> User | None:
     session_user = session.exec(statement).first()
     return session_user
 
+def get_study_site_by_id(*, session: Session, id: uuid.UUID) -> StudySite | None:
+    statement = select(StudySite).where(StudySite.id == id)
+    study_site_user = session.exec(statement).first()
+    return study_site_user
 
 def authenticate(*, session: Session, email: str, password: str) -> User | None:
     db_user = get_user_by_email(session=session, email=email)
@@ -320,3 +326,16 @@ def create_collection(
     session.commit()
     session.refresh(collection)
     return collection
+
+
+def update_study_site(*, session: Session, db_study_site: StudySite, study_site_in: dict[str, Any]) -> StudySite:
+    study_site_data = study_site_in.model_dump(exclude_unset=True)
+    extra_data = {
+        "confidence_score": 1.0,
+        "extraction_method": "manual",
+    }
+    db_study_site.sqlmodel_update(study_site_data, update=extra_data)
+    session.add(db_study_site)
+    session.commit()
+    session.refresh(db_study_site)
+    return db_study_site
