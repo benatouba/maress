@@ -2,12 +2,15 @@ import logging
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse
 from magic import Magic
-from sqlmodel import func, select
+from sqlalchemy import BinaryExpression, ColumnElement
+from sqlmodel import col, func, or_, select
 
+from app import crud
 from app.api.deps import CurrentUser, SessionDep
 from app.core.config import settings
 from app.models import (
@@ -249,15 +252,24 @@ def import_files_from_zotero(
         if Path(item.attachment or "").is_file():
             continue
         db_item = import_file_from_zotero(
-            session=session, current_user=current_user, id=item.id
+            session=session,
+            current_user=current_user,
+            id=item.id,
         )
         if not db_item:
             raise HTTPException(
-                status_code=404, detail=f"Item {item.id} not found in Zotero"
+                status_code=404,
+                detail=f"Item {item.id} not found in Zotero",
             )
     items, count = read_db_items(session, current_user, skip, limit)
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
 
+@router.get("/files/{filename}")
+async def get_file(filename: str) -> Any:  # noqa: ANN401
+    file_path = Path.cwd() / "zotero_files" / filename
+    if file_path.exists():
+        return FileResponse(file_path)
+    raise HTTPException(status_code=404, detail="File not found")
 
 @router.put("/{id}", response_model=ItemPublic)
 def update_item(
