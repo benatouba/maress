@@ -31,8 +31,8 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 version = "0.1.0"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
   "coverage>=7.10.5",
   "ipython>=9.4.0",
   "pandas-stubs>=2.3.0.250703",
@@ -43,7 +43,6 @@ dev-dependencies = [
   "pytest>=8.0.0",
   "types-jinja2>=2.11.9",
 ]
-environments = ["sys_platform == 'linux'"]
 
 [build-system]
 build-backend = "hatchling.build"
@@ -67,11 +66,11 @@ target-version = "py312"
 fixable = ["ALL"]
 future-annotations = true
 ignore = [
-  "E501", # line too long, handled by black
-  "B008", # do not perform function calls in argument defaults
-  "TC001",   # Ignore "imported but unused" when inside TYPE_CHECKING blocks
-  # "W191",  # indentation contains tabs
-  "B904", # Allow raising exceptions without from e, for HTTPException
+  "E501",  # line too long, handled by black
+  "B008",  # do not perform function calls in argument defaults
+  "TC001", # Ignore "imported but unused" when inside TYPE_CHECKING blocks
+	"TC003", # Do not move imports into type checking block (may be needed for model eval)
+  "B904",  # Allow raising exceptions without from e, for HTTPException
 ]
 select = [
   "A",     # flake8-builtins
