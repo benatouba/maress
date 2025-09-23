@@ -2,19 +2,37 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
 
-from pydantic import EmailStr
+from pydantic import EmailStr, field_serializer, field_validator
 from pydantic_extra_types.coordinate import Latitude, Longitude
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
 
+from app.core.security import cipher_suite
 from maress_types import CoordinateExtractionMethod, CoordinateSourceType
 
 if TYPE_CHECKING:
     from app.models import Item  # Avoid circular import issues for type hints
 
 
-class StudySite(SQLModel, table=True):
+class StudySiteBase(SQLModel):
     """Database model for study site extraction results."""
+    # item_id: uuid.UUID | None = Field(default=None, foreign_key="item.id", unique=True)
+    validation_score: float = 0.0
+    latitude: Latitude
+    longitude: Longitude  # validates -180 <= value <= 180
+    confidence_score: float
+    source_type: CoordinateSourceType = Field(
+        description="Type of source from which the study site was extracted",
+    )
+    context: str
+    page_number: int
+    extraction_method: CoordinateExtractionMethod
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        sa_column=Column(DateTime(timezone=True), onupdate=func.now()),
+    )
 
+class StudySite(StudySiteBase, table=True):
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
         primary_key=True,
@@ -23,26 +41,24 @@ class StudySite(SQLModel, table=True):
         back_populates="study_site",
         sa_relationship_kwargs={"uselist": False},
     )
-    # item_id: uuid.UUID | None = Field(default=None, foreign_key="item.id", unique=True)
+    owner_id: uuid.UUID = Field(
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
+    )
+
+
+class StudySiteUpdate(StudySiteBase):
     validation_score: float = 0.0
     latitude: Latitude
     longitude: Longitude  # validates -180 <= value <= 180
     confidence_score: float
     source_type: CoordinateSourceType = Field(
-        description="Type of source from which the study site was extracted"
+        description="Type of source from which the study site was extracted",
     )
     context: str
     page_number: int
     extraction_method: CoordinateExtractionMethod
-    owner_id: uuid.UUID = Field(
-        foreign_key="user.id", nullable=True, ondelete="SET NULL"
-    )
-
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC),
-        sa_column=Column(DateTime(timezone=True), onupdate=func.now()),
-    )
 
 
 # Shared properties
