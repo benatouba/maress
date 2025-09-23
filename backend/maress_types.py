@@ -8,10 +8,12 @@ ZoteroItemLinkKey = Literal["href", "type", "title", "length", "alternate"]
 ZoteroItemLinks = dict[ZoteroItemLinkKey, str | int]
 ZoteroItemLibrary = dict[ZoteroItemLibraryKey, str | int | ZoteroItemLinks]
 ZoteroItemMetaCreatedByUser = dict[
-    Literal["id", "username", "name"], str | int | ZoteroItemLinks
+    Literal["id", "username", "name"],
+    str | int | ZoteroItemLinks,
 ]
 ZoteroItemMeta = dict[
-    Literal["createdByUser", "numChildren"], ZoteroItemMetaCreatedByUser | int
+    Literal["createdByUser", "numChildren"],
+    ZoteroItemMetaCreatedByUser | int,
 ]
 ZoteroItemDataKey = Literal[
     "key",
@@ -41,11 +43,15 @@ ZoteroItem = dict[
 ]
 ZoteroItemList = list[ZoteroItem]
 
+
 class CoordinateExtractionMethod(str, Enum):
     REGEX = "regex"
     TABLE_PARSING = "table_parsing"
     NER = "ner"
     GEOCODED = "geocoded"
+    MANUAL = "manual"
+
+
 class CoordinateSourceType(str, Enum):
     TEXT = "text"
     TABLE = "table"
