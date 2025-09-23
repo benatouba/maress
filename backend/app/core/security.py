@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from cryptography.fernet import Fernet
 import jwt
 from pwdlib import PasswordHash
 
@@ -27,3 +28,5 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+cipher_suite = Fernet(settings.ENCRYPTION_KEY.encode())
