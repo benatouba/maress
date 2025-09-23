@@ -135,7 +135,8 @@ class User(UserBase, table=True):
     items: list["Item"] = Relationship(back_populates="owner", cascade_delete=True)
     tags: list["Tag"] = Relationship(back_populates="owner", cascade_delete=True)
     collections: list["Collection"] = Relationship(
-        back_populates="owner", cascade_delete=True
+        back_populates="owner",
+        cascade_delete=True,
     )
 
 
@@ -151,7 +152,9 @@ class UsersPublic(SQLModel):
 
 class ItemTagLink(SQLModel, table=True):
     item_id: uuid.UUID | None = Field(
-        default=None, foreign_key="item.id", primary_key=True
+        default=None,
+        foreign_key="item.id",
+        primary_key=True,
     )
     tag_id: int | None = Field(default=None, foreign_key="tag.id", primary_key=True)
 
@@ -165,7 +168,9 @@ class Tag(TagBase, table=True):
     name: str = Field(index=True, max_length=64)
     items: list["Item"] = Relationship(back_populates="tags", link_model=ItemTagLink)
     owner_id: uuid.UUID = Field(
-        foreign_key="user.id", nullable=True, ondelete="SET NULL"
+        foreign_key="user.id",
+        nullable=True,
+        ondelete="SET NULL",
     )
     owner: User | None = Relationship(back_populates="tags")
 
@@ -353,7 +358,9 @@ class ItemUpdate(SQLModel):
 class Item(ItemBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     owner_id: uuid.UUID = Field(
-        foreign_key="user.id", nullable=False, ondelete="CASCADE"
+        foreign_key="user.id",
+        nullable=False,
+        ondelete="CASCADE",
     )
     owner: User | None = Relationship(back_populates="items")
     tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
@@ -362,7 +369,9 @@ class Item(ItemBase, table=True):
     creators: list[Creator] = Relationship(back_populates="item")
     relations: list[Relation] = Relationship(back_populates="item")
     study_site_id: uuid.UUID | None = Field(
-        default=None, foreign_key="studysite.id", unique=True
+        default=None,
+        foreign_key="studysite.id",
+        unique=True,
     )
     study_site: StudySite | None = Relationship(back_populates="item")
     key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
