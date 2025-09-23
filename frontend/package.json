@@ -20,6 +20,8 @@
     "axios": "^1.11.0",
     "chart.js": "^4.5.0",
     "cytoscape": "^3.33.1",
+    "cytoscape-dagre": "^2.5.0",
+    "cytoscape-fcose": "^2.2.0",
     "lodash": "^4.17.21",
     "ol": "^10.6.1",
     "pinia": "^3.0.3",
