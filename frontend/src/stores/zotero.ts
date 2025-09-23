@@ -8,6 +8,7 @@ import type { Ref } from 'vue'
 export interface ZoteroStore {
   collections: Ref<any[]>
   items: Ref<any[]>
+  itemsCount: Ref<number>
   loading: Ref<boolean>
   syncing: Ref<boolean>
   fetchCollections: () => Promise<void>
@@ -15,10 +16,12 @@ export interface ZoteroStore {
   syncLibrary: () => Promise<boolean>
   downloadAttachments: () => Promise<any | null>
   importItem: (itemId: string) => Promise<any | null>
+  updateStudySite: (studySiteId: string, updateData: object) => Promise<any>
 }
 export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   const collections = ref([])
   const items = ref([])
+  const itemsCount = ref(0)
   const loading = ref(false)
   const syncing = ref(false)
   const downloading = ref(false)
@@ -48,6 +51,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const response = await axios.get('/items', { params })
       console.log('Fetched items:', response.data)
       items.value = response.data
+      itemsCount.value = response.data.length
       console.log('Updated items:', items.value)
       return items.value
     } catch (error) {
@@ -67,7 +71,10 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       notificationStore.showNotification('Zotero sync started!', 'info')
       return true
     } catch (error) {
-      notificationStore.showNotification(error.response?.data?.detail || 'Failed to start sync', 'error')
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to start sync',
+        'error',
+      )
       return false
     } finally {
       syncing.value = false
@@ -82,7 +89,10 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       notificationStore.showNotification('Attachment download started!', 'info')
       return response.data
     } catch (error) {
-      notificationStore.showNotification(error.response?.data?.detail || 'Failed to download attachments', 'error')
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to download attachments',
+        'error',
+      )
       return null
     } finally {
       downloading.value = false
@@ -100,7 +110,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   }
 
   // Import single item
-  const importItem = async itemId => {
+  const importItem = async (itemId) => {
     const notificationStore = useNotificationStore()
     loading.value = true
 
@@ -109,16 +119,33 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       notificationStore.showNotification('Item imported successfully!', 'success')
       return response.data
     } catch (error) {
-      notificationStore.showNotification(error.response?.data?.detail || 'Failed to import item', 'error')
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to import item',
+        'error',
+      )
       return null
     } finally {
       loading.value = false
     }
   }
 
+  // Add this method to your Zotero store
+  const updateStudySite = async (studySiteId, updateData) => {
+    const notificationStore = useNotificationStore()
+    try {
+      const response = await axios.patch(`/study_sites/${studySiteId}`, updateData)
+      return response.data
+    } catch (error) {
+      console.error('Error updating study site:', error)
+      throw error
+    }
+  }
+
+  // Add it to the return statement
   return {
     collections,
     items,
+    itemsCount,
     loading,
     syncing,
     fetchCollections,
@@ -127,5 +154,6 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     getLocations,
     syncLibrary,
     importItem,
+    updateStudySite, // Add this line
   }
 })
