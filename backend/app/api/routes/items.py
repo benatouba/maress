@@ -74,9 +74,63 @@ def read_item(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> 
     return item
 
 
+@router.get("/search/")
+def search_items(
+    session: SessionDep,
+    current_user: CurrentUser,
+    title: Annotated[str | None, Query(description="Search by title")] = None,
+    tag: Annotated[str | None, Query(description="Search by tag")] = None,
+    skip: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 10,
+) -> ItemsPublic:
+    """Search items by title or tag."""
+    # Base query
+    statement = select(Item)
+
+    # Apply user permission filter
+    if not current_user.is_superuser:
+        statement = statement.where(Item.owner_id == current_user.id)
+
+    filters: list[BinaryExpression[bool] | ColumnElement[bool]] = []
+    if title:
+        filters.append(col(Item.title).ilike(f"%{title}%"))
+    if tag:
+        # Assuming relationship with tags
+        filters.append(col(Item.tags).any(col(Tag.name).ilike(f"%{tag}%")))
+
+    # Apply OR condition if multiple filters
+    if filters:
+        if len(filters) == 1:
+            statement = statement.where(filters[0])
+        else:
+            statement = statement.where(or_(*filters))
+
+    # Apply pagination
+    statement = statement.offset(skip).limit(limit)
+
+    # Execute query
+    items = session.exec(statement).all()
+
+    # Get count for pagination
+    count_statement = select(func.count()).select_from(Item)
+    if not current_user.is_superuser:
+        count_statement = count_statement.where(Item.owner_id == current_user.id)
+    if filters:
+        count_statement = count_statement.where(
+            or_(*filters) if len(filters) > 1 else filters[0],
+        )
+
+    count = session.exec(count_statement).one()
+
+    return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
+
+
 @router.post("/", response_model=ItemPublic)
 def create_item(
-    *, session: SessionDep, current_user: CurrentUser, item_in: ItemCreate
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    item_in: ItemCreate,
 ) -> Any:
     """Create new item."""
     item = Item.model_validate(item_in, update={"owner_id": current_user.id})
