@@ -199,12 +199,16 @@ def import_zotero_items(
     if limit:
         zot_items = zot_items[:limit]
     zot_items_data = [item["data"] for item in zot_items]
+    local_items: Sequence[Item] = []
     local_items, _ = read_db_items(session, current_user, skip, limit)
+    if reload:
+        [delete_item(session, current_user, id=item.id) for item in local_items]
+        local_items = []
     local_keys = [item.key for item in local_items]
     new_items = [
         Item.model_validate(item, update={"owner_id": current_user.id})
         for item in zot_items_data
-        if item["key"] not in local_keys
+        if item["key"] not in local_keys and item["itemType"] not in ["note", "attachment"]
     ]
     # if not new_items:
     #     return Message(message="No new items to import from Zotero")
