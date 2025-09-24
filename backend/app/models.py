@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import EmailStr, field_serializer, field_validator
 from pydantic_extra_types.coordinate import Latitude, Longitude
+from sqlalchemy import String
+from sqlalchemy.dialects import postgresql
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
 
 from app.core.security import cipher_suite
@@ -273,6 +275,31 @@ class RelationsPublic(SQLModel):
     count: int
 
 
+class AuthorBase(SQLModel):
+    full_name: str = Field(min_length=3, max_length=255)
+    initials: str = Field(min_length=2, max_length=32)
+    institutions: list[str] = Field(sa_column=Column(postgresql.ARRAY(String())))
+
+
+
+class ItemAuthorLink(SQLModel, table=True):
+    item_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="item.id",
+        primary_key=True,
+    )
+    author_id: int | None = Field(default=None, foreign_key="author.id", primary_key=True)
+
+class AuthorCreate(SQLModel):
+    full_name: str = Field(min_length=3, max_length=255)
+    institutions: list[str] = Field(sa_column=Column(postgresql.ARRAY(String())))
+
+
+class Author(AuthorBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    items: list["Item"] = Relationship(back_populates="authors", link_model=ItemAuthorLink)
+
+
 # Shared properties
 class ItemBase(SQLModel):
     title: str | None = Field(default=None, max_length=255)
@@ -364,6 +391,7 @@ class Item(ItemBase, table=True):
     )
     owner: User | None = Relationship(back_populates="items")
     tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
+    authors: list[Author] = Relationship(back_populates="items", link_model=ItemAuthorLink)
     collections: list[Collection] = Relationship(back_populates="item")
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
