@@ -2,7 +2,7 @@ from polyfactory.factories.pydantic_factory import ModelFactory
 from polyfactory.fields import Use
 
 from app.models import CollectionCreate, CreatorCreate, ItemCreate, RelationCreate, TagCreate, UserCreate
-from app.tests.utils.utils import random_email
+from tests.utils.utils import random_email
 
 
 class ItemFactory(ModelFactory[ItemCreate]): ...

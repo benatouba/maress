@@ -4,7 +4,7 @@ from sqlmodel import Session
 
 from app import crud
 from app.models import Collection, Creator, Item, Relation, Tag
-from app.tests.factories import (
+from tests.factories import (
     CollectionFactory,
     CreatorFactory,
     ItemFactory,

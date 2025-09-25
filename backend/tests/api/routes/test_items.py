@@ -5,8 +5,8 @@ from sqlmodel import Session
 
 from app.core.config import settings
 from app.models import Item
-from app.tests.factories import ItemFactory
-from app.tests.utils.item import create_random_item
+from tests.factories import ItemFactory
+from tests.utils.item import create_random_item
 
 
 def test_create_item(
