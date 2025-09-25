@@ -1,14 +1,9 @@
-"""Extract study site locations from scientific papers in PDF format.
-
-This module uses regex patterns and NLP techniques to identify
-geographic coordinates and named locations within the text of scientific
-papers. It also includes functionality to validate and rank the
-extracted locations.
-"""
+"""Study site extraction with priority-based ranking."""
 
 from __future__ import annotations
 
 import re
+from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, final
 
@@ -21,21 +16,22 @@ from pydantic_extra_types.coordinate import Coordinate, Latitude, Longitude
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 from spacy.matcher import Matcher, PhraseMatcher
-from spacy.tokens import Span
+from spacy.tokens import Doc, Span
 
-from maress_types import CoordinateExtractionMethod, CoordinateSourceType
+from app.nlp.nlp_logger import logger
+from app.nlp.pdf_text_extractor import PyPDFTextExtractor
 
-from .nlp_logger import logger
-from .pdf_extractors import CamelotTableExtractor, PyPDFTextExtractor
+# Import your existing types and modules
+from maress_types import CoordinateExtractionMethod, CoordinateSourceType, PaperSections
 
 if TYPE_CHECKING:
     from re import Match
 
-    import numpy.typing as npt
     import pandas as pd
     from geopy.location import Location as GeopyLocation
     from spacy.language import Language
 
+# Use your existing geo_phrases
 geo_phrases = [
     "coordinates",
     "department of",
@@ -69,18 +65,19 @@ geo_phrases = [
     "wgs84",
 ]
 
+# Use your existing coordinate patterns
 coordinate_patterns = {
     "decimal_degrees_with_hemisphere": r"""
         (?x)
         (
             # Decimal degrees with mandatory hemisphere letter
-            -?\\d{1,3}\\.\\d+\\s*[NSEW]
+            -?\d{1,3}\.\d+\s*[NSEW]
             |
             # Degrees Minutes Seconds with mandatory hemisphere
-            \\d{1,3}°\\s*\\d{1,2}'\\s*\\d{1,2}(?:\\.\\d+)?\\"\\s*[NSEW]
+            \d{1,3}°\s*\d{1,2}'\s*\d{1,2}(?:\.\d+)?\"\s*[NSEW]
             |
             # Degrees and decimal minutes with hemisphere
-            \\d{1,3}°\\s*\\d{1,2}(?:\\.\\d+)'\\s*[NSEW]
+            \d{1,3}°\s*\d{1,2}(?:\.\d+)'\s*[NSEW]
         )
     """,
     "lat_lon_pair": r"""
@@ -88,17 +85,18 @@ coordinate_patterns = {
         # Latitude/Longitude pair patterns
         (
             # Pattern: lat, lon or (lat, lon)
-            (?:latitude|lat)\\s*[=:]?\\s*(-?\\d{1,3}\\.\\d+)\\s*[,;]?\\s*
-            (?:longitude|lon|long)\\s*[=:]?\\s*(-?\\d{1,3}\\.\\d+)
+            (?:latitude|lat)\s*[=:]?\s*(-?\d{1,3}\.\d+)\s*[,;]?\s*
+            (?:longitude|lon|long)\s*[=:]?\s*(-?\d{1,3}\.\d+)
             |
             # Pattern: (lat°, lon°)
-            \\(\\s*(-?\\d{1,3}\\.\\d+)°?\\s*[,;]\\s*(-?\\d{1,3}\\.\\d+)°?\\s*\\)
+            \(\s*(-?\d{1,3}\.\d+)°?\s*[,;]\s*(-?\d{1,3}\.\d+)°?\s*\)
             |
             # Pattern: lat°N, lon°W
-            (-?\\d{1,3}\\.\\d+)°?\\s*[NS]\\s*[,;]?\\s*(-?\\d{1,3}\\.\\d+)°?\\s*[EW]
+            (-?\d{1,3}\.\d+)°?\s*[NS]\s*[,;]?\s*(-?\d{1,3}\.\d+)°?\s*[EW]
         )
     """,
 }
+
 # Compile regex for quick checks
 coord_re_list = [
     re.compile(
@@ -109,80 +107,405 @@ coord_re_list = [
 ]
 
 
+# Priority levels for extraction methods
+class ExtractionPriority(IntEnum):
+    """Priority levels for different extraction methods (higher = better)."""
+
+    REGEX_COORDINATES = 100  # Highest priority
+    SPACY_TEXT_HIGH_CONFIDENCE = 80
+    SPACY_TEXT_MEDIUM_CONFIDENCE = 60
+    TABLE_COORDINATES = 50
+    SPACY_TEXT_LOW_CONFIDENCE = 40
+    GEOCODED_LOCATIONS = 30
+
+
 class CoordinateCandidate(BaseModel):
-    """Represents a potential coordinate found in the document."""
+    """Coordinate candidate with priority-based scoring."""
 
     latitude: Latitude  # validates -90 <= value <= 90
     longitude: Longitude  # validates -180 <= value <= 180
-    confidence_score: float = Field(ge=0.0)
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    priority_score: int = Field(description="Priority level from ExtractionPriority")
     source_type: CoordinateSourceType = Field(
         description="Source type of the coordinate extraction",
     )
     context: str = Field(description="Context around the coordinate in the text")
-    page_number: int = Field(ge=1)
+    section: PaperSections = Field(description="Document section where Coordinate was found")
+    name: str | None = Field(description="Optional name associated with the coordinate")
     extraction_method: CoordinateExtractionMethod
+
+    @property
+    def final_score(self) -> float:
+        """Combined score for ranking (priority + confidence)."""
+        return self.priority_score + self.confidence_score
 
 
 class LocationCandidate(BaseModel):
-    """Represents a named location that could be geocoded."""
+    """Location candidate with priority scoring."""
 
     name: str
-    confidence_score: float
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    priority_score: int = Field(description="Priority level from ExtractionPriority")
     source_type: CoordinateSourceType
     context: str
-    page_number: int
-    # Optional coordinates, validated as lat/lon if present
+    section: PaperSections
     latitude: Latitude | None = None
     longitude: Longitude | None = None
     coordinates: Coordinate | None = None
 
+    @property
+    def final_score(self) -> float:
+        """Combined score for ranking (priority + confidence)."""
+        return self.priority_score + self.confidence_score
+
 
 class StudySiteResult(BaseModel):
-    """Final result of study site extraction."""
+    """Result with priority-ranked candidates."""
 
     coordinates: list[CoordinateCandidate] = Field(default_factory=list)
     locations: list[LocationCandidate] = Field(default_factory=list)
     validation_score: float = 0.0
     primary_study_site: CoordinateCandidate | None = None
+    cluster_info: dict[str, int] = Field(default_factory=dict)
+
+
+class LocationExtractor:
+    """Optimised location extractor focused on geographic entities."""
+
+    def __init__(self, model_name: str = "en_core_web_lg"):
+        # Load spaCy with only components needed for geographic extraction
+        try:
+            self.nlp: Language = spacy.load(
+                model_name,
+                disable=["textcat"],  # Keep lemmatizer for LEMMA-based patterns
+            )
+        except OSError:
+            logger.error(f"spaCy model {model_name} not found")
+            raise
+
+        # Optimise pipeline for geographic entities only
+        if "ner" in self.nlp.pipe_names:
+            # Filter NER to only geographic labels during processing
+            self.geo_labels = {"GPE", "LOC", "FAC", "NORP"}
+
+        # Enhanced matchers for geographic context
+        self.matcher = Matcher(self.nlp.vocab)
+        self.phrase_matcher = PhraseMatcher(self.nlp.vocab, attr="LOWER")
+
+        # Add sophisticated geographic patterns
+        self._setup_geographic_patterns()
+
+        # Enhanced geocoder with better error handling
+        self.geocoder = Nominatim(
+            user_agent="study_site_extractor",
+            timeout=15,
+        )
+
+    def _setup_geographic_patterns(self):
+        """Set up enhanced patterns for geographic context detection."""
+        # High-confidence geographic phrases
+        high_confidence_phrases = [
+            "study site",
+            "study area",
+            "field site",
+            "sampling site",
+            "research site",
+            "experimental site",
+            "monitoring site",
+            "study location",
+            "field location",
+            "sampling location",
+        ]
+
+        # Medium-confidence geographic phrases
+        medium_confidence_phrases = [
+            "coordinates",
+            "latitude",
+            "longitude",
+            "GPS coordinates",
+            "geographic coordinates",
+            "site coordinates",
+            "located at",
+            "located in",
+            "situated in",
+            "positioned at",
+        ]
+
+        # Low-confidence geographic phrases
+        low_confidence_phrases = [
+            "region of",
+            "province of",
+            "department of",
+            "area of",
+            "vicinity of",
+            "near",
+            "close to",
+            "adjacent to",
+        ]
+
+        # Add phrase patterns with different confidence levels
+        self.phrase_matcher.add(
+            "HIGH_CONF_GEO",
+            [self.nlp.make_doc(phrase) for phrase in high_confidence_phrases],
+        )
+        self.phrase_matcher.add(
+            "MED_CONF_GEO",
+            [self.nlp.make_doc(phrase) for phrase in medium_confidence_phrases],
+        )
+        self.phrase_matcher.add(
+            "LOW_CONF_GEO",
+            [self.nlp.make_doc(phrase) for phrase in low_confidence_phrases],
+        )
+
+        # Use TEXT attribute instead of LEMMA to avoid lemmatizer dependency
+        self.matcher.add(
+            "LOCATION_VERBS",
+            [
+                [
+                    {
+                        "TEXT": {
+                            "IN": ["located", "situated", "positioned", "established"],
+                        },
+                    },
+                ],
+                [{"TEXT": "conducted"}, {"LOWER": {"IN": ["in", "at", "near"]}}],
+                [
+                    {"TEXT": "carried"},
+                    {"TEXT": "out"},
+                    {"LOWER": {"IN": ["in", "at", "near"]}},
+                ],
+            ],
+        )
+
+    def calculate_spacy_confidence(
+        self,
+        entity: Span,
+        context: str,
+    ) -> tuple[float, int]:
+        """Calculate confidence and priority for spaCy entities with
+        heuristics."""
+        confidence = 0.5  # Base confidence for spaCy NER
+        context_lower = context.lower()
+
+        # Process context with full pipeline for matcher
+        doc = self.nlp(context)
+        matches = self.phrase_matcher(doc)
+
+        priority = ExtractionPriority.SPACY_TEXT_LOW_CONFIDENCE
+
+        for match_id, _, _ in matches:
+            match_label = self.nlp.vocab.strings[match_id]
+            if match_label == "HIGH_CONF_GEO":
+                confidence += 0.3
+                priority = ExtractionPriority.SPACY_TEXT_HIGH_CONFIDENCE
+            elif match_label == "MED_CONF_GEO":
+                confidence += 0.2
+                priority = ExtractionPriority.SPACY_TEXT_MEDIUM_CONFIDENCE
+            elif match_label == "LOW_CONF_GEO":
+                confidence += 0.1
+
+        # Check for verb patterns - use simple string matching as fallback
+        verb_indicators = [
+            "located",
+            "situated",
+            "positioned",
+            "established",
+            "conducted",
+        ]
+        if any(verb in context_lower for verb in verb_indicators):
+            confidence += 0.15
+            if priority == ExtractionPriority.SPACY_TEXT_LOW_CONFIDENCE:
+                priority = ExtractionPriority.SPACY_TEXT_MEDIUM_CONFIDENCE
+
+        # Boost confidence for certain entity types and characteristics
+        if entity.label_ == "GPE":
+            confidence += 0.1
+        elif entity.label_ == "LOC":
+            confidence += 0.15  # LOC often more specific for study sites
+
+        # Length-based confidence (longer names often more specific)
+        if len(entity.text.split()) >= 2:
+            confidence += 0.1
+
+        # Capitalisation check (proper nouns)
+        if entity.text[0].isupper() and not entity.text.isupper():
+            confidence += 0.05
+
+        # Section-based boosting
+        section_indicators = [
+            "methods",
+            "methodology",
+            "study area",
+            "site description",
+            "materials and methods",
+            "field work",
+            "data collection",
+        ]
+        if any(indicator in context_lower for indicator in section_indicators):
+            confidence += 0.2
+            priority = max(priority, ExtractionPriority.SPACY_TEXT_MEDIUM_CONFIDENCE)
+
+        return min(confidence, 1.0), priority
+
+    def extract_locations(
+        self,
+        text: str,
+        section: PaperSections,
+    ) -> list[LocationCandidate]:
+        """Extract named locations with enhanced confidence scoring."""
+        # Process with full pipeline (need lemmatizer for patterns)
+        doc = self.nlp(text)
+        print(f"text analysed on page number {section}:\n{text}\n")
+
+        candidates: list[LocationCandidate] = []
+
+        for ent in doc.ents:
+            # Only process geographic entities
+            if ent.label_ not in self.geo_labels:
+                continue
+
+            # Filter out very short or non-alphabetic entities
+            clean_text = re.sub(r"[^\w\s]", "", ent.text).strip()
+            if len(clean_text) < 2 or not any(c.isalpha() for c in clean_text):
+                continue
+
+            # Get enhanced context
+            context = self._get_context(doc, ent)
+            confidence, priority = self.calculate_spacy_confidence(ent, context)
+
+            candidates.append(
+                LocationCandidate(
+                    name=ent.text,
+                    confidence_score=confidence,
+                    priority_score=priority,
+                    source_type=CoordinateSourceType.TEXT,
+                    context=context,
+                    section=section,
+                ),
+            )
+
+        return candidates
+
+    def geocode_with_bias(
+        self,
+        locations: list[LocationCandidate],
+        bias_point: Point | None = None,
+    ) -> list[LocationCandidate]:
+        """Geocoding with geographic bias from title."""
+        for location in locations:
+            try:
+                # Use bias point if available
+                geocoded: GeopyLocation | None = None
+
+                if bias_point:
+                    delta = 4.5  # approximately 500km
+                    viewbox = (
+                        Point(
+                            latitude=bias_point.latitude - delta,
+                            longitude=bias_point.longitude - delta,
+                        ),
+                        Point(
+                            latitude=bias_point.latitude + delta,
+                            longitude=bias_point.longitude + delta,
+                        ),
+                    )
+
+                    # Try with bias first
+                    geocoded = self.geocoder.geocode(
+                        location.name,
+                        viewbox=viewbox,
+                        bounded=True,
+                        timeout=10,
+                    )
+
+                # Fallback to unbounded search
+                if not geocoded:
+                    geocoded = self.geocoder.geocode(location.name, timeout=10)
+
+                if geocoded:
+                    location.coordinates = Coordinate(
+                        Latitude(geocoded.latitude),
+                        Longitude(geocoded.longitude),
+                    )
+                    # Boost confidence for successfully geocoded locations
+                    location.confidence_score = min(
+                        location.confidence_score + 0.1,
+                        1.0,
+                    )
+                    logger.info(f"Geocoded {location.name}: {location.coordinates}")
+
+            except Exception as e:
+                logger.warning(f"Failed to geocode {location.name}: {e}")
+
+        return locations
+
+    def _get_context(self, doc: Doc, ent: Span, window: int = 75) -> str:
+        """Get enhanced context with sentence boundaries."""
+        # Try to get full sentences containing the entity
+        sent = ent.sent
+        context_sents = [sent]
+
+        # Add previous and next sentences if available
+        sent_list = list(doc.sents)
+        sent_idx = sent_list.index(sent)
+
+        if sent_idx > 0:
+            context_sents.insert(0, sent_list[sent_idx - 1])
+        if sent_idx < len(sent_list) - 1:
+            context_sents.append(sent_list[sent_idx + 1])
+
+        full_context = " ".join([s.text for s in context_sents])
+
+        # Fallback to token-based window if sentences are too long
+        if len(full_context) > 400:
+            start_token = max(0, ent.start - window)
+            end_token = min(len(doc), ent.end + window)
+            full_context = doc[start_token:end_token].text
+
+        return full_context.strip()
 
 
 class CoordinateExtractor:
-    """Extracts coordinates using regex patterns and NLP."""
+    """Coordinate extraction with priority scoring."""
 
-    def __init__(self) -> None:
-        """Extract coordinates using regex patterns and NLP (spaCy)."""
-        # Comprehensive regex patterns for different coordinate formats
-        self.coordinate_patterns: dict[str, str] = coordinate_patterns
-
-        # Study site keywords for context filtering
-        self.study_site_keywords: list[str] = geo_phrases
+    def __init__(self):
+        self.coordinate_patterns = coordinate_patterns
+        self.coord_re_list = coord_re_list
+        self.study_site_keywords = geo_phrases
 
     def extract_coordinates_from_text(
         self,
         text: str,
-        page_number: int,
+        section: PaperSections,
     ) -> list[CoordinateCandidate]:
-        """Extract coordinates from text using regex patterns."""
-        candidates: list[CoordinateCandidate] = []
+        """Extract coordinates with highest priority scoring."""
+        candidates = []
 
         for pattern_name, pattern in self.coordinate_patterns.items():
             matches = re.finditer(pattern, text, re.IGNORECASE | re.VERBOSE)
 
             for match in matches:
                 context = self._get_context(text, match.start(), match.end())
-                confidence = self._calculate_confidence(context, match.group())
 
-                # Parse the coordinate based on pattern type
+                # Parse coordinates
                 coords = self._parse_coordinate_match(match, pattern_name)
                 if coords:
+                    # Regex coordinates get highest priority and confidence
+                    confidence = self._calculate_regex_confidence(
+                        context,
+                        match.group(),
+                    )
+
                     candidates.append(
                         CoordinateCandidate(
                             latitude=coords[0],
                             longitude=coords[1],
                             confidence_score=confidence,
+                            priority_score=ExtractionPriority.REGEX_COORDINATES,
                             source_type=CoordinateSourceType.TEXT,
                             context=context,
-                            page_number=page_number,
+                            section=PaperSections(section),
+                            name=None,
                             extraction_method=CoordinateExtractionMethod.REGEX,
                         ),
                     )
@@ -193,13 +516,10 @@ class CoordinateExtractor:
         self,
         tables: list[pd.DataFrame],
     ) -> list[CoordinateCandidate]:
-        """Extract coordinates from table data."""
-        candidates: list[CoordinateCandidate] = []
+        """Extract coordinates from table data with table priority."""
+        candidates = []
 
-        for table in tables:
-            page_num = int(getattr(table, "attrs", {}).get("page_number", 1))
-
-            # Look for coordinate columns
+        for i, table in enumerate(tables, 1):
             lat_cols = self._find_coordinate_columns(table, ["lat", "latitude", "y"])
             lon_cols = self._find_coordinate_columns(
                 table,
@@ -221,9 +541,11 @@ class CoordinateExtractor:
                                     latitude=lat,
                                     longitude=lon,
                                     confidence_score=0.9,  # High confidence for table data
+                                    priority_score=ExtractionPriority.TABLE_COORDINATES,
                                     source_type=CoordinateSourceType.TABLE,
                                     context=f"Row {idx}: {row.to_string()}",
-                                    page_number=page_num,
+                                    section=PaperSections(table._.heading),
+                                    name=None,
                                     extraction_method=CoordinateExtractionMethod.TABLE_PARSING,
                                 ),
                             )
@@ -238,7 +560,7 @@ class CoordinateExtractor:
         keywords: list[str],
     ) -> list[str]:
         """Find columns that likely contain coordinates."""
-        matching_cols: list[str] = []
+        matching_cols = []
         for col in df.columns:
             col_str = str(col).lower()
             if any(keyword in col_str for keyword in keywords):
@@ -251,14 +573,14 @@ class CoordinateExtractor:
         pattern_name: str,
     ) -> tuple[Latitude, Longitude] | None:
         """Parse regex match to extract latitude/longitude."""
-        # This is a simplified parser - you'd expand this for all patterns
         if pattern_name == "lat_lon_pair":
             groups = match.groups()
-            min_len = 2  # Minimum groups needed for lat/lon
-            if len(groups) >= min_len and groups[0] and groups[1]:
+            # Find non-None groups for lat/lon pairs
+            non_none_groups = [g for g in groups if g is not None]
+            if len(non_none_groups) >= 2:
                 try:
-                    lat = Latitude(groups[0])
-                    lon = Longitude(groups[1])
+                    lat = Latitude(non_none_groups[0])
+                    lon = Longitude(non_none_groups[1])
                     if self._is_valid_coordinate(lat, lon):
                         return (lat, lon)
                 except ValueError:
@@ -274,28 +596,36 @@ class CoordinateExtractor:
         full_context = re.sub(r"^[^a-zA-Z0-9]+", "", full_context)
         return re.sub(r"[^a-zA-Z0-9]+$", "", full_context)
 
-    def _calculate_confidence(self, context: str) -> float:
-        """Calculate confidence score based on context."""
-        confidence = 0  # Base confidence
+    def _calculate_regex_confidence(self, context: str, match: str) -> float:
+        """Calculate confidence for regex-matched coordinates."""
+        confidence = 0.8  # High base confidence for regex matches
 
         context_lower = context.lower()
+
+        # Boost for explicit coordinate indicators
+        coordinate_indicators = [
+            "coordinates",
+            "lat",
+            "lon",
+            "latitude",
+            "longitude",
+            "°",
+            "′",
+            "″",
+            "GPS",
+            "WGS84",
+            "UTM",
+            "EPSG",
+        ]
+
+        for indicator in coordinate_indicators:
+            if indicator in context_lower or indicator in match:
+                confidence += 0.05
+
+        # Boost for study site context
         for keyword in self.study_site_keywords:
             if keyword in context_lower:
-                confidence += 0.1
-
-        # Boost confidence if in methods or study area section
-        if any(
-            section in context_lower
-            for section in [
-                "study site",
-                "study area",
-                "study location",
-                "sampling site",
-                "field site",
-                "research site",
-            ]
-        ):
-            confidence += 0.2
+                confidence += 0.02  # Small boost per keyword
 
         return min(confidence, 1.0)
 
@@ -306,218 +636,98 @@ class CoordinateExtractor:
         return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
 
 
-class LocationExtractor:
-    """Extract named locations using spaCy NER."""
-
-    def __init__(self, model_name: str = "en_core_web_lg"):
-        try:
-            self.nlp: Language = spacy.load(model_name)
-        except OSError:
-            logger.error(f"spaCy model {model_name} not found. Please install it.")
-            raise
-        self.nlp_matcher: Matcher = Matcher(self.nlp.vocab)
-        self.nlp_phrase_matcher: PhraseMatcher = PhraseMatcher(self.nlp.vocab)
-        self.nlp_phrase_matcher.add(
-            "GEO_CUES",
-            [self.nlp.make_doc(phrase) for phrase in geo_phrases],
-        )
-        self.nlp_matcher.add("LOCATED_IN", [[{"LEMMA": "locate"}, {"LOWER": "in"}]])
-
-        self.geocoder: Nominatim = Nominatim(user_agent="study_site_extractor")
-
-    def sentence_has_geo_signals(self, sent: Span) -> bool:
-        text = sent.text
-        # Regex for coordinates
-        for coord_re in coord_re_list:
-            if coord_re.search(text):
-                return True
-        # Phrase cues
-        if self.nlp_phrase_matcher(sent):
-            return True
-        # Verb pattern cues
-        if self.nlp_matcher(sent):
-            return True
-        # NER cues: any GPE/LOC/FAC with geo keywords
-        ents = [e for e in sent.ents if e.label_ in ("GPE", "LOC", "FAC")]
-        return bool(
-            ents
-            and any(
-                k in text.lower()
-                for k in (
-                    "study area",
-                    "site",
-                    "coordinate",
-                    "latitude",
-                    "longitude",
-                    "utm",
-                    "wgs",
-                )
-            )
-        )
-
-    # NOTE: Should return sentences with geo signals only
-    # but currently not used in main extraction flow
-    # TODO: integrate into extraction pipeline if needed
-    def extract_geo_metadata_sentences(self, text: str) -> list[str]:
-        doc = self.nlp(text)
-        return [sent.text.strip() for sent in doc.sents if self.sentence_has_geo_signals(sent)]
-
-    def extract_locations(self, text: str, page_number: int) -> list[LocationCandidate]:
-        """Extract named locations using spaCy NER."""
-        doc = self.nlp(text)
-        candidates: list[LocationCandidate] = []
-
-        for ent in doc.ents:
-            # eliminate non-alphanumeric character from entity text
-            ent_text_alphanums = re.sub(r"[^\w\s]", "", ent.text).strip()
-            min_length = 3  # Minimum length for a valid location name
-            if ent.label_ in ("GPE", "LOC") and len(ent_text_alphanums) >= min_length:
-                logger.debug(f"Found entity: {ent.text} ({ent.label_})")
-
-                # Get context around the entity
-                context = self._get_entity_context(doc, ent)
-                confidence = self._calculate_location_confidence(context)
-
-                candidates.append(
-                    LocationCandidate(
-                        name=ent.text,
-                        confidence_score=confidence,
-                        source_type=CoordinateSourceType.TEXT,
-                        context=context,
-                        page_number=page_number,
-                    ),
-                )
-
-        return candidates
-
-    def geocode_locations(
-        self,
-        locations: list[LocationCandidate],
-        near_point: Point | None = None,
-    ) -> list[LocationCandidate]:
-        """Geocode location names to coordinates."""
-        for location in locations:
-            try:
-                geocoded: GeopyLocation | None = self.geocoder.geocode(
-                    location.name,
-                    timeout=10,
-                    viewbox=near_point,
-                )
-                if geocoded:
-                    location.coordinates = Coordinate(
-                        Latitude(geocoded.latitude),
-                        Longitude(geocoded.longitude),
-                    )
-                    logger.info(f"Geocoded {location.name}: {location.coordinates}")
-            except Exception as e:
-                logger.warning(f"Failed to geocode {location.name}: {e}")
-
-        return locations
-
-    def _get_entity_context(self, doc: str, ent, window: int = 50) -> str:
-        """Get context around a named entity."""
-        start_token = max(0, ent.start - window)
-        end_token = min(len(doc), ent.end + window)
-        return doc[start_token:end_token].text
-
-    def _calculate_location_confidence(self, context: str) -> float:
-        """Calculate confidence for location extraction."""
-        confidence = 0.0
-
-        context_lower = context.lower()
-
-        for keyword in geo_phrases:
-            if keyword in context_lower:
-                confidence += 0.1
-
-        return min(confidence, 1.0)
-
-
 class CoordinateClusterer:
-    """Clusters coordinates and filters out outliers using DBSCAN."""
+    """Clustering that preserves multiple study sites."""
 
-    def __init__(self, eps_km: float | None = None, min_samples: int = 2):
-        """Args:
-        eps_km: Clustering radius in kilometers.
-        min_samples: Minimum points to form a dense region (cluster).
+    def __init__(self, eps_km: float = 50.0, min_samples: int = 1):
+        self.eps_km = eps_km
+        self.min_samples = min_samples
 
-        """
-        self.eps_km: float | None = eps_km
-        self.min_samples: int = min_samples
-
-    @staticmethod
-    def estimate_eps_km(coordinates: list[tuple[float, float]]) -> float:
-        if len(coordinates) < 2:
-            return 1.0  # Default if not enough points
-        X = np.radians(np.array(coordinates))
-        nbrs = NearestNeighbors(n_neighbors=2, metric="haversine").fit(X)
-        knbrs: tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]] = nbrs.kneighbors(
-            X,
-        )
-        distances: npt.NDArray[np.float64] = knbrs[0]
-        earth_radius_km = 6371.0088
-        # distances[:, 1] skips itself (distance 0)
-        closest_distances_km = distances[:, 1] * earth_radius_km
-        # Heuristic: use the 75th percentile
-        return float(np.percentile(closest_distances_km, 75))
-
-    def cluster_and_filter(
+    def cluster_coordinates(
         self,
-        coordinates: list[tuple[float, float]],
-    ) -> list[tuple[float, float]]:
-        if not coordinates:
-            return []
+        candidates: list[CoordinateCandidate],
+    ) -> dict[int, list[CoordinateCandidate]]:
+        """Cluster coordinates and return all clusters, not just the
+        largest."""
+        if len(candidates) <= 1:
+            return {0: candidates}
 
-        # Convert input to radians for haversine metric
-        X = np.radians(np.array(coordinates))
-        # DBSCAN uses radians for haversine distances; convert kilometers to radians
+        # Extract coordinates for clustering
+        coords = [(float(c.latitude), float(c.longitude)) for c in candidates]
+        X = np.radians(np.array(coords))
+
+        # Adaptive eps based on data distribution
+        if len(coords) >= 3:
+            self.eps_km = self.estimate_optimal_eps(coords)
+
         earth_radius_km = 6371.0088
-        if not self.eps_km:
-            # Estimate eps_km if not provided
-            self.eps_km = self.estimate_eps_km(coordinates)
-        eps = self.eps_km / earth_radius_km
-        logger.info(
-            f"Using eps={eps:.6f} radians ({self.eps_km:.2f} km) for clustering",
-        )
+        eps_rad = self.eps_km / earth_radius_km
 
-        labels = DBSCAN(
-            eps=eps,
+        # Perform clustering
+        clustering = DBSCAN(
+            eps=eps_rad,
             min_samples=self.min_samples,
             metric="haversine",
-        ).fit_predict(X)
+        ).fit(X)
 
-        for i, label in enumerate(labels):
-            if label == -1:
-                logger.debug(f"Point {coordinates[i]} is considered noise (label -1)")
-            else:
-                logger.debug(
-                    f"Point {coordinates[i]} is in cluster {label} (label {label})",
-                )
-        logger.info(
-            f"DBSCAN found {len(set(labels)) - (1 if -1 in labels else 0)} clusters",
-        )
-        # get label of largest cluster that is not noise (-1)
-        if len(set(labels)) <= 1:
-            logger.info("Only one cluster found or all points are noise.")
-            return coordinates
-        cluster_labels = labels[labels != -1]
-        label_largest_cluster: int = max(
-            set(cluster_labels),
-            key=list(cluster_labels).count,
-        )
+        # Group candidates by cluster
+        clusters = {}
+        for i, (candidate, label) in enumerate(
+            zip(candidates, clustering.labels_, strict=False),
+        ):
+            if label not in clusters:
+                clusters[label] = []
+            clusters[label].append(candidate)
 
-        return [
-            coord
-            for coord, label in zip(coordinates, labels, strict=False)
-            if label == label_largest_cluster
-        ]
+        logger.info(f"Found {len(clusters)} coordinate clusters")
+
+        # If we have noise points (label -1) and other clusters,
+        # keep noise points as individual clusters
+        if -1 in clusters and len(clusters) > 1:
+            noise_points = clusters.pop(-1)
+            for i, point in enumerate(noise_points):
+                clusters[f"noise_{i}"] = [point]
+
+        return clusters
+
+    def estimate_optimal_eps(self, coordinates: list[tuple[float, float]]) -> float:
+        """Estimate optimal eps based on k-distance plot heuristic."""
+        if len(coordinates) < 3:
+            return 50.0  # Default
+
+        X = np.radians(np.array(coordinates))
+        k = min(3, len(coordinates) - 1)  # Use k=3 or less if not enough points
+
+        nbrs: NearestNeighbors = NearestNeighbors(
+            n_neighbors=k + 1,
+            metric="haversine",
+        ).fit(X)
+        distances, _ = nbrs.kneighbors(X)
+
+        # Convert to km and take k-th nearest neighbour distances
+        earth_radius_km = 6371.0088
+        k_distances = np.sort(distances[:, k] * earth_radius_km)
+
+        # Use knee point detection or percentile-based heuristic
+        # Simple heuristic: use 90th percentile
+        optimal_eps = np.percentile(k_distances, 90)
+
+        # Bound the eps to reasonable values for study sites
+        optimal_eps = max(10.0, min(optimal_eps, 200.0))
+
+        logger.info(f"Estimated optimal eps: {optimal_eps:.1f} km")
+        return optimal_eps
 
 
 class StudySiteValidator:
-    """Validates and ranks extracted study sites."""
+    """Validator with priority-aware ranking."""
 
-    def validate_study_sites(self, result: StudySiteResult) -> StudySiteResult:
-        """Validate and rank study site candidates."""
+    def validate_study_sites(
+        self,
+        result: StudySiteResult,
+    ) -> StudySiteResult:
+        """Validate and rank study site candidates by priority and
+        confidence."""
         # Combine coordinates and geocoded locations
         all_candidates = result.coordinates[:]
 
@@ -527,22 +737,24 @@ class StudySiteValidator:
                     latitude=location.coordinates.latitude,
                     longitude=location.coordinates.longitude,
                     confidence_score=location.confidence_score,
+                    priority_score=ExtractionPriority.GEOCODED_LOCATIONS,
                     source_type=location.source_type,
                     context=location.context,
-                    page_number=location.page_number,
+                    section=location.section,
+                    name=location.name,
                     extraction_method=CoordinateExtractionMethod.GEOCODED,
                 )
                 all_candidates.append(coord_candidate)
 
-        # Remove duplicates and rank by confidence
+        # Remove duplicates and rank by final score
         unique_candidates = self._remove_duplicate_coordinates(all_candidates)
         ranked_candidates = sorted(
             unique_candidates,
-            key=lambda x: x.confidence_score,
+            key=lambda x: x.final_score,
             reverse=True,
         )
 
-        # Set primary study site (highest confidence)
+        # Set primary study site (highest final score)
         primary_site = ranked_candidates[0] if ranked_candidates else None
 
         # Calculate overall validation score
@@ -560,17 +772,18 @@ class StudySiteValidator:
         threshold: float = 0.01,
     ) -> list[CoordinateCandidate]:
         """Remove duplicate coordinates within threshold distance."""
-        unique_candidates = []
+        unique_candidates: list[CoordinateCandidate] = []
 
         for candidate in candidates:
             is_duplicate = False
             for unique in unique_candidates:
                 if (
-                    abs(candidate.latitude - unique.latitude) < threshold
-                    and abs(candidate.longitude - unique.longitude) < threshold
+                    abs(float(candidate.latitude) - float(unique.latitude)) < threshold
+                    and abs(float(candidate.longitude) - float(unique.longitude))
+                    < threshold
                 ):
-                    # Keep the one with higher confidence
-                    if candidate.confidence_score > unique.confidence_score:
+                    # Keep the one with higher final score
+                    if candidate.final_score > unique.final_score:
                         unique_candidates.remove(unique)
                         unique_candidates.append(candidate)
                     is_duplicate = True
@@ -589,187 +802,230 @@ class StudySiteValidator:
         if not candidates:
             return 0.0
 
-        # Weight by confidence and number of sources
-        total_confidence = sum(c.confidence_score for c in candidates)
-        avg_confidence = total_confidence / len(candidates)
+        # Weight by final score and number of sources
+        total_score = sum(c.final_score for c in candidates[:5])  # Top 5 candidates
+        max_possible_score = (
+            ExtractionPriority.REGEX_COORDINATES + 1.0
+        )  # Max priority + confidence
+        avg_score = total_score / (min(len(candidates), 5) * max_possible_score)
 
         # Bonus for multiple extraction methods
-        extraction_methods = set(c.extraction_method for c in candidates)
-        method_bonus = len(extraction_methods) * 0.1
+        extraction_methods = {c.extraction_method for c in candidates}
+        method_bonus = len(extraction_methods) * 0.05
 
-        return min(avg_confidence + method_bonus, 1.0)
+        return min(avg_score + method_bonus, 1.0)
 
 
 @final
 class StudySiteExtractor:
-    """Main class orchestrating the study site extraction process."""
+    """Main extractor with priority-based ranking and multiple site support."""
 
-    def __init__(self, spacy_model: str = "en_core_web_lg"):
+    def __init__(self, spacy_model: str = "en_core_web_lg") -> None:
         self.text_extractor = PyPDFTextExtractor()
-        self.table_extractor = CamelotTableExtractor()
         self.coordinate_extractor = CoordinateExtractor()
         self.location_extractor = LocationExtractor(spacy_model)
+        self.clusterer = CoordinateClusterer(eps_km=75.0)
         self.validator = StudySiteValidator()
-        self.clusterer = CoordinateClusterer(eps_km=100.0)
-
-    def extract_site_from_title(self, title: str) -> LocationCandidate | None:
-        """Extract location from the paper title."""
-        locations = self.location_extractor.extract_locations(title, page_number=1)
-        if locations:
-            geocoded_locations = self.location_extractor.geocode_locations(locations)
-            if geocoded_locations:
-                # Return the highest confidence location
-                return max(
-                    geocoded_locations,
-                    key=lambda loc: loc.confidence_score,
-                    default=None,
-                )
-        return None
 
     def extract_study_site(
         self,
         pdf_path: Path,
         title: str | None = None,
     ) -> StudySiteResult:
-        """Main method to extract study site from a PDF paper."""
+        """Extract with proper priority ranking."""
         logger.info(f"Processing PDF: {pdf_path}")
-
-        # Initialize result
         result = StudySiteResult()
 
+        # 1. Extract title location for geocoding bias
+        title_bias_point = None
         if title:
-            title_location = self.extract_site_from_title(title)
-            if title_location:
-                result.locations.append(title_location)
-                logger.info(f"Extracted location from title: {title_location.name}")
-            title_coords = (
-                Point(
-                    latitude=title_location.latitude,
-                    longitude=title_location.longitude,
+            title_location = self._extract_title_location(title)
+            if title_location and title_location.coordinates:
+                title_bias_point = Point(
+                    latitude=title_location.coordinates.latitude,
+                    longitude=title_location.coordinates.longitude,
                 )
-                if title_location and title_location.coordinates
-                else None
-            )
-        else:
-            title_coords = None
-        text_data = self.text_extractor.extract_text(pdf_path)
-        if not text_data["full_text"]:
+                result.locations.append(title_location)
+
+        # 2. Extract text and tables
+        text_data = self.text_extractor.process_scientific_pdf(pdf_path)
+        if not text_data.full_doc:
             logger.warning(f"No text extracted from {pdf_path}")
             return result
 
-        tables = self.table_extractor.extract_tables(pdf_path)
-
-        for page_data in text_data["pages"]:
-            coords = self.coordinate_extractor.extract_coordinates_from_text(
-                page_data["text"],
-                page_data["page_number"],
+        # 3. Priority 1: Extract regex coordinates (highest priority)
+        all_candidates: list[CoordinateCandidate] = []
+        for section, text in text_data.sections.items():
+            regex_coords = self.coordinate_extractor.extract_coordinates_from_text(
+                text,
+                section=PaperSections(section),
             )
-            result.coordinates.extend(coords)
+            all_candidates.extend(regex_coords)
 
-        # Extract coordinates from tables
-        table_coords = self.coordinate_extractor.extract_coordinates_from_tables(tables)
-        result.coordinates.extend(table_coords)
+        logger.info(f"Found {len(all_candidates)} regex coordinate candidates")
 
-        # Cluster coordinates to remove outliers
-        if len(result.coordinates) == 0:
-            logger.info("No coordinate candidates found in text or tables.")
-
-        # Extract named locations
-        for page_data in text_data["pages"]:
+        # 4. Priority 2: Extract spaCy locations from text
+        for section, text in text_data.sections.items():
             locations = self.location_extractor.extract_locations(
-                page_data["text"],
-                page_data["page_number"],
+                text,
+                section=PaperSections(section)
             )
             result.locations.extend(locations)
 
-        # Geocode locations
-        result.locations = self.location_extractor.geocode_locations(
+        logger.info(f"Found {len(result.locations)} location candidates from text")
+
+        # 6. Priority 4: Geocode locations with bias
+        geocoded_locations = self.location_extractor.geocode_with_bias(
             result.locations,
-            title_coords,
+            title_bias_point,
         )
 
-        coords_list: list[tuple[float, float]] = [
-            (c.latitude, c.longitude) for c in result.coordinates
-        ]
-        coords_list.extend(
-            (loc.coordinates.latitude, loc.coordinates.longitude)
-            for loc in result.locations
-            if loc.coordinates
-        )
-        logger.info(f"Clustering {len(coords_list)} coordinate candidates")
-        logger.info(f"Initial coordinates: {coords_list}")
-        # remove duplicates and filter outliers
-        coords_list = list(set(coords_list))
-        clustered_coords = self.clusterer.cluster_and_filter(coords_list)
+        # Convert geocoded locations to coordinate candidates
+        for location in geocoded_locations:
+            if location.coordinates:
+                coord_candidate = CoordinateCandidate(
+                    latitude=location.coordinates.latitude,
+                    longitude=location.coordinates.longitude,
+                    confidence_score=location.confidence_score,
+                    priority_score=ExtractionPriority.GEOCODED_LOCATIONS,
+                    source_type=location.source_type,
+                    context=location.context,
+                    section=location.section,
+                    name=location.name,
+                    extraction_method=CoordinateExtractionMethod.GEOCODED,
+                )
+                all_candidates.append(coord_candidate)
 
-        logger.info(f"Clustered coordinates: {clustered_coords}")
-        # Update result with clustered coordinates
-        result.coordinates = [
-            CoordinateCandidate(
-                latitude=Latitude(lat),
-                longitude=Longitude(lon),
-                confidence_score=c.confidence_score,
-                source_type=c.source_type,
-                context=c.context,
-                page_number=c.page_number,
-                extraction_method=c.extraction_method,
+        # 7. Cluster coordinates to identify multiple study sites
+        clusters = self.clusterer.cluster_coordinates(all_candidates)
+        result.cluster_info = {f"cluster_{k}": len(v) for k, v in clusters.items()}
+
+        # 8. Rank candidates within each cluster and globally
+        final_candidates = []
+        cluster_representatives = []
+
+        for cluster_id, cluster_candidates in clusters.items():
+            if not cluster_candidates:
+                continue
+
+            # Sort by final score (priority + confidence)
+            ranked_cluster = sorted(
+                cluster_candidates,
+                key=lambda x: x.final_score,
+                reverse=True,
             )
-            for (lat, lon), c in zip(clustered_coords, result.coordinates, strict=False)
-        ]
-        result.locations = [
-            loc
-            for loc in result.locations
-            if loc.coordinates
-            and (loc.coordinates.latitude, loc.coordinates.longitude)
-            in clustered_coords
-        ]
 
-        # Validate and rank results
-        result = self.validator.validate_study_sites(result)
+            final_candidates.extend(ranked_cluster)
 
-        logger.info(
-            f"Extraction complete. Found {len(result.coordinates)} coordinate candidates",
+            # Keep the best candidate from each cluster as potential study site
+            if cluster_id != -1:  # Exclude noise points from representatives
+                cluster_representatives.append(ranked_cluster[0])
+
+        # 9. Final ranking: all candidates by final score
+        result.coordinates = sorted(
+            final_candidates,
+            key=lambda x: x.final_score,
+            reverse=True,
         )
+
+        # 10. Set primary study site (highest scoring overall)
+        result.primary_study_site = (
+            result.coordinates[0] if result.coordinates else None
+        )
+
+        # 11. Calculate validation score
+        result.validation_score = self._calculate_validation_score(
+            result.coordinates,
+            clusters,
+        )
+
+        logger.info("Extraction complete:")
+        logger.info(f"  - Total candidates: {len(result.coordinates)}")
+        logger.info(f"  - Study site clusters: {len(cluster_representatives)}")
+        logger.info(f"  - Validation score: {result.validation_score:.3f}")
+
         if result.primary_study_site:
+            site = result.primary_study_site
             logger.info(
-                f"Primary study site: {result.primary_study_site.latitude}, {result.primary_study_site.longitude}",
+                f"Primary site: {site.latitude:.4f}, {site.longitude:.4f} "
+                f"(score: {site.final_score:.1f}, method: {site.extraction_method})",
             )
 
         return result
 
-    def extract_multiple_papers(
+    def _extract_title_location(self, title: str) -> LocationCandidate | None:
+        """Extract location from paper title for geocoding bias."""
+        locations = self.location_extractor.extract_locations(title, section=PaperSections.TITLE)
+        if locations:
+            # Get the highest confidence title location
+            best_location = max(locations, key=lambda x: x.final_score)
+            # Try to geocode it
+            geocoded = self.location_extractor.geocode_with_bias([best_location])
+            if geocoded and geocoded[0].coordinates:
+                return geocoded[0]
+        return None
+
+    def _calculate_validation_score(
         self,
-        pdf_paths: list[Path],
-    ) -> dict[str, StudySiteResult]:
-        """Extract study sites from multiple papers."""
-        results = {}
+        candidates: list[CoordinateCandidate],
+        clusters: dict[str, Any],
+    ) -> float:
+        """Calculate validation score considering extraction diversity and
+        clustering."""
+        if not candidates:
+            return 0.0
 
-        for pdf_path in pdf_paths:
-            try:
-                results[str(pdf_path)] = self.extract_study_site(pdf_path)
-            except Exception as e:
-                logger.error(f"Failed to process {pdf_path}: {e}")
-                results[str(pdf_path)] = StudySiteResult()
+        # Base score from candidate quality
+        total_score = sum(c.final_score for c in candidates[:5])  # Top 5 candidates
+        max_possible_score = (
+            ExtractionPriority.REGEX_COORDINATES + 1.0
+        )  # Max priority + confidence
+        avg_score = total_score / (min(len(candidates), 5) * max_possible_score)
 
-        return results
+        # Bonus for extraction method diversity
+        extraction_methods = set(c.extraction_method for c in candidates)
+        diversity_bonus = len(extraction_methods) * 0.05
+
+        # Bonus for having regex coordinates (most reliable)
+        regex_bonus = (
+            0.1
+            if any(
+                c.priority_score == ExtractionPriority.REGEX_COORDINATES
+                for c in candidates
+            )
+            else 0.0
+        )
+
+        # Penalty for having only noise points
+        clustering_penalty = 0.1 if len(clusters) == 1 and -1 in clusters else 0.0
+
+        final_score = avg_score + diversity_bonus + regex_bonus - clustering_penalty
+        return min(max(final_score, 0.0), 1.0)
 
 
+# Usage example
 if __name__ == "__main__":
     extractor = StudySiteExtractor()
-    pdf_path = Path.cwd() / "manuscript_revision2.pdf"
+    pdf_folder = Path.cwd() / "zotero_files"
+    pdf_path = next(iter(pdf_folder.glob("*.pdf")))
 
     if pdf_path.exists():
-        result = extractor.extract_study_site(pdf_path)
+        # You can also provide a title for better geocoding bias
+        title = "Late Holocene eruptive activity at Nevado Cayambe Volcano, Ecuador"
+        result = extractor.extract_study_site(pdf_path, title=title)
 
-        print(f"Validation Score: {result.validation_score:.2f}")
+        print(f"Validation Score: {result.validation_score:.3f}")
+        print(f"Clusters found: {result.cluster_info}")
 
-        if result.primary_study_site:
-            site = result.primary_study_site
-            print(f"Primary Study Site: {site.latitude:.4f}, {site.longitude:.4f}")
-            print(f"Confidence: {site.confidence_score:.2f}")
-            print(f"Source: {site.source_type}")
-            print(f"Context: {site.context}")
-
-        print(f"Total candidates found: {len(result.coordinates)}")
+        print("\nAll candidates (ranked by priority and confidence):")
+        for i, candidate in enumerate(result.coordinates[:10], 1):  # Top 10
+            print(f"{i:2d}. {candidate.latitude:.4f}, {candidate.longitude:.4f}")
+            print(
+                f"    Score: {candidate.final_score:.1f} | Priority: {candidate.priority_score}",
+            )
+            print(
+                f"    Method: {candidate.extraction_method} | Context: {candidate.context}",
+            )
+            print()
     else:
         print(f"PDF file {pdf_path} not found")
