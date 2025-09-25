@@ -39,7 +39,6 @@ dev = [
   "polyfactory>=2.22.1",
   "pre-commit>=4.0.0",
   "pytest-cov>=6.2.1",
-  "pytest-xdist>=3.8.0",
   "pytest>=8.0.0",
   "types-jinja2>=2.11.9",
 ]
@@ -61,10 +60,11 @@ strict  = true
 [tool.ruff]
 exclude        = ["alembic"]
 target-version = "py312"
+line-length = 100
 
 [tool.ruff.lint]
-fixable = ["ALL"]
 future-annotations = true
+fixable = ["ALL"]
 ignore = [
   "E501",  # line too long, handled by black
   "B008",  # do not perform function calls in argument defaults
@@ -128,6 +128,10 @@ select = [
 # Preserve types, even if a file imports `from __future__ import annotations`.
 keep-runtime-typing = true
 
+[tool.ruff.format]
+docstring-code-line-length = 100
+docstring-code-format = true
+
 [tool.basedpyright]
 reportExplicitAny      = false
 reportUnusedCallResult = false
@@ -138,6 +142,17 @@ addopts = [
   "--cov-report=term-missing",
   "--cov-report=html:coverage_html_report",
 ]
+
+[tool.coverage.run]
+source = ["app"]
+dynamic_context = "test_function"
+
+[tool.coverage.report]
+show_missing = true
+sort = "-Cover"
+
+[tool.coverage.html]
+show_contexts = true
 
 [tool.ty.environment]
 root = ["./app"]
