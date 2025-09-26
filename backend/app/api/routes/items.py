@@ -12,7 +12,6 @@ from sqlmodel import col, func, or_, select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
-from app.core.config import settings
 from app.models import (
     Item,
     ItemCreate,
@@ -116,16 +115,7 @@ def search_items(
     # Execute query
     items = session.exec(statement).all()
 
-    # Get count for pagination
-    count_statement = select(func.count()).select_from(Item)
-    if not current_user.is_superuser:
-        count_statement = count_statement.where(Item.owner_id == current_user.id)
-    if filters:
-        count_statement = count_statement.where(
-            or_(*filters) if len(filters) > 1 else filters[0],
-        )
-
-    count = session.exec(count_statement).one()
+    count = len(items)
 
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
 
@@ -174,7 +164,7 @@ def import_zotero_items(
     db_user = crud.get_user_by_email(session=session, email=current_user.email)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     zot = Zotero(
         user=db_user,
         library_type=library_type,
@@ -225,7 +215,7 @@ def import_file_from_zotero(
     db_user = crud.get_user_by_email(session=session, email=current_user.email)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     zot = Zotero(
         user=db_user,
         library_type=library_type,
@@ -305,12 +295,14 @@ def import_files_from_zotero(
     items, count = read_db_items(session, current_user, skip, limit)
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
 
+
 @router.get("/files/{filename}")
 async def get_file(filename: str) -> Any:  # noqa: ANN401
     file_path = Path.cwd() / "zotero_files" / filename
     if file_path.exists():
         return FileResponse(file_path)
     raise HTTPException(status_code=404, detail="File not found")
+
 
 @router.put("/{id}", response_model=ItemPublic)
 def update_item(
@@ -361,19 +353,20 @@ def start_extract_study_site(
     *,
     force: bool = False,
 ) -> TasksAccepted:
+    items: list[Item] = []
     if id:
         item = read_item(session, current_user, id)
-        items_without_study_sites: list[Item] = [item]
+        items.append(item)
     else:
-        items, _ = read_db_items(session, current_user, skip, limit)
-        items_without_study_sites = items
+        items.extend(read_db_items(session, current_user, skip, limit)[0])
 
     if not force:
-        items_without_study_sites = [it for it in items_without_study_sites if not it.study_site_id]
+        # Only process items without a study site
+        items = [item for item in items if not item.study_site_id]
 
     # Enqueue tasks
     enqueued: list[TaskRef] = []
-    for item in items_without_study_sites:
+    for item in items:
         async_result = extract_study_site_task.delay(
             item_id=str(item.id),
             user_id=str(current_user.id),
@@ -396,7 +389,7 @@ def start_extract_study_site(
 def get_study_site(
     session: SessionDep,
     current_user: CurrentUser,
-    id: uuid.UUID,
+    id: uuid.UUID,  # noqa: A002
 ) -> StudySite:
     """Get study site by item ID."""
     study_site = session.get(StudySite, id)
@@ -407,7 +400,7 @@ def get_study_site(
     return study_site
 
 
-@router.get("/study_sites/", response_model=Sequence[StudySite])
+@router.get("/study_sites/")
 def get_study_sites(
     session: SessionDep,
     current_user: CurrentUser,
@@ -421,11 +414,12 @@ def get_study_sites(
         raise HTTPException(status_code=404, detail="No study sites found")
     return study_sites
 
-@router.patch("/study_sites/{id}", response_model=StudySite)
+
+@router.patch("/study_sites/{id}")
 def patch_study_site(
     session: SessionDep,
     current_user: CurrentUser,
-    id: uuid.UUID,
+    id: uuid.UUID,  # noqa: A002
     study_site_in: dict[str, Any],
 ) -> StudySite:
     """Get study site by item ID."""

@@ -19,11 +19,25 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, clas
 
 
 def get_session() -> Generator[SQLModelSession, None, None]:
+    """Get a new database session.
+
+    Needed for async endpoints, async testing or celery tasks.
+
+    Yields:
+        A new local database session.
+
+    """
     with SessionLocal() as session:
         yield session
 
 
 def init_db(session: SQLModelSession) -> None:
+
+    """Initialize the database with the first superuser.
+
+    Args:
+        session: 
+    """
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER),
     ).first()
@@ -32,5 +46,9 @@ def init_db(session: SQLModelSession) -> None:
             email=settings.FIRST_SUPERUSER,
             password=settings.FIRST_SUPERUSER_PASSWORD,
             is_superuser=True,
+            is_active=True,
+            full_name="Admin",
+            zotero_id=settings.ZOTERO_USER_ID,
+            zotero_api_key=settings.ZOTERO_API_KEY,
         )
         user = crud.create_user(session=session, user_create=user_in)

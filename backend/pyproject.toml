@@ -78,6 +78,7 @@ ignore = [
   "TC001", # Ignore "imported but unused" when inside TYPE_CHECKING blocks
 	"TC003", # Do not move imports into type checking block (may be needed for model eval)
   "B904",  # Allow raising exceptions without from e, for HTTPException
+	"UP037", # Allow usage of quoted type hints (needed for SQLModel and pydantic models)
 ]
 select = [
   "A",     # flake8-builtins
