@@ -18,6 +18,7 @@ from sklearn.neighbors import NearestNeighbors
 from spacy.matcher import Matcher, PhraseMatcher
 from spacy.tokens import Doc, Span
 
+from app.core.config import settings
 from app.nlp.nlp_logger import logger
 from app.nlp.pdf_text_extractor import PyPDFTextExtractor
 
@@ -172,7 +173,7 @@ class StudySiteResult(BaseModel):
 class LocationExtractor:
     """Optimised location extractor focused on geographic entities."""
 
-    def __init__(self, model_name: str = "en_core_web_lg"):
+    def __init__(self, model_name: str = settings.SPACY_MODEL):
         # Load spaCy with only components needed for geographic extraction
         try:
             self.nlp: Language = spacy.load(
@@ -820,7 +821,7 @@ class StudySiteValidator:
 class StudySiteExtractor:
     """Main extractor with priority-based ranking and multiple site support."""
 
-    def __init__(self, spacy_model: str = "en_core_web_lg") -> None:
+    def __init__(self, spacy_model: str = settings.SPACY_MODEL) -> None:
         self.text_extractor = PyPDFTextExtractor()
         self.coordinate_extractor = CoordinateExtractor()
         self.location_extractor = LocationExtractor(spacy_model)
