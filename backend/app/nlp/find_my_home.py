@@ -131,7 +131,7 @@ class CoordinateCandidate(BaseModel):
     )
     context: str = Field(description="Context around the coordinate in the text")
     section: PaperSections = Field(description="Document section where Coordinate was found")
-    name: str | None = Field(description="Optional name associated with the coordinate")
+    name: str = Field(description="Optional name associated with the coordinate")
     extraction_method: CoordinateExtractionMethod
 
     @property
@@ -355,7 +355,7 @@ class LocationExtractor:
         """Extract named locations with enhanced confidence scoring."""
         # Process with full pipeline (need lemmatizer for patterns)
         doc = self.nlp(text)
-        print(f"text analysed on page number {section}:\n{text}\n")
+        print(f"text analysed for section {section}:\n{text}\n")
 
         candidates: list[LocationCandidate] = []
 
@@ -868,7 +868,7 @@ class StudySiteExtractor:
         for section, text in text_data.sections.items():
             locations = self.location_extractor.extract_locations(
                 text,
-                section=PaperSections(section)
+                section=PaperSections(section),
             )
             result.locations.extend(locations)
 

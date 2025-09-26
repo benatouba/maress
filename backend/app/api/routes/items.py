@@ -415,7 +415,8 @@ def extract_study_site(
         confidence_score=primary_candidate.confidence_score,
         source_type=primary_candidate.source_type,
         context=primary_candidate.context,
-        page_number=primary_candidate.page_number,
+        section=primary_candidate.section,
+        name=primary_candidate.name,
         extraction_method=primary_candidate.extraction_method,
         owner_id=current_user.id,
     )

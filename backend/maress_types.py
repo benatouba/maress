@@ -58,3 +58,14 @@ class CoordinateSourceType(str, Enum):
     CAPTION = "caption"
     MANUAL = "manual"
     METADATA = "metadata"
+
+class PaperSections(str, Enum):
+    TITLE = "title"
+    ABSTRACT = "abstract"
+    INTRODUCTION = "introduction"
+    METHODS = "methods"
+    RESULTS = "results"
+    DISCUSSION = "discussion"
+    CONCLUSION = "conclusion"
+    REFERENCES = "references"
+    OTHER = "other"
