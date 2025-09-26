@@ -4,12 +4,10 @@ from typing import TYPE_CHECKING, Optional
 
 from pydantic import EmailStr, field_serializer, field_validator
 from pydantic_extra_types.coordinate import Latitude, Longitude
-from sqlalchemy import String
-from sqlalchemy.dialects import postgresql
-from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
+from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel, func
 
 from app.core.security import cipher_suite
-from maress_types import CoordinateExtractionMethod, CoordinateSourceType
+from maress_types import CoordinateExtractionMethod, CoordinateSourceType, PaperSections
 
 if TYPE_CHECKING:
     from app.models import Item  # Avoid circular import issues for type hints
@@ -17,7 +15,7 @@ if TYPE_CHECKING:
 
 class StudySiteBase(SQLModel):
     """Database model for study site extraction results."""
-    # item_id: uuid.UUID | None = Field(default=None, foreign_key="item.id", unique=True)
+
     validation_score: float = 0.0
     latitude: Latitude
     longitude: Longitude  # validates -180 <= value <= 180
@@ -26,7 +24,16 @@ class StudySiteBase(SQLModel):
         description="Type of source from which the study site was extracted",
     )
     context: str
-    page_number: int
+    section: PaperSections = Field(
+        default=PaperSections.OTHER,
+        description="Section of the paper where the study site was mentioned",
+        sa_column=Column(Enum(PaperSections)),
+    )
+    name: str | None = Field(
+        default=None,
+        description="Name of the study site, if available",
+        max_length=255,
+    )
     extraction_method: CoordinateExtractionMethod
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(
@@ -34,12 +41,13 @@ class StudySiteBase(SQLModel):
         sa_column=Column(DateTime(timezone=True), onupdate=func.now()),
     )
 
+
 class StudySite(StudySiteBase, table=True):
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
         primary_key=True,
     )
-    item: Optional["Item"] = Relationship(
+    item: Optional["Item"] = Relationship(  # pyright: ignore[reportDeprecated]
         back_populates="study_site",
         sa_relationship_kwargs={"uselist": False},
     )
@@ -59,7 +67,7 @@ class StudySiteUpdate(StudySiteBase):
         description="Type of source from which the study site was extracted",
     )
     context: str
-    page_number: int
+    section: PaperSections
     extraction_method: CoordinateExtractionMethod
 
 
@@ -275,29 +283,36 @@ class RelationsPublic(SQLModel):
     count: int
 
 
-class AuthorBase(SQLModel):
-    full_name: str = Field(min_length=3, max_length=255)
-    initials: str = Field(min_length=2, max_length=32)
-    institutions: list[str] = Field(sa_column=Column(postgresql.ARRAY(String())))
-
-
-
-class ItemAuthorLink(SQLModel, table=True):
-    item_id: uuid.UUID | None = Field(
-        default=None,
-        foreign_key="item.id",
-        primary_key=True,
-    )
-    author_id: int | None = Field(default=None, foreign_key="author.id", primary_key=True)
-
-class AuthorCreate(SQLModel):
-    full_name: str = Field(min_length=3, max_length=255)
-    institutions: list[str] = Field(sa_column=Column(postgresql.ARRAY(String())))
-
-
-class Author(AuthorBase, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    items: list["Item"] = Relationship(back_populates="authors", link_model=ItemAuthorLink)
+# class AuthorBase(SQLModel):
+#     full_name: str = Field(min_length=3, max_length=255)
+#     initials: str = Field(min_length=2, max_length=32)
+#     institutions: list[str] = Field(sa_column=Column(postgresql.ARRAY(String())))
+#
+#
+# class ItemAuthorLink(SQLModel, table=True):
+#     item_id: uuid.UUID | None = Field(
+#         default=None,
+#         foreign_key="item.id",
+#         primary_key=True,
+#     )
+#     author_id: uuid.UUID | None = Field(
+#         default=None,
+#         foreign_key="author.id",
+#         primary_key=True,
+#     )
+#
+#
+# class AuthorCreate(SQLModel):
+#     full_name: str = Field(min_length=3, max_length=255)
+#     institutions: list[str] = Field(sa_column=Column(postgresql.ARRAY(String())))
+#
+#
+# class Author(AuthorBase, table=True):
+#     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+#     items: list["Item"] = Relationship(
+#         back_populates="authors",
+#         link_model=ItemAuthorLink,
+#     )
 
 
 # Shared properties
@@ -391,7 +406,10 @@ class Item(ItemBase, table=True):
     )
     owner: User | None = Relationship(back_populates="items")
     tags: list[Tag] = Relationship(back_populates="items", link_model=ItemTagLink)
-    authors: list[Author] = Relationship(back_populates="items", link_model=ItemAuthorLink)
+    # authors: list[Author] = Relationship(
+    #     back_populates="items",
+    #     link_model=ItemAuthorLink,
+    # )
     collections: list[Collection] = Relationship(back_populates="item")
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
