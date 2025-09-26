@@ -1,9 +1,9 @@
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-from pydantic import EmailStr, field_serializer, field_validator
-from pydantic_extra_types.coordinate import Latitude, Longitude
+from pydantic import EmailStr, field_serializer, field_validator  # noqa: TC002
+from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
 from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel, func
 
 from app.core.security import cipher_suite
@@ -14,9 +14,6 @@ from maress_types import (
     InitialTaskState,
     PaperSections,
 )
-
-if TYPE_CHECKING:
-    from app.models import Item  # Avoid circular import issues for type hints
 
 
 class StudySiteBase(SQLModel):
@@ -73,7 +70,12 @@ class StudySiteUpdate(StudySiteBase):
         description="Type of source from which the study site was extracted",
     )
     context: str
-    section: PaperSections
+    section: PaperSections = Field(
+        default=PaperSections.OTHER,
+        description="Section of the paper where the study site was mentioned",
+        sa_column=Column(Enum(PaperSections)),
+    )
+
     extraction_method: CoordinateExtractionMethod
 
 
@@ -466,7 +468,7 @@ class NewPassword(SQLModel):
 class TaskRef(SQLModel):
     """Model representing a reference to an asynchronous task.
 
-    The task will be autodiscovered and handled by celery workers.
+    The task can be discovered and handled by celery workers.
     """
 
     # Target domain entity the task operates on

@@ -1,4 +1,3 @@
-# app/tasks/extract.py
 from __future__ import annotations
 
 import logging
@@ -6,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from celery import states
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session  # noqa: TC002
 
 from app.celery_app import celery
 from app.core.db import SessionLocal
@@ -79,10 +78,7 @@ def extract_study_site_task(
                 logger.warning("Item %s has no attachment", item.id)
                 return {"item_id": item_id, "study_site_id": None, "status": "no_attachment"}
 
-            path = Path(item.attachment)
-            if not path.exists():
-                msg = f"Attachment path {path} does not exist for item {item.id}"
-                raise FileNotFoundError(msg)
+            path = Path(item.attachment).resolve(strict=True)
 
             extractor = StudySiteExtractor()
             result = extractor.extract_study_site(path, title=item.title or None)
@@ -118,9 +114,13 @@ def extract_study_site_task(
                 "study_site_id": str(item.study_site_id),
                 "status": "created",
             }
-    except PermissionError as e:
+    except FileNotFoundError as e:
+        msg = f"Attachment file not found for item {item_id}"
+        raise FileNotFoundError(msg) from e
+
+    except PermissionError:
         self.update_state(state=states.FAILURE, meta={"reason": "permission_denied"})
-        raise e
-    except Exception as e:
+        raise
+    except Exception:
         logger.exception("extract_study_site_task failed for item %s", item_id)
-        raise e
+        raise
