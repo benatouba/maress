@@ -11,7 +11,7 @@ from tests.factories import (
     RelationFactory,
     TagFactory,
 )
-from app.tests.utils.user import create_random_user
+from tests.utils.user import create_random_user
 
 
 def create_random_creator(db: Session) -> Creator:
