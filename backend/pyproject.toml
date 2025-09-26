@@ -1,18 +1,18 @@
 [project]
 dependencies = [
-  "fastapi[standard-no-fastapi-cloud-cli]>=0.116.0,<1.0.0",
+  "fastapi[standard-no-fastapi-cloud-cli]>=0.117.0,<1.0.0",
   "python-multipart<1.0.0,>=0.0.7",
   "email-validator<3.0.0,>=2.3.0",
   "tenacity>=9.0.0",
-  "pydantic>2.0",
-  "pydantic-settings<3.0.0,>=2.10.1",
+  "pydantic<3.0.0,>=2.11.0",
+  "pydantic-settings<=3.0.0,>=2.11.0",
   "pydantic-extra-types[pycountry]>=2.10.5",
   "emails<1.0,>=0.6",
   "jinja2<4.0.0,>=3.1.4",
-  "alembic<2.0.0,>=1.12.1",
+  "alembic<2.0.0,>=1.16.0",
   "httpx<1.0.0,>=0.25.1",
   "psycopg[binary]<4.0.0,>=3.2.9",
-  "sqlmodel<1.0.0,>=0.0.24",
+  "sqlmodel<1.0.0,>=0.0.25",
   "pwdlib[argon2]>=0.2.1",
   "pyjwt<3.0.0,>=2.8.0",
   "camelot-py>=1.0.0",
@@ -23,7 +23,10 @@ dependencies = [
   "scikit-learn>=1.7.1",
   "spacy>=3.8.7",
   "en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
+  "en_core_web_trf @ https://github.com/explosion/spacy-models/releases/download/en_core_web_trf-3.8.0/en_core_web_trf-3.8.0-py3-none-any.whl",
   "yara-python>=4.5.4",
+  "spacy-layout>=0.0.12",
+  "alembic-postgresql-enum>=1.8.0",
 ]
 description = "Add your description here"
 name = "maress"
