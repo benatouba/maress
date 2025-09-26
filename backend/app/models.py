@@ -7,7 +7,13 @@ from pydantic_extra_types.coordinate import Latitude, Longitude
 from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel, func
 
 from app.core.security import cipher_suite
-from maress_types import CoordinateExtractionMethod, CoordinateSourceType, PaperSections
+from maress_types import (
+    CeleryState,
+    CoordinateExtractionMethod,
+    CoordinateSourceType,
+    InitialTaskState,
+    PaperSections,
+)
 
 if TYPE_CHECKING:
     from app.models import Item  # Avoid circular import issues for type hints
@@ -455,3 +461,40 @@ class TokenPayload(SQLModel):
 class NewPassword(SQLModel):
     token: str
     new_password: str = Field(min_length=8, max_length=40)
+
+
+class TaskRef(SQLModel):
+    """Model representing a reference to an asynchronous task.
+
+    The task will be autodiscovered and handled by celery workers.
+    """
+
+    # Target domain entity the task operates on
+    item_id: uuid.UUID = Field(description="Target Item ID")
+    # Celery AsyncResult.id
+    task_id: str = Field(description="Celery task identifier")
+    # Initial server-side assessment at enqueue time
+    status: InitialTaskState = Field(
+        default="queued",
+        description="Initial enqueue assessment for 202 responses",
+    )
+    # Optional per-task note (e.g., reason when skipped)
+    message: str | None = Field(default=None, description="Optional reason")
+
+
+class TasksAccepted(SQLModel):
+    """Model representing a batch of accepted tasks."""
+
+    data: list[TaskRef]
+    count: int
+
+
+class TaskStatus(SQLModel):
+    """Model representing the status of an asynchronous task."""
+
+    task_id: str = Field(description="Celery task identifier")
+    task_status: CeleryState = Field(description="Celery task state")
+    task_result: ItemPublic | None = Field(
+        default=None,
+        description="Result payload if available; omitted/None in most states",
+    )

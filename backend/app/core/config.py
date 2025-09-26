@@ -69,6 +69,9 @@ class Settings(BaseSettings):
             path=self.POSTGRES_DB,
         )
 
+    CELERY_BROKER_URL: str
+    CELERY_RESULT_BACKEND: str
+
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
     SMTP_PORT: int = 587
@@ -117,6 +120,8 @@ class Settings(BaseSettings):
     def _enforce_non_default_secrets(self) -> Self:
         self._check_default_secret("SECRET_KEY", self.SECRET_KEY)
         self._check_default_secret("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD)
+        self._check_default_secret("CELERY_BROKER_URL", self.CELERY_BROKER_URL)
+        self._check_default_secret("CELERY_RESULT_BACKEND", self.CELERY_RESULT_BACKEND)
         self._check_default_secret("FIRST_SUPERUSER_PASSWORD", self.FIRST_SUPERUSER_PASSWORD)
         self._check_default_secret("ZOTERO_API_KEY", self.ZOTERO_API_KEY)
         self._check_default_secret("ZOTERO_USER_ID", self.ZOTERO_USER_ID)

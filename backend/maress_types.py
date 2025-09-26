@@ -69,3 +69,9 @@ class PaperSections(str, Enum):
     CONCLUSION = "conclusion"
     REFERENCES = "references"
     OTHER = "other"
+
+
+InitialTaskState = Literal["queued", "skipped", "no_attachment", "not_applicable"]
+CeleryState = Literal[
+    "PENDING", "RECEIVED", "STARTED", "RETRY", "FAILURE", "SUCCESS", "REVOKED"
+]

@@ -27,6 +27,9 @@ dependencies = [
   "yara-python>=4.5.4",
   "spacy-layout>=0.0.12",
   "alembic-postgresql-enum>=1.8.0",
+  "celery[redis]>=5.5.3",
+  "redis>=5.2.1",
+  "flower>=2.0.1",
 ]
 description = "Add your description here"
 name = "maress"
@@ -36,6 +39,7 @@ version = "0.1.0"
 
 [dependency-groups]
 dev = [
+  "celery-types>=0.23.0",
   "coverage>=7.10.5",
   "ipython>=9.4.0",
   "pandas-stubs>=2.3.0.250703",
