@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     ZOTERO_API_KEY: str
     ZOTERO_USER_ID: str
     ZOTERO_LIBRARY_TYPE: Literal["user", "group"] = "user"
+    SPACY_MODEL: str = "en_core_web_lg"
 
     ENCRYPTION_KEY: str
 
