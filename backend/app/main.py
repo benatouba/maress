@@ -1,9 +1,15 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from fastapi import FastAPI
-from fastapi.routing import APIRoute
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.main import api_router
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from fastapi.routing import APIRoute
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:

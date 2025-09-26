@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from magic import Magic
 from sqlalchemy import BinaryExpression, ColumnElement
@@ -22,9 +22,11 @@ from app.models import (
     Message,
     StudySite,
     Tag,
+    TaskRef,
+    TasksAccepted,
 )
-from app.nlp.find_my_home import StudySiteExtractor
 from app.services import Zotero
+from app.tasks.extract import extract_study_site_task
 from maress_types import ZoteroItemList
 
 logger = logging.getLogger(__name__)
@@ -46,17 +48,10 @@ def read_db_items(
         items = session.exec(statement).all()
     else:
         count_statement = (
-            select(func.count())
-            .select_from(Item)
-            .where(Item.owner_id == current_user.id)
+            select(func.count()).select_from(Item).where(Item.owner_id == current_user.id)
         )
         count = session.exec(count_statement).one()
-        statement = (
-            select(Item)
-            .where(Item.owner_id == current_user.id)
-            .offset(skip)
-            .limit(limit)
-        )
+        statement = select(Item).where(Item.owner_id == current_user.id).offset(skip).limit(limit)
         items = session.exec(statement).all()
     return items, count
 
@@ -356,91 +351,48 @@ def delete_item(
     return Message(message="Item deleted successfully")
 
 
-@router.post("/study_sites/", response_model=Any)
-def extract_study_site(
+@router.post("/study_sites/", status_code=status.HTTP_202_ACCEPTED)
+def start_extract_study_site(
     session: SessionDep,
     current_user: CurrentUser,
     id: uuid.UUID | None = None,
+    skip: int = 0,
+    limit: int = 500,
+    *,
     force: bool = False,
-) -> Any:
-    """Use StudySiteExtractor to get study site from items."""
-
-    def extract_study_sites(
-        session: SessionDep,
-        current_user: CurrentUser,
-        skip: int = 0,
-        limit: int = 500,
-    ) -> ItemsPublic:
-        """Get all items with study sites."""
+) -> TasksAccepted:
+    if id:
+        item = read_item(session, current_user, id)
+        items_without_study_sites: list[Item] = [item]
+    else:
         items, _ = read_db_items(session, current_user, skip, limit)
-        # items without study sites
-        items_without_study_sites = [item for item in items if not item.study_site_id]
-        new_study_sites_items: list[Item] = []
-        for item in items_without_study_sites:
-            new_item: Item = extract_study_site(
-                session=session,
-                current_user=current_user,
-                id=item.id,
-            )
-            new_study_sites_items.append(new_item)
-        return ItemsPublic(data=new_study_sites_items, count=len(new_study_sites_items))  # pyright: ignore[reportArgumentType]
+        items_without_study_sites = items
 
-    if id is None or id == "null":
-        # If no ID is provided, extract study sites for all items
-        return extract_study_sites(session, current_user)
+    if not force:
+        items_without_study_sites = [it for it in items_without_study_sites if not it.study_site_id]
 
-    item = read_item(session, current_user, id)
-    if item.study_site_id and not force:
-        return item  # Study site already exists, return the item
-    if not item.attachment:
-        msg = "Item does not have an attachment"
-        logger.warning(msg)
-        return item  # No attachment to process
-    path = Path(item.attachment)
-    if not path.exists():
-        msg = f"File {path} does not exist in the filesystem"
-        raise FileNotFoundError(msg)
-    extractor = StudySiteExtractor()
-    result = extractor.extract_study_site(path, title=item.title or None)
-    if not result or not result.primary_study_site:
-        logger.warning(
-            f"Study site not found in the item {item.id} with attachment {item.attachment}",
+    # Enqueue tasks
+    enqueued: list[TaskRef] = []
+    for item in items_without_study_sites:
+        async_result = extract_study_site_task.delay(
+            item_id=str(item.id),
+            user_id=str(current_user.id),
+            is_superuser=bool(current_user.is_superuser),
+            force=bool(force),
         )
-        return item
-    primary_candidate = result.primary_study_site
-    study_site = StudySite(
-        validation_score=result.validation_score,
-        latitude=primary_candidate.latitude,
-        longitude=primary_candidate.longitude,
-        confidence_score=primary_candidate.confidence_score,
-        source_type=primary_candidate.source_type,
-        context=primary_candidate.context,
-        section=primary_candidate.section,
-        name=primary_candidate.name,
-        extraction_method=primary_candidate.extraction_method,
-        owner_id=current_user.id,
-    )
-    # add study site to the session and update the item
-    session.add(study_site)
-    session.commit()
-    session.refresh(study_site)
-    # item = item.model_copy(update={"study_site_id": study_site.id})
-    item.study_site_id = study_site.id
-    session.add(item)
-    session.commit()
-    session.refresh(item)
-    # refresh the item to get the updated study_site
-    item_from_db = session.get(Item, item.id)
-    if not item_from_db:
-        msg = "Item not found in the database after update"
-        raise ValueError(msg)
-    if not item_from_db.study_site_id:
-        msg = "Study site not found in the item after update"
-        raise ValueError(msg)
-    return item_from_db
+        enqueued.append(
+            TaskRef(
+                item_id=item.id,
+                task_id=async_result.id,
+                status="queued",
+                message="Task is queued",
+            ),
+        )
+
+    return TasksAccepted(data=enqueued, count=len(enqueued))  # type: ignore
 
 
-@router.get("/study_sites/{id}", response_model=StudySite)
+@router.get("/study_sites/{id}")
 def get_study_site(
     session: SessionDep,
     current_user: CurrentUser,

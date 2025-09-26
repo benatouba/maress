@@ -1,30 +1,31 @@
-from sqlmodel import Session, create_engine, select
+from collections.abc import Generator
+
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session as SQLModelSession
+from sqlmodel import create_engine, select
 
 from app import crud
 from app.core.config import settings
-from app.models import ItemCreate, User, UserCreate
-from app.services import Zotero
-from maress_types import ZoteroItemList
+from app.models import *  # noqa: F403
+from app.models import User, UserCreate
 
-engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI))
+engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI), pool_pre_ping=True)
 
 
 # make sure all SQLModel models are imported (app.models) before initializing DB
 # otherwise, SQLModel might fail to initialize relationships properly
 # for more details: https://github.com/fastapi/full-stack-fastapi-template/issues/28
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=SQLModelSession)
 
 
-def init_db(session: Session) -> None:
-    # Tables should be created with Alembic migrations
-    # But if you don't want to use migrations, create
-    # the tables un-commenting the next lines
-    # from sqlmodel import SQLModel
+def get_session() -> Generator[SQLModelSession, None, None]:
+    with SessionLocal() as session:
+        yield session
 
-    # This works because the models are already imported and registered from app.models
-    # SQLModel.metadata.create_all(engine)
 
+def init_db(session: SQLModelSession) -> None:
     user = session.exec(
-        select(User).where(User.email == settings.FIRST_SUPERUSER)
+        select(User).where(User.email == settings.FIRST_SUPERUSER),
     ).first()
     if not user:
         user_in = UserCreate(
