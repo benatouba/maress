@@ -1,11 +1,13 @@
 from pathlib import Path
-from pyzotero import zotero
+
 import spacy
+from pyzotero import zotero
 from spacy.language import Language
 from spacy.tokens import Doc
 from spacy_layout import spaCyLayout
 
 from app.models import User
+
 
 class Zotero(zotero.Zotero):
     def __init__(self, user: User, library_type: str = "user"):
@@ -38,7 +40,6 @@ class SpaCyModelManager:
 
     def load_models(self) -> None:
         """Load spaCy and spacy-layout models if not already loaded."""
-
         if not self._is_loaded:
             print(f"Loading spaCy model: {self.model_name}")
             self._nlp = spacy.load(self.model_name)
@@ -47,7 +48,7 @@ class SpaCyModelManager:
             self._layout = spaCyLayout(
                 self._nlp,
                 headings=["section_header", "title", "page_header"],
-                separator="\n\n"
+                separator="\n\n",
             )
             self._is_loaded = True
             print("Models loaded successfully")
@@ -89,5 +90,7 @@ class SpaCyModelManager:
         doc = self._nlp(doc)
         return doc
 
+
 model_manager = SpaCyModelManager()
 model_manager.load_models()
+
