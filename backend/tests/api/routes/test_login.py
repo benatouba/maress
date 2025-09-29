@@ -1,8 +1,8 @@
-# pyright: reportAny=false
-from unittest.mock import patch
+# pyright: reportAny=false, reportUnusedParameter=false
+from __future__ import annotations
 
-from fastapi.testclient import TestClient
-from sqlmodel import Session
+from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 from app.core.config import settings
 from app.core.security import verify_password
@@ -11,6 +11,10 @@ from app.models.users import User, UserCreate
 from app.utils import generate_password_reset_token
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session
 
 
 def test_get_access_token(client: TestClient, test_superuser: User, db_session: Session) -> None:
@@ -51,7 +55,7 @@ def test_use_access_token(
         f"{settings.API_V1_STR}/login/test-token",
         headers=superuser_token_headers,
     )
-    result = r.json()  
+    result = r.json()
     assert r.status_code == 200
     assert "email" in result
 

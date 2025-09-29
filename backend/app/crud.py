@@ -1,22 +1,27 @@
+from __future__ import annotations
+
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import selectinload
-from sqlmodel import Sequence, Session, func, select
+from sqlmodel import func, select
 
 from app.core.security import get_password_hash, verify_password
 from app.models.collections import Collection, CollectionCreate
 from app.models.creators import Creator, CreatorCreate
 from app.models.items import Item, ItemCreate
 from app.models.relations import Relation, RelationCreate
-from app.models.study_sites import StudySite
+from app.models.study_sites import StudySite, StudySiteUpdate
 from app.models.tags import Tag, TagCreate
 from app.models.users import (
     User,
     UserCreate,
     UserUpdate,
 )
+
+if TYPE_CHECKING:
+    from sqlmodel import Sequence, Session, SQLModel
 
 logger = logging.getLogger(__name__)
 
@@ -47,14 +52,12 @@ def update_user(*, session: Session, db_user: User, user_in: UserUpdate) -> User
 
 def get_user_by_email(*, session: Session, email: str) -> User | None:
     statement = select(User).where(User.email == email)
-    session_user = session.exec(statement).first()
-    return session_user
+    return session.exec(statement).first()
 
 
 def get_study_site_by_id(*, session: Session, id: uuid.UUID) -> StudySite | None:
     statement = select(StudySite).where(StudySite.id == id)
-    study_site_user = session.exec(statement).first()
-    return study_site_user
+    return session.exec(statement).first()
 
 
 def authenticate(*, session: Session, email: str, password: str) -> User | None:
@@ -66,8 +69,8 @@ def authenticate(*, session: Session, email: str, password: str) -> User | None:
     return db_user
 
 
-def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -> Item:
-    db_item = Item.model_validate(item_in, update={"owner_id": owner_id})
+def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -> SQLModel:
+    db_item: SQLModel = Item.model_validate(item_in, update={"owner_id": owner_id})
     session.add(db_item)
     session.commit()
     session.refresh(db_item)
@@ -127,8 +130,8 @@ def create_tag(session: Session, tag_in: TagCreate, owner_id: uuid.UUID) -> Tag:
     try:
         session.commit()
         session.refresh(tag)
-    except Exception as e:
-        logger.error(f"Failed to create tag: {e}")
+    except Exception:
+        logger.exception("Failed to create tag")
         session.rollback()
         raise
     return tag
@@ -140,13 +143,16 @@ def update_tag(
     tag_in: TagCreate,
     owner_id: uuid.UUID,
 ) -> Tag | None:
-    """Update a tag by ID if owner matches; returns updated tag or None if not
-    found."""
+    """Update a tag by ID if owner matches.
+
+    Returns: Updated tag or None if not found.
+    """
     tag = get_tag(session, tag_id)
     if not tag:
         return None
     if tag.owner_id != owner_id:
-        raise PermissionError("Not enough permissions to update this tag.")
+        msg = "Not enough permissions to update this tag."
+        raise PermissionError(msg)
 
     # Copy fields from tag_in
     updated_data = tag_in.model_dump(exclude_unset=True)
@@ -157,27 +163,30 @@ def update_tag(
         session.add(tag)
         session.commit()
         session.refresh(tag)
-    except Exception as e:
-        logger.error(f"Failed to update tag: {e}")
+    except Exception:
+        logger.exception("Failed to update tag")
         session.rollback()
         raise
     return tag
 
 
 def delete_tag(session: Session, tag_id: int, owner_id: uuid.UUID) -> bool:
-    """Delete a tag by ID if owner matches; returns True if deleted, False
-    otherwise."""
+    """Delete a tag by ID if owner matches.
+
+    Returns: True if deleted, False otherwise.
+    """
     tag = get_tag(session, tag_id)
     if not tag:
         return False
     if tag.owner_id != owner_id:
-        raise PermissionError("Not enough permissions to delete this tag.")
+        msg = "Not enough permissions to delete this tag."
+        raise PermissionError(msg)
 
     try:
         session.delete(tag)
         session.commit()
-    except Exception as e:
-        logger.error(f"Failed to delete tag: {e}")
+    except Exception:
+        logger.exception("Failed to delete tag")
         session.rollback()
         raise
     return True
@@ -193,7 +202,7 @@ def get_creators(
     item_id: str | None = None,
     skip: int = 0,
     limit: int = 100,
-) -> tuple[list[Creator], int]:
+) -> tuple[Sequence[Creator], int]:
     """Retrieve creators, optionally filtered by item_id.
 
     Returns a tuple (creators list, total count).
@@ -264,7 +273,7 @@ def get_relations(
     item_id: str | None = None,
     skip: int = 0,
     limit: int = 100,
-) -> tuple[list[Relation], int]:
+) -> tuple[Sequence[Relation], int]:
     """Retrieve relations, optionally filtered by item_id.
 
     Returns a tuple (list of relations, total count).
@@ -299,8 +308,7 @@ def update_relation(
     relation_id: int,
     relation_in: RelationCreate,
 ) -> Relation | None:
-    """Update a Relation by ID; returns updated relation or None if not
-    found."""
+    """Update a Relation by ID; returns updated relation or None."""
     relation = get_relation(session, relation_id)
     if not relation:
         return None
@@ -334,7 +342,8 @@ def create_collection(
 ) -> Collection:
     """Create a new Collection associated with an item."""
     collection = Collection.model_validate(
-        collection_in, update={"item_id": item_id, "owner_id": owner_id}
+        collection_in,
+        update={"item_id": item_id, "owner_id": owner_id},
     )
     session.add(collection)
     session.commit()
@@ -343,7 +352,10 @@ def create_collection(
 
 
 def update_study_site(
-    *, session: Session, db_study_site: StudySite, study_site_in: dict[str, Any]
+    *,
+    session: Session,
+    db_study_site: StudySite,
+    study_site_in: StudySiteUpdate,
 ) -> StudySite:
     study_site_data = study_site_in.model_dump(exclude_unset=True)
     extra_data = {
