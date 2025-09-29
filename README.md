@@ -1,4 +1,4 @@
-# Research Paper Geographic Mapping Application
+# MaRESS - Mapping Research in Earth System Sciences
 
 A modern web application for mapping research papers geographically using Vue.js 3, FastAPI, and PostgreSQL with PostGIS. This tool integrates with Zotero for paper management and uses advanced NLP to extract geographic information from academic papers.
 
@@ -8,37 +8,39 @@ A modern web application for mapping research papers geographically using Vue.js
 - **Zotero Integration**: Seamless import from Zotero libraries
 - **NLP Processing**: Automated extraction of geographic entities from paper content
 - **Advanced Search**: Filter papers by location, topic, author, and date
-- **Collaborative Features**: Share maps and collections with other researchers
 - **Export Capabilities**: Export maps and data in various formats
 
 ## Technology Stack
 
 ### Frontend
-- Vue.js 3 with Composition API
-- Leaflet.js for interactive maps
-- Pinia for state management
-- Vue Router for navigation
-- Vite for development and building
+- [Vue.js 3](https://vuejs.org/) with Composition API
+- [OpenLayers](https://openlayers.org/) for interactive maps
+- [Pinia](https://pinia.vuejs.org/) for state management
+- [Vue Router](https://router.vuejs.org/) for navigation
+- [Vite](https://vite.dev/) for development and building
+- [Vuetify](https://vuetifyjs.com/en/) for UI components
+- [Cytoscape.js](https://js.cytoscape.org/) for network/graph visualisation
 
 ### Backend
-- FastAPI for high-performance API
-- SQLAlchemy with GeoAlchemy2 for database ORM
-- PostgreSQL with PostGIS for geospatial data
-- Celery for background task processing
-- Redis for caching and task queue
+- [FastAPI](https://fastapi.tiangolo.com/) for high-performance API
+- [SQLAlchemy](https://www.sqlalchemy.org/) (with [GeoAlchemy2](https://geoalchemy-2.readthedocs.io/en/latest/index.html) for database ORM (Not yet implemented))
+- [SQLModel](https://sqlmodel.tiangolo.com/) for (easier) data modelling - Note: SQLModel is built on top of SQLAlchemy
+- [PostgreSQL](https://www.postgresql.org/) (with [PostGIS](https://postgis.net/) for geospatial data (not yet implemented))
+- [Celery](https://github.com/celery/celery) for background task processing
+- [Redis](https://redis.io/) for caching and task queue
 
 ### NLP & Processing
-- spaCy for named entity recognition
-- LangChain for document processing
-- Pyzotero for Zotero API integration
-- OpenAI API for advanced text analysis
+- [spacy-layout](https://spacy.io/universe/project/spacy-layout) for document processing
+- [spaCy](https://spacy.io/) for named entity recognition and other NLP tasks
+- [Pyzotero](https://github.com/urschrei/pyzotero) for Zotero API integration
+- OpenAI API for advanced text analysis (Not yet implemented)
 
 ## Quick Start
 
 1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
-   cd research-paper-mapper
+   git clone https://gitlab.klima.tu-berlin.de/klima/maress.git
+   cd maress
    ```
 
 2. **Set up environment variables**:
@@ -47,15 +49,42 @@ A modern web application for mapping research papers geographically using Vue.js
    # Edit .env with your API keys and configuration
    ```
 
-3. **Start with Docker Compose**:
+3a. **Start with Docker Compose**:
    ```bash
    docker-compose up --build
    ```
+3b. **Or set up manually** with `uv` for the backend and `pnpm` for the frontend:
+   - Backend:
+     ```bash
+     cd backend
+     uv sync
+     bash scripts/prestart.sh # Warning: This will reset the database!
+     uv run fastapi run --reload
+     ```
+     and in another terminal, start the [Celery](https://github.com/celery/celery) worker:
+     ```bash
+     cd backend
+     uv run celery -A app.celery_app worker --loglevel=info --concurrency=2
+     ```
+     start `mailhog` for email during development (refer to [backend/README.md](backend/README.md) for installation details):
+     ```bash
+     mailhog
+     ```
+   - Frontend:
+     ```bash
+     cd frontend
+     pnpm install
+     pnpm run dev
+     ```
 
 4. **Access the application**:
    - Frontend: http://localhost:3000
    - Backend API: http://localhost:8000
    - API Documentation: http://localhost:8000/docs
+   - [MailHog UI](http://localhost:8025): http://localhost:8025
+
+   [MailHog](https://github.com/mailhog/MailHog) connects to the SMTP server at `localhost:1025` by default.
+   Your [Celery](https://github.com/celery/celery) worker should be processing long tasks in the background.
 
 ## Development Setup
 
