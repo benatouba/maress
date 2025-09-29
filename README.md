@@ -53,7 +53,9 @@ A modern web application for mapping research papers geographically using Vue.js
    ```bash
    docker-compose up --build
    ```
+
 3b. **Or set up manually** with `uv` for the backend and `pnpm` for the frontend:
+
    - Backend:
      ```bash
      cd backend
@@ -88,6 +90,7 @@ A modern web application for mapping research papers geographically using Vue.js
      ```bash
      mailhog
      ```
+
    - Frontend:
      ```bash
      cd frontend
@@ -107,15 +110,8 @@ A modern web application for mapping research papers geographically using Vue.js
 ## Development Setup
 
 ### Backend Setup
-```bash
-cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-alembic upgrade head
-uvicorn app.main:app --reload
-```
+Set up the backend similarly to the quick start instructions above.
+Please refer to the [backend/README.md](backend/README.md) for detailed backend setup instructions.
 
 ### Frontend Setup
 ```bash
