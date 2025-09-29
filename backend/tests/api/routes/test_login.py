@@ -7,21 +7,30 @@ from app.core.config import settings
 from app.core.security import verify_password
 from app.crud import create_user
 from app.models import UserCreate
+from app.utils import generate_password_reset_token
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
-from app.utils import generate_password_reset_token
 
 
-def test_get_access_token(client: TestClient) -> None:
-    login_data = {
+def test_get_access_token(client: TestClient, test_superuser, db_session: Session) -> None:
+    # Preconditions
+    assert test_superuser.email == settings.FIRST_SUPERUSER
+    assert test_superuser.is_superuser is True
+
+    # OAuth2 form: include grant_type to be compatible with strict handlers too
+    form = {
         "username": settings.FIRST_SUPERUSER,
         "password": settings.FIRST_SUPERUSER_PASSWORD,
+        "grant_type": "password",
+        "scope": "",
     }
-    r = client.post(f"{settings.API_V1_STR}/login/access-token", data=login_data)
-    tokens = r.json()  # pyright: ignore[reportAny]
-    assert r.status_code == 200
-    assert "access_token" in tokens
-    assert tokens["access_token"]
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    r = client.post(f"{settings.API_V1_STR}/login/access-token", data=form, headers=headers)
+    assert r.status_code == 200, f"Login failed: {r.text}"
+    payload = r.json()
+    assert payload.get("access_token")
+    assert payload.get("token_type", "bearer").lower() == "bearer"
 
 
 def test_get_access_token_incorrect_password(client: TestClient) -> None:
@@ -34,7 +43,8 @@ def test_get_access_token_incorrect_password(client: TestClient) -> None:
 
 
 def test_use_access_token(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
 ) -> None:
     r = client.post(
         f"{settings.API_V1_STR}/login/test-token",
@@ -46,7 +56,8 @@ def test_use_access_token(
 
 
 def test_recovery_password(
-    client: TestClient, normal_user_token_headers: dict[str, str]
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
 ) -> None:
     with (
         patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
@@ -62,7 +73,8 @@ def test_recovery_password(
 
 
 def test_recovery_password_user_not_exits(
-    client: TestClient, normal_user_token_headers: dict[str, str]
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
 ) -> None:
     email = "jVgQr@example.com"
     r = client.post(
@@ -72,7 +84,7 @@ def test_recovery_password_user_not_exits(
     assert r.status_code == 404
 
 
-def test_reset_password(client: TestClient, db: Session) -> None:
+def test_reset_password(client: TestClient, db_session: Session) -> None:
     email = random_email()
     password = random_lower_string()
     new_password = random_lower_string()
@@ -84,7 +96,7 @@ def test_reset_password(client: TestClient, db: Session) -> None:
         is_active=True,
         is_superuser=False,
     )
-    user = create_user(session=db, user_create=user_create)
+    user = create_user(session=db_session, user_create=user_create)
     token = generate_password_reset_token(email=email)
     headers = user_authentication_headers(client=client, email=email, password=password)
     data = {"new_password": new_password, "token": token}
@@ -98,12 +110,13 @@ def test_reset_password(client: TestClient, db: Session) -> None:
     assert r.status_code == 200
     assert r.json() == {"message": "Password updated successfully"}
 
-    db.refresh(user)
+    db_session.refresh(user)
     assert verify_password(new_password, user.hashed_password)
 
 
 def test_reset_password_invalid_token(
-    client: TestClient, superuser_token_headers: dict[str, str]
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
 ) -> None:
     data = {"new_password": "changethis", "token": "invalid"}
     r = client.post(
