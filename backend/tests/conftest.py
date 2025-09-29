@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ from app.core.db import get_session
 from app.main import app
 from app.models import *  # Import all models  # noqa: F403
 from app.models import User
+from app.services import SpaCyModelManager
 
 # Create a separate test database
 POSTGRES_BASE_URL = str(settings.SQLALCHEMY_DATABASE_URI).rsplit("/", 1)[0]
@@ -127,7 +129,6 @@ def test_superuser(db_session: Session) -> User:
         is_superuser=True,
     )
 
-
 @pytest.fixture
 def superuser_token_headers(
     client: TestClient,
@@ -154,3 +155,15 @@ def normal_user_token_headers(
         email=test_user.email,
         db=db_session,
     )
+
+
+@pytest.fixture(scope="module")
+def model_manager() -> SpaCyModelManager:
+    return SpaCyModelManager()
+
+
+@pytest.fixture(scope="module")
+def example_pdf_path() -> Path:
+    return (Path(__file__).parent / "zotero_files").resolve().glob("*.pdf").__next__()
+
+

@@ -23,14 +23,14 @@ def test_get_users_superuser_me(
 
 
 def test_get_users_normal_user_me(
-    client: TestClient, normal_user_token_headers: dict[str, str]
+    client: TestClient, normal_user_token_headers: dict[str, str], test_user: User
 ) -> None:
     r = client.get(f"{settings.API_V1_STR}/users/me", headers=normal_user_token_headers)
     current_user = r.json()
     assert current_user
     assert current_user["is_active"] is True
     assert current_user["is_superuser"] is False
-    assert current_user["email"] == settings.EMAIL_TEST_USER
+    assert current_user["email"] == test_user.email
 
 
 def test_create_user_new_email(
@@ -471,12 +471,13 @@ def test_delete_user_current_super_user_error(
 
 
 def test_delete_user_without_privileges(
-    client: TestClient, normal_user_token_headers: dict[str, str], db_session: Session
+    client: TestClient, normal_user_token_headers: dict[str, str], db_session: Session, test_user: User
 ) -> None:
     username = random_email()
     password = random_lower_string()
     user_in = UserCreate(email=username, password=password)
     user = crud.create_user(session=db_session, user_create=user_in)
+    assert user.id != test_user.id
 
     r = client.delete(
         f"{settings.API_V1_STR}/users/{user.id}",
