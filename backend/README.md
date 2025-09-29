@@ -1,9 +1,10 @@
 # FastAPI Project - Backend
 
-## Requirements
+## External optional requirements
 
-* [Docker](https://www.docker.com/).
+* [Docker](https://www.docker.com/)
 * [uv](https://docs.astral.sh/uv/) for Python package and environment management.
+* [MailHog](https://github.com/mailhog/MailHog) for testing email sending during development.
 
 ## Docker Compose
 
@@ -25,17 +26,72 @@ Then you can activate the virtual environment with:
 $ source .venv/bin/activate
 ```
 
+or use
+
+```console
+$ uv run [command]
+```
+
+to run a command inside the virtual environment.
+
 Make sure your editor is using the correct Python virtual environment, with the interpreter at `backend/.venv/bin/python`.
 
 Modify or add SQLModel models for data and SQL tables in `./backend/app/models.py`, API endpoints in `./backend/app/api/`, CRUD (Create, Read, Update, Delete) utils in `./backend/app/crud.py`.
 
-## VS Code
+The bash-script `scripts/prestart.sh` will reset the database, run all migrations, and create initial data (superuser).
 
-There are already configurations in place to run the backend through the VS Code debugger, so that you can use breakpoints, pause and explore variables, etc.
+Use 
 
-The setup is also already configured so you can run the tests through the VS Code Python tests tab.
+```console
+$ fastapi run --reload # if inside the virtual environment
+# or
+$ uv run fastapi run --reload
+```
 
-## Docker Compose Override
+from the `./backend/` directory to run the development server that reloads when it detects code changes.
+
+To run the asynchronous task worker for long tasks (like analysing papers) use:
+
+```console
+$ celery -A app.celery_app worker --loglevel=info --concurrency=2 # if inside the virtual environment
+# or
+$ uv run celery -A app.celery_app worker --loglevel=info --concurrency=2
+```
+
+The `--concurrency` option sets the number of worker processes, you can change it to your needs.
+
+To intercept mails sent during development, you can use [MailHog](https://github.com/mailhog/MailHog). It has a web interface at `http://localhost:8025` where you can see the emails sent by the application.
+It intercepts all emails sent to any SMTP server at `localhost:1025`.
+There are multiple ways to run it:
+* If you have Go installed, you can install it with:
+
+```console
+$ go install github.com/mailhog/MailHog@latest
+```
+and then run it with:
+
+```console
+cd ~/go/bin
+$ ./MailHog
+```
+* If you have Docker installed, you can run it with:
+
+```console
+$ docker run -d -p 8025:8025 -p 1025:1025 mailhog/mailhog
+```
+
+* You can also download the binary from the [releases page](https://github.com/mailhog/MailHog/releases) or install another way
+  and just run the `mailhog` command.
+
+To start the program on boot, run it as a system service in Linux by creating a or placing the systemd service file ([Example on SO](https://stackoverflow.com/questions/70491018/auto-boot-mailhog-on-ubuntu-20-04)) in the appropriate directory (usually `/etc/systemd/system/`), then enable and start the service with:
+
+```console
+$ sudo systemctl enable mailhog
+$ sudo systemctl start mailhog
+```
+
+
+## Docker Compose Override (if developing with Docker)
 
 During development, you can change Docker Compose settings that will only affect the local development environment in the file `docker-compose.override.yml`.
 
@@ -95,7 +151,11 @@ To test the backend run:
 
 ```console
 $ bash ./scripts/test.sh
+# or
+$ uv run pytest
 ```
+
+Run `uv` commands from the `./backend/` directory.
 
 The tests run with Pytest, modify and add tests to `./backend/tests/`.
 
@@ -138,7 +198,9 @@ $ docker compose exec backend bash
 * After changing a model (for example, adding a column), inside the container, create a revision, e.g.:
 
 ```console
-$ alembic revision --autogenerate -m "Add column last_name to User model"
+$ alembic revision --autogenerate -m "Your message here"
+# or
+$ uv run alembic revision --autogenerate -m "Your message here"
 ```
 
 * Commit to the git repository the files generated in the alembic directory.
@@ -147,21 +209,9 @@ $ alembic revision --autogenerate -m "Add column last_name to User model"
 
 ```console
 $ alembic upgrade head
+# or
+$ uv run alembic upgrade head
 ```
-
-If you don't want to use migrations at all, uncomment the lines in the file at `./backend/app/core/db.py` that end in:
-
-```python
-SQLModel.metadata.create_all(engine)
-```
-
-and comment the line in the file `scripts/prestart.sh` that contains:
-
-```console
-$ alembic upgrade head
-```
-
-If you don't want to start with the default models and want to remove them / modify them, from the beginning, without having any previous revision, you can remove the revision files (`.py` Python files) under `./backend/app/alembic/versions/`. And then create a first migration as described above.
 
 ## Email Templates
 
