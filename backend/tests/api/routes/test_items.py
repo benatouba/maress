@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from app.core.config import settings
-from app.models import Item
+from app.models import Item, User
 from tests.factories import ItemFactory
 from tests.utils.item import create_random_item
 
@@ -27,9 +27,9 @@ def test_create_item(
 
 
 def test_read_item(
-    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+    client: TestClient, superuser_token_headers: dict[str, str], db_session: Session
 ) -> None:
-    item = create_random_item(db)
+    item = create_random_item(db_session)
     assert isinstance(item, Item)
     response = client.get(
         f"{settings.API_V1_STR}/items/{item.id}",
@@ -56,9 +56,9 @@ def test_read_item_not_found(
 
 
 def test_read_item_not_enough_permissions(
-    client: TestClient, normal_user_token_headers: dict[str, str], db: Session
+    client: TestClient, normal_user_token_headers: dict[str, str], db_session: Session
 ) -> None:
-    item = create_random_item(db)
+    item = create_random_item(db_session)
     assert isinstance(item, Item)
     response = client.get(
         f"{settings.API_V1_STR}/items/{item.id}",
@@ -69,10 +69,10 @@ def test_read_item_not_enough_permissions(
     assert content["detail"] == "Not enough permissions"
 
 def test_read_items(
-    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+    client: TestClient, superuser_token_headers: dict[str, str], db_session: Session
 ) -> None:
-    create_random_item(db)
-    create_random_item(db)
+    create_random_item(db_session)
+    create_random_item(db_session)
     response = client.get(
         f"{settings.API_V1_STR}/items/",
         headers=superuser_token_headers,
@@ -82,7 +82,7 @@ def test_read_items(
     assert len(content["data"]) >= 2
 
 def test_import_zotero_items(
-    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+    client: TestClient, superuser_token_headers: dict[str, str]
 ) -> None:
     data = {
         "zotero_user_id": settings.ZOTERO_USER_ID,
@@ -107,9 +107,9 @@ def test_import_zotero_items(
 
 
 def test_update_item(
-    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+    client: TestClient, superuser_token_headers: dict[str, str], db_session: Session
 ) -> None:
-    item = create_random_item(db)
+    item = create_random_item(db_session)
     data = {"title": "Updated title", "description": "Updated description"}
     response = client.put(
         f"{settings.API_V1_STR}/items/{item.id}",
@@ -139,9 +139,9 @@ def test_update_item_not_found(
 
 
 def test_update_item_not_enough_permissions(
-    client: TestClient, normal_user_token_headers: dict[str, str], db: Session
+    client: TestClient, normal_user_token_headers: dict[str, str], db_session: Session
 ) -> None:
-    item = create_random_item(db)
+    item = create_random_item(db_session)
     data = {"title": "Updated title", "description": "Updated description"}
     response = client.put(
         f"{settings.API_V1_STR}/items/{item.id}",
@@ -154,9 +154,9 @@ def test_update_item_not_enough_permissions(
 
 
 def test_delete_item(
-    client: TestClient, superuser_token_headers: dict[str, str], db: Session
+    client: TestClient, superuser_token_headers: dict[str, str], db_session: Session
 ) -> None:
-    item = create_random_item(db)
+    item = create_random_item(db_session)
     response = client.delete(
         f"{settings.API_V1_STR}/items/{item.id}",
         headers=superuser_token_headers,
@@ -179,9 +179,9 @@ def test_delete_item_not_found(
 
 
 def test_delete_item_not_enough_permissions(
-    client: TestClient, normal_user_token_headers: dict[str, str], db: Session
+    client: TestClient, normal_user_token_headers: dict[str, str], db_session: Session, test_user: User
 ) -> None:
-    item = create_random_item(db)
+    item = create_random_item(db_session, owner_id=test_user.id)
     response = client.delete(
         f"{settings.API_V1_STR}/items/{item.id}",
         headers=normal_user_token_headers,

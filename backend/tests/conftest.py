@@ -2,47 +2,155 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, delete
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+from sqlmodel import Session, SQLModel
 
 from app.core.config import settings
-from app.core.db import engine, init_db
+from app.core.db import get_session
 from app.main import app
-from app.models import Item, User
-from tests.utils.user import authentication_token_from_email
-from tests.utils.utils import get_superuser_token_headers
+from app.models import *  # Import all models  # noqa: F403
+from app.models import User
+
+# Create a separate test database
+POSTGRES_BASE_URL = str(settings.SQLALCHEMY_DATABASE_URI).rsplit("/", 1)[0]
+TEST_DATABASE_NAME = "maress_test"
+TEST_DATABASE_URL = f"{POSTGRES_BASE_URL}/{TEST_DATABASE_NAME}"
+test_engine = create_engine(TEST_DATABASE_URL, pool_pre_ping=True)
+TestSessionLocal = sessionmaker(bind=test_engine, autoflush=False, autocommit=False, class_=Session)
 
 
-@pytest.fixture(scope="session", autouse=True)
-def db() -> Generator[Session, None, None]:
-    with Session(engine) as session:
-        init_db(session)
+@pytest.fixture(scope="session")
+def create_test_database():
+    """Create test database at session start, drop at session end."""
+    admin_engine = create_engine(f"{POSTGRES_BASE_URL}/postgres", isolation_level="AUTOCOMMIT")
+
+    try:
+        with admin_engine.connect() as conn:
+            # Check if database exists first
+            result = conn.execute(
+                text(f"SELECT 1 FROM pg_database WHERE datname = '{TEST_DATABASE_NAME}'"),
+            )
+            if not result.fetchone():
+                conn.execute(text(f"CREATE DATABASE {TEST_DATABASE_NAME}"))
+
+        yield  # Run all tests
+
+    finally:
+        # Clean up: close all connections first, then drop database
         try:
-            yield session
-            statement = delete(Item)
-            session.execute(statement)
-            statement = delete(User)
-            session.execute(statement)
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
+            test_engine.dispose()  # ✅ Close all connections first
+
+            with admin_engine.connect() as conn:
+                # Terminate any remaining connections
+                conn.execute(
+                    text(f"""
+                    SELECT pg_terminate_backend(pg_stat_activity.pid)
+                    FROM pg_stat_activity
+                    WHERE pg_stat_activity.datname = '{TEST_DATABASE_NAME}'
+                      AND pid <> pg_backend_pid()
+                """),
+                )
+
+                # Now drop the database
+                conn.execute(text(f"DROP DATABASE IF EXISTS {TEST_DATABASE_NAME}"))
+        except Exception as e:
+            print(f"Database cleanup failed: {e}")
         finally:
-            session.close()
+            admin_engine.dispose()
 
 
-@pytest.fixture(scope="module")
-def client() -> Generator[TestClient, None, None]:
-    with TestClient(app) as c:
-        yield c
+@pytest.fixture(autouse=True)
+def setup_fresh_db_per_test(create_test_database) -> Generator[None, None, None]:
+    """Fresh database setup for each test - single source of truth."""
+    # Create all tables
+    SQLModel.metadata.create_all(bind=test_engine)
+
+    yield  # Test runs here
+
+    # Clean up: truncate all tables (faster than drop/create)
+    try:
+        with TestSessionLocal() as session:
+            # Disable foreign key checks temporarily for truncation
+            session.execute(text("SET session_replication_role = replica;"))
+
+            # Truncate all tables
+            for table in reversed(SQLModel.metadata.sorted_tables):
+                session.execute(text(f'TRUNCATE TABLE "{table.name}" RESTART IDENTITY CASCADE'))
+
+            # Re-enable foreign key checks
+            session.execute(text("SET session_replication_role = DEFAULT;"))
+            session.commit()
+    except Exception as e:
+        print(f"Table cleanup failed: {e}")
+        # Fallback: drop and recreate all tables
+        SQLModel.metadata.drop_all(bind=test_engine)
 
 
-@pytest.fixture(scope="module")
-def superuser_token_headers(client: TestClient) -> dict[str, str]:
-    return get_superuser_token_headers(client)
+@pytest.fixture
+def db_session(setup_fresh_db_per_test) -> Generator[Session, None, None]:
+    """Database session for tests that need direct database access."""
+    with TestSessionLocal() as session:
+        yield session
 
 
-@pytest.fixture(scope="module")
-def normal_user_token_headers(client: TestClient, db: Session) -> dict[str, str]:
+@pytest.fixture
+def client(db_session: Session) -> Generator[TestClient, None, None]:
+    """Test client with overridden database session."""
+    from app.api.deps import get_db
+    def override_get_session() -> Generator[Session, None, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_session
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def test_user(db_session: Session) -> User:
+    """Create a test user."""
+    from tests.utils.user import create_test_user
+
+    return create_test_user(db_session)
+
+
+@pytest.fixture
+def test_superuser(db_session: Session) -> User:
+    """Create a test superuser."""
+    from tests.utils.user import create_test_user
+
+    return create_test_user(
+        db_session,
+        email=settings.FIRST_SUPERUSER,
+        password=settings.FIRST_SUPERUSER_PASSWORD,
+        is_superuser=True,
+    )
+
+
+@pytest.fixture
+def superuser_token_headers(
+    client: TestClient,
+    db_session: Session,
+    test_superuser: User,
+) -> dict[str, str]:
+    """Fresh superuser token for each test."""
+    from tests.utils.utils import get_superuser_token_headers
+
+    return get_superuser_token_headers(client=client)
+
+
+@pytest.fixture
+def normal_user_token_headers(
+    db_session: Session,
+    client: TestClient,
+    test_user: User,
+) -> dict[str, str]:
+    """Fresh normal user token for each test."""
+    from tests.utils.user import authentication_token_from_email
+
     return authentication_token_from_email(
-        client=client, email=settings.EMAIL_TEST_USER, db=db
+        client=client,
+        email=test_user.email,
+        db=db_session,
     )
