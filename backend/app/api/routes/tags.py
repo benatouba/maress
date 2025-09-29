@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_tag, delete_tag, get_tag, get_tags, update_tag
-from app.models import TagCreate, TagPublic, TagsPublic
+from app.models.tags import TagCreate, TagPublic, TagsPublic
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -70,7 +70,7 @@ def update_tag_endpoint(  # noqa: D103
 
 
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_tag_endpoint(  # noqa: ANN201, D103
+def delete_tag_endpoint(  # noqa: , D103
     *,
     tag_id: int,
     session: SessionDep,

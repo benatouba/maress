@@ -6,8 +6,14 @@ from sqlmodel import create_engine, select
 
 from app import crud
 from app.core.config import settings
-from app.models import *  # noqa: F403
-from app.models import User, UserCreate
+from app.models.collections import Collection  # noqa: F401
+from app.models.creators import Creator  # noqa: F401
+from app.models.items import Item  # noqa: F401
+from app.models.links import ItemTagLink  # noqa: F401
+from app.models.relations import Relation  # noqa: F401
+from app.models.study_sites import StudySite  # noqa: F401
+from app.models.tags import Tag  # noqa: F401
+from app.models.users import User, UserCreate
 
 engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI), pool_pre_ping=True)
 
@@ -25,18 +31,16 @@ def get_session() -> Generator[SQLModelSession, None, None]:
 
     Yields:
         A new local database session.
-
     """
     with SessionLocal() as session:
         yield session
 
 
 def init_db(session: SQLModelSession) -> None:
-
     """Initialize the database with the first superuser.
 
     Args:
-        session: 
+        session: An SQLModel session to interact with the database.
     """
     user = session.exec(
         select(User).where(User.email == settings.FIRST_SUPERUSER),

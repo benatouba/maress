@@ -3,8 +3,11 @@ from datetime import datetime
 from sqlmodel import Session
 
 from app import crud
-from app.core.config import settings
-from app.models import Collection, Creator, Item, Relation, Tag, UserUpdate
+from app.models.collections import Collection
+from app.models.creators import Creator
+from app.models.items import Item
+from app.models.relations import Relation
+from app.models.tags import Tag
 from tests.factories import (
     CollectionFactory,
     CreatorFactory,
@@ -36,7 +39,10 @@ def create_random_collection(db_session: Session) -> Collection:
     assert owner.id is not None, "Owner ID must not be None"
     collection_in = CollectionFactory.build(item_id=item.id)
     return crud.create_collection(
-        session=db_session, collection_in=collection_in, item_id=item.id, owner_id=owner.id
+        session=db_session,
+        collection_in=collection_in,
+        item_id=item.id,
+        owner_id=owner.id,
     )
 
 

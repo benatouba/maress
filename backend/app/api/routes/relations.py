@@ -11,7 +11,7 @@ from app.crud import (
     get_relations,
     update_relation,
 )
-from app.models import RelationCreate, RelationPublic, RelationsPublic
+from app.models.relations import RelationCreate, RelationPublic, RelationsPublic
 
 router = APIRouter(prefix="/relations", tags=["relations"])
 

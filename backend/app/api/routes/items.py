@@ -12,18 +12,17 @@ from sqlmodel import col, func, or_, select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
-from app.models import (
+from app.models.items import (
     Item,
     ItemCreate,
     ItemPublic,
     ItemsPublic,
     ItemUpdate,
-    Message,
-    StudySite,
-    Tag,
-    TaskRef,
-    TasksAccepted,
 )
+from app.models.messages import Message
+from app.models.study_sites import StudySite
+from app.models.tags import Tag
+from app.models.tasks import TaskRef, TasksAccepted
 from app.services import Zotero
 from app.tasks.extract import extract_study_site_task
 from maress_types import ZoteroItemList

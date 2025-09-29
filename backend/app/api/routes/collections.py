@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from sqlmodel import func, select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.models import (
+from app.models.collections import (
     Collection,
     CollectionCreate,
     CollectionPublic,

@@ -6,19 +6,13 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Sequence, Session, func, select
 
 from app.core.security import get_password_hash, verify_password
-from app.models import (
-    Collection,
-    CollectionCreate,
-    Creator,
-    CreatorCreate,
-    Item,
-    ItemCreate,
-    Relation,
-    RelationCreate,
-    StudySite,
-    StudySiteUpdate,
-    Tag,
-    TagCreate,
+from app.models.collections import Collection, CollectionCreate
+from app.models.creators import Creator, CreatorCreate
+from app.models.items import Item, ItemCreate
+from app.models.relations import Relation, RelationCreate
+from app.models.study_sites import StudySite
+from app.models.tags import Tag, TagCreate
+from app.models.users import (
     User,
     UserCreate,
     UserUpdate,
@@ -29,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 def create_user(*, session: Session, user_create: UserCreate) -> User:
     db_obj = User.model_validate(
-        user_create, update={"hashed_password": get_password_hash(user_create.password)}
+        user_create,
+        update={"hashed_password": get_password_hash(user_create.password)},
     )
     session.add(db_obj)
     session.commit()
@@ -55,10 +50,12 @@ def get_user_by_email(*, session: Session, email: str) -> User | None:
     session_user = session.exec(statement).first()
     return session_user
 
+
 def get_study_site_by_id(*, session: Session, id: uuid.UUID) -> StudySite | None:
     statement = select(StudySite).where(StudySite.id == id)
     study_site_user = session.exec(statement).first()
     return study_site_user
+
 
 def authenticate(*, session: Session, email: str, password: str) -> User | None:
     db_user = get_user_by_email(session=session, email=email)
@@ -78,7 +75,10 @@ def create_item(*, session: Session, item_in: ItemCreate, owner_id: uuid.UUID) -
 
 
 def get_all_items(
-    *, session: Session, skip: int = 0, limit: int = 500
+    *,
+    session: Session,
+    skip: int = 0,
+    limit: int = 500,
 ) -> Sequence[Item]:
     statement = select(Item).offset(skip).limit(limit)
     return session.exec(statement).all()
@@ -91,7 +91,10 @@ def get_tag(session: Session, tag_id: int) -> Tag | None:
 
 
 def get_tags(
-    session: Session, owner_id: uuid.UUID | None = None, skip: int = 0, limit: int = 100
+    session: Session,
+    owner_id: uuid.UUID | None = None,
+    skip: int = 0,
+    limit: int = 100,
 ) -> tuple[list[Tag], int]:
     """Retrieve tags with optional filtering by owner_id.
 
@@ -132,7 +135,10 @@ def create_tag(session: Session, tag_in: TagCreate, owner_id: uuid.UUID) -> Tag:
 
 
 def update_tag(
-    session: Session, tag_id: int, tag_in: TagCreate, owner_id: uuid.UUID
+    session: Session,
+    tag_id: int,
+    tag_in: TagCreate,
+    owner_id: uuid.UUID,
 ) -> Tag | None:
     """Update a tag by ID if owner matches; returns updated tag or None if not
     found."""
@@ -205,7 +211,9 @@ def get_creators(
 
 
 def create_creator(
-    session: Session, creator_in: CreatorCreate, item_id: uuid.UUID
+    session: Session,
+    creator_in: CreatorCreate,
+    item_id: uuid.UUID,
 ) -> Creator:
     """Create a new Creator with linked item_id."""
     creator = Creator.model_validate(creator_in, update={"item_id": item_id})
@@ -274,7 +282,9 @@ def get_relations(
 
 
 def create_relation(
-    session: Session, relation_in: RelationCreate, item_id: uuid.UUID
+    session: Session,
+    relation_in: RelationCreate,
+    item_id: uuid.UUID,
 ) -> Relation:
     """Create a new Relation associated with an item."""
     relation = Relation.model_validate(relation_in, update={"item_id": item_id})
@@ -317,17 +327,24 @@ def delete_relation(session: Session, relation_id: int) -> bool:
 
 
 def create_collection(
-    session: Session, collection_in: CollectionCreate, item_id: uuid.UUID, owner_id: uuid.UUID
+    session: Session,
+    collection_in: CollectionCreate,
+    item_id: uuid.UUID,
+    owner_id: uuid.UUID,
 ) -> Collection:
     """Create a new Collection associated with an item."""
-    collection = Collection.model_validate(collection_in, update={"item_id": item_id, "owner_id": owner_id})
+    collection = Collection.model_validate(
+        collection_in, update={"item_id": item_id, "owner_id": owner_id}
+    )
     session.add(collection)
     session.commit()
     session.refresh(collection)
     return collection
 
 
-def update_study_site(*, session: Session, db_study_site: StudySite, study_site_in: dict[str, Any]) -> StudySite:
+def update_study_site(
+    *, session: Session, db_study_site: StudySite, study_site_in: dict[str, Any]
+) -> StudySite:
     study_site_data = study_site_in.model_dump(exclude_unset=True)
     extra_data = {
         "confidence_score": 1.0,

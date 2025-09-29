@@ -1,7 +1,12 @@
 from polyfactory.factories.pydantic_factory import ModelFactory
 from polyfactory.fields import Use
 
-from app.models import CollectionCreate, CreatorCreate, ItemCreate, RelationCreate, TagCreate, User, UserCreate
+from app.models.collections import CollectionCreate
+from app.models.creators import CreatorCreate
+from app.models.items import ItemCreate
+from app.models.relations import RelationCreate
+from app.models.tags import TagCreate
+from app.models.users import User
 from tests.utils.utils import random_email
 
 

@@ -1,13 +1,19 @@
-import uuid
+# pyright: reportAny=false
+from __future__ import annotations
 
-from fastapi.testclient import TestClient
-from sqlmodel import Session
+import uuid
+from typing import TYPE_CHECKING
 
 from app import crud
 from app.core.config import settings
-from app.models import Item, User, UserUpdate
+from app.models.items import Item
+from app.models.users import User, UserUpdate
 from tests.factories import ItemFactory
 from tests.utils.item import create_random_item
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
+    from sqlmodel import Session
 
 # TODO: Add tests for filtering, pagination, and sorting
 # TODO: Add tests for more zotero import actions
@@ -149,7 +155,7 @@ def test_update_item(
         json=data,
     )
     assert response.status_code == 200
-    content = response.json()  # pyright: ignore[reportAny]
+    content = response.json()
     assert content["title"] == data["title"]
     assert content["description"] == data["description"]
     assert content["id"] == str(item.id)

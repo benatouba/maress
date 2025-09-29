@@ -3,7 +3,7 @@ from sqlmodel import Session
 
 from app import crud
 from app.core.config import settings
-from app.models import User, UserCreate, UserUpdate
+from app.models.users import User, UserCreate, UserUpdate
 from tests.utils.utils import random_lower_string
 
 
@@ -33,16 +33,26 @@ def create_test_user(
 ) -> User:
     """Create a test user with proper credentials."""
     from app.core.security import get_password_hash
-    from app.models import User
     from tests.factories import UserFactory
 
     # Use settings credentials for superuser, test credentials for regular user
     if is_superuser:
         email = email or settings.FIRST_SUPERUSER
         password = password or settings.FIRST_SUPERUSER_PASSWORD
-        user = UserFactory.build(is_superuser=True, is_active=True, email=email, zotero_user_id=zotero_user_id, zotero_api_key=zotero_api_key)
+        user = UserFactory.build(
+            is_superuser=True,
+            is_active=True,
+            email=email,
+            zotero_user_id=zotero_user_id,
+            zotero_api_key=zotero_api_key,
+        )
     else:
-        user = UserFactory.build(is_active=True, is_superuser=False, zotero_user_id=zotero_user_id, zotero_api_key=zotero_api_key)
+        user = UserFactory.build(
+            is_active=True,
+            is_superuser=False,
+            zotero_user_id=zotero_user_id,
+            zotero_api_key=zotero_api_key,
+        )
         password = password if password is not None else random_lower_string()
 
     user.hashed_password = get_password_hash(password)
