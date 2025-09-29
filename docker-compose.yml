@@ -28,7 +28,7 @@ services:
       - db
       - redis
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/research_mapper
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/maress
       - REDIS_URL=redis://redis:6379/0
     ports:
       - "8000:8000"
@@ -44,7 +44,7 @@ services:
       - db
       - redis
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/research_mapper
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/maress
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
