@@ -87,12 +87,30 @@ A modern web application for mapping research papers geographically using Vue.js
      bash scripts/prestart.sh # Warning: This will reset the database!
      uv run fastapi run --reload
      ```
-     and in another terminal, start the [Celery](https://github.com/celery/celery) worker:
+
+     and in another terminal, start a [Redis](https://redis.io/) instance and then the [Celery](https://github.com/celery/celery) worker(s).
+     [Redis](https://redis.io/) can most easily be started with Docker:
+
+     ```bash
+     docker run -d -p 6379:6379 redis
+     ```
+
+     This will load the Redis server in a Docker container and map the default port `6379` to your localhost.
+     In case you you have `redis` installed locally (and it uses the default port `6379`), you can also start it with:
+
+     ```bash
+     redis-server
+     ```
+
+     Then, start the Celery worker(s):
+
      ```bash
      cd backend
      uv run celery -A app.celery_app worker --loglevel=info --concurrency=2
      ```
+
      start `mailhog` for email during development (refer to [backend/README.md](backend/README.md) for installation details):
+
      ```bash
      mailhog
      ```
