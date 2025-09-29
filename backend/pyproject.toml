@@ -139,6 +139,9 @@ select = [
 	"PLC0415",
 ]
 
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 [tool.ruff.format]
 docstring-code-line-length = 100
 docstring-code-format = true
