@@ -1,5 +1,7 @@
 words = [
     "alphanums",
+    "authorization",
+    "autocommit",
     "clusterer",
     "cov",
     "dap",
