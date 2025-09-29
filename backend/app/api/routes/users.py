@@ -1,3 +1,4 @@
+# pyright: reportAny=false
 import uuid
 from typing import Any
 
@@ -12,9 +13,9 @@ from app.api.deps import (
 )
 from app.core.config import settings
 from app.core.security import get_password_hash, verify_password
-from app.models import (
-    Item,
-    Message,
+from app.models.items import Item
+from app.models.messages import Message
+from app.models.users import (
     UpdatePassword,
     User,
     UserCreate,
@@ -29,11 +30,7 @@ from app.utils import generate_new_account_email, send_email
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get(
-    "/",
-    dependencies=[Depends(get_current_active_superuser)],
-    response_model=UsersPublic,
-)
+@router.get("/", dependencies=[Depends(get_current_active_superuser)])
 def read_users(session: SessionDep, skip: int = 0, limit: int = 100) -> UsersPublic:
     """Retrieve users."""
     count_statement = select(func.count()).select_from(User)
@@ -164,7 +161,7 @@ def register_user(session: SessionDep, user_in: UserRegister) -> Any:
 
 
 @router.get("/{user_id}", response_model=UserPublic)
-def read_user_by_id(
+def read_user_by_id(  
     user_id: uuid.UUID,
     session: SessionDep,
     current_user: CurrentUser,
@@ -186,7 +183,7 @@ def read_user_by_id(
     dependencies=[Depends(get_current_active_superuser)],
     response_model=UserPublic,
 )
-def update_user(
+def update_user(  
     *,
     session: SessionDep,
     user_id: uuid.UUID,
@@ -207,8 +204,7 @@ def update_user(
                 detail="User with this email already exists",
             )
 
-    db_user = crud.update_user(session=session, db_user=db_user, user_in=user_in)
-    return db_user
+    return crud.update_user(session=session, db_user=db_user, user_in=user_in)
 
 
 @router.delete("/{user_id}", dependencies=[Depends(get_current_active_superuser)])

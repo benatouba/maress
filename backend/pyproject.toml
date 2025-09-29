@@ -138,6 +138,15 @@ select = [
 	"D",
 	"PLC0415",
 ]
+"app/models/*.py" = [
+	"D101",    # Ignore missing docstrings in models
+	"N815",    # Allow mixedCase model names
+]
+"app/api/routes/*.py" = [
+	"D101",    # Ignore missing docstrings in route handlers
+	"ANN401", # Allow Any type in route handlers
+	"ANN201", # Allow missing return type in route handlers
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

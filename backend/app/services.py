@@ -6,7 +6,7 @@ from spacy.language import Language
 from spacy.tokens import Doc
 from spacy_layout import spaCyLayout
 
-from app.models import User
+from app.models.users import User
 
 
 class Zotero(zotero.Zotero):

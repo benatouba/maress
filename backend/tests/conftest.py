@@ -8,10 +8,15 @@ from sqlalchemy.orm import sessionmaker
 from sqlmodel import Session, SQLModel
 
 from app.core.config import settings
-from app.core.db import get_session
 from app.main import app
-from app.models import *  # Import all models  # noqa: F403
-from app.models import User
+from app.models.collections import Collection  # noqa: F401
+from app.models.creators import Creator  # noqa: F401
+from app.models.items import Item  # noqa: F401
+from app.models.links import ItemTagLink  # noqa: F401
+from app.models.relations import Relation  # noqa: F401
+from app.models.study_sites import StudySite  # noqa: F401
+from app.models.tags import Tag  # noqa: F401
+from app.models.users import User
 from app.services import SpaCyModelManager
 
 # Create a separate test database
@@ -100,6 +105,7 @@ def db_session(setup_fresh_db_per_test) -> Generator[Session, None, None]:
 def client(db_session: Session) -> Generator[TestClient, None, None]:
     """Test client with overridden database session."""
     from app.api.deps import get_db
+
     def override_get_session() -> Generator[Session, None, None]:
         yield db_session
 
@@ -128,6 +134,7 @@ def test_superuser(db_session: Session) -> User:
         password=settings.FIRST_SUPERUSER_PASSWORD,
         is_superuser=True,
     )
+
 
 @pytest.fixture
 def superuser_token_headers(
@@ -165,5 +172,3 @@ def model_manager() -> SpaCyModelManager:
 @pytest.fixture(scope="module")
 def example_pdf_path() -> Path:
     return (Path(__file__).parent / "zotero_files").resolve().glob("*.pdf").__next__()
-
-

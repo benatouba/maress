@@ -1,3 +1,4 @@
+# pyright: reportAny=false
 from unittest.mock import MagicMock, patch
 
 from sqlmodel import select
@@ -10,8 +11,8 @@ def test_init_successful_connection() -> None:
 
     session_mock = MagicMock()
     session_mock.exec = MagicMock(return_value=True)
-    session_mock.__enter__.return_value = session_mock  # pyright: ignore[reportAny]
-    session_mock.__exit__.return_value = None  # pyright: ignore[reportAny]
+    session_mock.__enter__.return_value = session_mock
+    session_mock.__exit__.return_value = None
 
     with (
         patch("app.backend_pre_start.Session", return_value=session_mock),

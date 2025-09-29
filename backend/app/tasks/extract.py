@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session  # noqa: TC002
 
 from app.celery_app import celery
 from app.core.db import SessionLocal
-from app.models import Item, StudySite
+from app.models.items import Item
+from app.models.study_sites import StudySite
 from app.nlp.find_my_home import StudySiteExtractor  # your extractor service
 
 logger = logging.getLogger(__name__)
