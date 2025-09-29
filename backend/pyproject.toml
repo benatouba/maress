@@ -137,6 +137,8 @@ select = [
 	"S101",
 	"D",
 	"PLC0415",
+	"ARG001",  # allow unused args in tests
+	"PLR2004", # allow magic numbers in tests
 ]
 "app/models/*.py" = [
 	"D101",    # Ignore missing docstrings in models
@@ -144,8 +146,8 @@ select = [
 ]
 "app/api/routes/*.py" = [
 	"D101",    # Ignore missing docstrings in route handlers
-	"ANN401", # Allow Any type in route handlers
-	"ANN201", # Allow missing return type in route handlers
+	"ANN401",  # Allow Any type in route handlers
+	"ANN201",  # Allow missing return type in route handlers
 ]
 
 [tool.ruff.lint.pydocstyle]

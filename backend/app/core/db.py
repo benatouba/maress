@@ -1,3 +1,4 @@
+# pyright: reportUnusedImport=false
 from collections.abc import Generator
 
 from sqlalchemy.orm import sessionmaker
