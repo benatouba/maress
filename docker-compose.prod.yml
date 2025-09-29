@@ -4,7 +4,7 @@ services:
   db:
     image: postgis/postgis:15-3.3
     environment:
-      POSTGRES_DB: research_mapper
+      POSTGRES_DB: maress
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
@@ -25,7 +25,7 @@ services:
       - db
       - redis
     environment:
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/research_mapper
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/maress
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY}
     restart: unless-stopped
@@ -38,7 +38,7 @@ services:
       - db
       - redis
     environment:
-      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/research_mapper
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/maress
       - REDIS_URL=redis://redis:6379/0
     command: celery -A app.tasks.celery_app worker --loglevel=info
     restart: unless-stopped
