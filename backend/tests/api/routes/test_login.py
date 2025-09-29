@@ -6,13 +6,13 @@ from sqlmodel import Session
 from app.core.config import settings
 from app.core.security import verify_password
 from app.crud import create_user
-from app.models import UserCreate
+from app.models import User, UserCreate
 from app.utils import generate_password_reset_token
 from tests.utils.user import user_authentication_headers
 from tests.utils.utils import random_email, random_lower_string
 
 
-def test_get_access_token(client: TestClient, test_superuser, db_session: Session) -> None:
+def test_get_access_token(client: TestClient, test_superuser: User, db_session: Session) -> None:
     # Preconditions
     assert test_superuser.email == settings.FIRST_SUPERUSER
     assert test_superuser.is_superuser is True
@@ -57,16 +57,14 @@ def test_use_access_token(
 
 def test_recovery_password(
     client: TestClient,
-    normal_user_token_headers: dict[str, str],
+    test_superuser: User,
 ) -> None:
     with (
         patch("app.core.config.settings.SMTP_HOST", "smtp.example.com"),
         patch("app.core.config.settings.SMTP_USER", "admin@example.com"),
     ):
-        email = "test@example.com"
         r = client.post(
-            f"{settings.API_V1_STR}/password-recovery/{email}",
-            headers=normal_user_token_headers,
+            f"{settings.API_V1_STR}/password-recovery/{test_superuser.email}",
         )
         assert r.status_code == 200
         assert r.json() == {"message": "Password recovery email sent"}

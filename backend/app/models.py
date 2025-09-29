@@ -132,6 +132,13 @@ class UserRegister(SQLModel):
 class UserUpdate(UserBase):
     email: EmailStr | None = Field(default=None, max_length=255)  # pyright: ignore[reportIncompatibleVariableOverride]
     password: str | None = Field(default=None, min_length=8, max_length=40)
+    full_name: str | None = Field(default=None, max_length=255)
+    zotero_id: str | None = Field(default=None, max_length=32)
+    enc_zotero_api_key: str | None = Field(
+        default=None,
+        alias="zotero_api_key",
+        description="Your Zotero API key. It will be encrypted for security",
+    )
 
 
 class UserUpdateMe(SQLModel):

@@ -28,6 +28,8 @@ def create_test_user(
     email: str | None = None,
     password: str | None = None,
     is_superuser: bool = False,
+    zotero_user_id: str | None = None,
+    zotero_api_key: str | None = None,
 ) -> User:
     """Create a test user with proper credentials."""
     from app.core.security import get_password_hash
@@ -38,9 +40,9 @@ def create_test_user(
     if is_superuser:
         email = email or settings.FIRST_SUPERUSER
         password = password or settings.FIRST_SUPERUSER_PASSWORD
-        user = UserFactory.build(is_superuser=True, is_active=True, email=email)
+        user = UserFactory.build(is_superuser=True, is_active=True, email=email, zotero_user_id=zotero_user_id, zotero_api_key=zotero_api_key)
     else:
-        user = UserFactory.build(is_active=True)
+        user = UserFactory.build(is_active=True, is_superuser=False, zotero_user_id=zotero_user_id, zotero_api_key=zotero_api_key)
         password = password if password is not None else random_lower_string()
 
     user.hashed_password = get_password_hash(password)
@@ -66,7 +68,7 @@ def authentication_token_from_email(
     password = random_lower_string()
     user = crud.get_user_by_email(session=db, email=email)
     if not user:
-        user_in_create = UserCreate(email=email, password=password)
+        user_in_create = UserCreate(email=email, password=password, is_superuser=False)
         user = crud.create_user(session=db, user_create=user_in_create)
     else:
         user_in_update = UserUpdate(password=password)

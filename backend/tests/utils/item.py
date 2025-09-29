@@ -3,7 +3,8 @@ from datetime import datetime
 from sqlmodel import Session
 
 from app import crud
-from app.models import Collection, Creator, Item, Relation, Tag
+from app.core.config import settings
+from app.models import Collection, Creator, Item, Relation, Tag, UserUpdate
 from tests.factories import (
     CollectionFactory,
     CreatorFactory,

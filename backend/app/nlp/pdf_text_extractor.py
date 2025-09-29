@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, field_serializer
 from spacy.tokens import Doc, Span
 
-from app.services import model_manager
+from app.services import SpaCyModelManager
 
 # Type aliases for better readability
 PathLike = str | Path
@@ -56,9 +56,9 @@ class PyPDFTextExtractor:
     geographic coordinates.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, model_manager: SpaCyModelManager | None) -> None:
         """Initialize the PDF text extractor."""
-        self.model_manager = model_manager
+        self.model_manager: SpaCyModelManager = model_manager or SpaCyModelManager()
 
     def clean_document_text(self, doc: Doc) -> list[Span]:
         """Remove headers, footers, author info, and other metadata.
