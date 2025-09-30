@@ -37,6 +37,7 @@ words = [
     "noqa",
     "norp",
     "omp",
+    "onupdate",
     "polyfactory",
     "pydantic",
     "pyright",
