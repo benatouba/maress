@@ -6,18 +6,17 @@ from datetime import datetime
 from .factories import timestamp_field
 from typing import TYPE_CHECKING
 
-from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
+from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.collections import Collection
-from app.models.creators import Creator
-from app.models.links import ItemTagLink
-from app.models.relations import Relation
-from app.models.study_sites import StudySite
-from app.models.tags import Tag
-from app.models.users import User
+from .collections import Collection
+from .creators import Creator
+from .links import ItemTagLink
+from .relations import Relation
+from .tags import Tag
+from .users import User
 
 if TYPE_CHECKING:
-    from app.models.study_sites import StudySite
+    from .study_sites import StudySite
 
 
 # Shared properties

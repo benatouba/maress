@@ -1,10 +1,10 @@
-# pyright: reportAny=false
+# pyright: reportAny=false, reportIncompatibleVariableOverride=false
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
-from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel, func
+from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
 from maress_types import (
     CoordinateExtractionMethod,
@@ -15,7 +15,7 @@ from maress_types import (
 from .factories import timestamp_field
 
 if TYPE_CHECKING:
-    from app.models.items import Item
+    from .items import Item
 
 
 class StudySiteBase(SQLModel):

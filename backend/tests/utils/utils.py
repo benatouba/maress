@@ -1,10 +1,13 @@
-import random
-import string
+from __future__ import annotations
 
-from fastapi.testclient import TestClient
-from sqlmodel import Session
+import secrets
+import string
+from typing import TYPE_CHECKING
 
 from app.core.config import settings
+
+if TYPE_CHECKING:
+    from fastapi.testclient import TestClient
 
 
 alphabet = string.ascii_letters.lower() + string.digits
@@ -22,7 +25,7 @@ def get_superuser_token_headers(client: TestClient) -> dict[str, str]:
         "password": settings.FIRST_SUPERUSER_PASSWORD,
     }
     r = client.post(f"{settings.API_V1_STR}/login/access-token", data=login_data)
-    tokens = r.json()
-    a_token = tokens["access_token"]
+    tokens = r.json()  # pyright: ignore[reportAny]
+    a_token = tokens["access_token"]  # pyright: ignore[reportAny]
     headers: dict[str, str] = {"Authorization": f"Bearer {a_token}"}
     return headers
