@@ -3,6 +3,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
 
@@ -13,6 +14,9 @@ from app.models.relations import Relation
 from app.models.study_sites import StudySite
 from app.models.tags import Tag
 from app.models.users import User
+
+if TYPE_CHECKING:
+    from app.models.study_sites import StudySite
 
 
 # Shared properties
@@ -114,12 +118,7 @@ class Item(ItemBase, table=True):
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
     relations: list[Relation] = Relationship(back_populates="item")
-    study_site_id: uuid.UUID | None = Field(
-        default=None,
-        foreign_key="studysite.id",
-        unique=True,
-    )
-    study_site: StudySite | None = Relationship(back_populates="item")
+    study_sites: list[StudySite] | None = Relationship(back_populates="item", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
     key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
 
 
@@ -127,8 +126,7 @@ class Item(ItemBase, table=True):
 class ItemPublic(ItemBase):
     id: uuid.UUID
     owner_id: uuid.UUID
-    study_site_id: uuid.UUID | None
-    study_site: StudySite | None
+    study_sites: list[StudySite] | None
 
 
 class ItemsPublic(SQLModel):
