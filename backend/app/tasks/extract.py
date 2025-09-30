@@ -68,60 +68,131 @@ def extract_study_site_task(
             item = _read_item(session, user_uuid, item_uuid, is_superuser=is_superuser)
 
             # Skip if already present and not forced
-            if item.study_site_id and not force:
+            if item.study_sites and not force:
+                existing_ids = [str(site.id) for site in item.study_sites]
                 return {
                     "item_id": item_id,
-                    "study_site_id": str(item.study_site_id),
+                    "study_site_ids": existing_ids,
+                    "count": len(existing_ids),
                     "status": "skipped",
+                    "message": f"Item already has {len(existing_ids)} study site(s)",
                 }
 
             if not item.attachment:
                 logger.warning("Item %s has no attachment", item.id)
-                return {"item_id": item_id, "study_site_id": None, "status": "no_attachment"}
+                return {
+                    "item_id": item_id,
+                    "study_site_ids": [],
+                    "count": 0,
+                    "status": "no_attachment",
+                    "message": "Item has no PDF attachment",
+                }
 
             path = Path(item.attachment).resolve(strict=True)
 
             extractor = StudySiteExtractor()
-            result = extractor.extract_study_site(path, title=item.title or None)
+            result = extractor.extract_study_sites(path, title=item.title or None)
 
             if not result or not result.primary_study_site:
                 logger.warning("Study site not found for item %s", item.id)
-                return {"item_id": item_id, "study_site_id": None, "status": "not_found"}
+                return {
+                    "item_id": item_id,
+                    "study_site_ids": [],
+                    "count": 0,
+                    "status": "not_found",
+                    "message": "No study sites found in document",
+                }
 
+            # Handle primary study site
             primary = result.primary_study_site
-            study_site = StudySite(
-                validation_score=result.validation_score,
+            primary_create = StudySiteCreate(
+                name=primary.name,
                 latitude=primary.latitude,
                 longitude=primary.longitude,
                 confidence_score=primary.confidence_score,
-                source_type=primary.source_type,
                 context=primary.context,
-                section=primary.section,
-                name=primary.name,
                 extraction_method=primary.extraction_method,
-                owner_id=user_uuid,
+                section=primary.section,
+                source_type=primary.source_type,
+                validation_score=result.validation_score,
+                item_id=item.id,
+            )
+            created = create_study_site(session, primary_create)
+            logger.info(
+                "Created study site for item %s: %s",
+                item_id,
+                created.id,
             )
 
-            session.add(study_site)
-            session.flush()  # to get study_site.id without committing yet
+            study_sites = [
+                StudySiteCreate(
+                    name=site.name,
+                    latitude=site.latitude,
+                    longitude=site.longitude,
+                    confidence_score=site.confidence_score,
+                    context=site.context,
+                    extraction_method=site.extraction_method,
+                    section=site.section,
+                    source_type=site.source_type,
+                    validation_score=result.validation_score,
+                    item_id=item.id,
+                    # is_primary=False,
+                )
+                for site in result.coordinates
+            ]
 
-            item.study_site_id = study_site.id
-            session.add(item)
-            session.commit()
-            session.refresh(item)
-
+            study_site_ids = [str(created.id)]
+            study_site_ids.extend(str(site.id) for site in study_sites)
             return {
                 "item_id": item_id,
-                "study_site_id": str(item.study_site_id),
+                "study_site_ids": study_site_ids,
+                "count": len(study_site_ids),
                 "status": "created",
+                "message": f"Successfully created primary study site {created.id} study site(s)",
+                "primary_site_id": str(created.id),
+                "extraction_metadata": {
+                    "validation_score": result.validation_score,
+                    "extraction_method": primary.extraction_method,
+                    "source_type": primary.source_type,
+                },
             }
+
     except FileNotFoundError as e:
         msg = f"Attachment file not found for item {item_id}"
+        logger.exception(msg)
+        self.update_state(
+            state=states.FAILURE,
+            meta={
+                "reason": "file_not_found",
+                "message": msg,
+                "item_id": item_id,
+            },
+        )
         raise FileNotFoundError(msg) from e
 
     except PermissionError:
-        self.update_state(state=states.FAILURE, meta={"reason": "permission_denied"})
+        msg = f"Permission denied for item {item_id}"
+        logger.exception(msg)
+        self.update_state(
+            state=states.FAILURE,
+            meta={
+                "reason": "permission_denied",
+                "message": msg,
+                "item_id": item_id,
+            },
+        )
         raise
-    except Exception:
-        logger.exception("extract_study_site_task failed for item %s", item_id)
+
+    except Exception as e:
+        msg = f"extract_study_site_task failed for item {item_id}: {e!s}"
+        logger.exception(msg)
+        self.update_state(
+            state=states.FAILURE,
+            meta={
+                "reason": "extraction_error",
+                "message": msg,
+                "item_id": item_id,
+                "error_type": type(e).__name__,
+            },
+        )
         raise

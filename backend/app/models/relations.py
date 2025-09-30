@@ -1,13 +1,18 @@
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlmodel import Field, Relationship, SQLModel
+
+from .factories import timestamp_field
 
 if TYPE_CHECKING:
     from app.models.items import Item
 
 
 class RelationBase(SQLModel):
+    created_at: datetime = timestamp_field()
+    updated_at: datetime = timestamp_field(onupdate_now=True)
     key: str = Field(max_length=255)
     value: str = Field(max_length=255)
 

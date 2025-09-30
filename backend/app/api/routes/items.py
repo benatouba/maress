@@ -361,7 +361,7 @@ def start_extract_study_site(
 
     if not force:
         # Only process items without a study site
-        items = [item for item in items if not item.study_site_id]
+        items = [item for item in items if not item.study_sites]
 
     # Enqueue tasks
     enqueued: list[TaskRef] = []

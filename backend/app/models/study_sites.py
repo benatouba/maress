@@ -1,7 +1,7 @@
 # pyright: reportAny=false
 import uuid
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Optional
+from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
 from sqlmodel import Column, DateTime, Enum, Field, Relationship, SQLModel, func
@@ -12,6 +12,8 @@ from maress_types import (
     PaperSections,
 )
 
+from .factories import timestamp_field
+
 if TYPE_CHECKING:
     from app.models.items import Item
 
@@ -19,6 +21,8 @@ if TYPE_CHECKING:
 class StudySiteBase(SQLModel):
     """Database model for study site extraction results."""
 
+    created_at: datetime = timestamp_field()
+    updated_at: datetime = timestamp_field(onupdate_now=True)
     confidence_score: float
     context: str
     extraction_method: CoordinateExtractionMethod
