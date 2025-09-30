@@ -4,15 +4,16 @@ import logging
 import uuid
 from typing import TYPE_CHECKING
 
+from pydantic_extra_types.coordinate import Latitude, Longitude
 from sqlalchemy.orm import selectinload
-from sqlmodel import func, select
+from sqlmodel import Session, func, select
 
 from app.core.security import get_password_hash, verify_password
 from app.models.collections import Collection, CollectionCreate
 from app.models.creators import Creator, CreatorCreate
 from app.models.items import Item, ItemCreate
 from app.models.relations import Relation, RelationCreate
-from app.models.study_sites import StudySite, StudySiteUpdate
+from app.models.study_sites import Location, StudySite, StudySiteCreate, StudySiteUpdate
 from app.models.tags import Tag, TagCreate
 from app.models.users import (
     User,
@@ -367,3 +368,62 @@ def update_study_site(
     session.commit()
     session.refresh(db_study_site)
     return db_study_site
+
+
+def get_location_by_lat_lon(
+    *,
+    session: Session,
+    latitude: Latitude,
+    longitude: Longitude,
+) -> Location | None:
+    statement = select(Location).where(
+        Location.latitude == float(latitude),
+        Location.longitude == float(longitude),
+    )
+    return session.exec(statement).first()
+
+
+def create_study_site(
+    session: Session,
+    study_site_data: StudySiteCreate,
+) -> StudySite:
+    """Create a study site with location deduplication."""
+    location_id = study_site_data.location_id
+
+    if (
+        location_id is None
+        and study_site_data.latitude is not None
+        and study_site_data.longitude is not None
+    ):
+        # Check for existing location
+        existing_location = get_location_by_lat_lon(
+            session=session,
+            latitude=study_site_data.latitude,
+            longitude=study_site_data.longitude,
+        )
+
+        if existing_location:
+            location_id = existing_location.id
+        else:
+            # Create new location
+            location = Location(
+                latitude=study_site_data.latitude,
+                longitude=study_site_data.longitude,
+            )
+            session.add(location)
+            session.commit()
+            session.refresh(location)
+            location_id = location.id
+
+    # Create study site
+    study_site_dict = study_site_data.model_dump(
+        exclude={"latitude", "longitude", "location_id"},
+    )
+    study_site_dict["location_id"] = location_id
+
+    study_site = StudySite(**study_site_dict) # pyright: ignore[reportAny]
+    session.add(study_site)
+    session.commit()
+    session.refresh(study_site)
+
+    return study_site

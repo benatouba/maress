@@ -3,15 +3,20 @@ from __future__ import annotations
 import logging
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from celery import states
 from sqlalchemy.orm import Session  # noqa: TC002
 
 from app.celery_app import celery
 from app.core.db import SessionLocal
+from app.crud import create_study_site
 from app.models.items import Item
-from app.models.study_sites import StudySite
+from app.models.study_sites import StudySiteCreate
 from app.nlp.find_my_home import StudySiteExtractor  # your extractor service
+
+if TYPE_CHECKING:
+    from celery import Task
 
 logger = logging.getLogger(__name__)
 
@@ -41,23 +46,22 @@ def _read_item(
     max_retries=3,
 )
 def extract_study_site_task(
-    self,
+    self: Task[Any],  # pyright: ignore[reportInvalidTypeArguments, reportUnknownParameterType]
     *,
     item_id: str,
     user_id: str,
     is_superuser: bool,
     force: bool = False,
-) -> dict[str, str | None]:
+) -> dict[str, str | int | list[str]]:
     """Extract study site from an item's PDF attachment.
 
     Steps:
     - Validates permissions
     - Runs StudySiteExtractor if needed
-    - Persists StudySite and updates Item.study_site_id
+    - Creates new StudySite linked to Item via one-to-many relationship
 
     Returns:
-        Minimal result to track progress and outcome.
-
+        Dict with extraction results including study site IDs and metadata.
     """
     try:
         with SessionLocal() as session:
