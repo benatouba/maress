@@ -149,6 +149,9 @@ select = [
 	"ANN401",  # Allow Any type in route handlers
 	"ANN201",  # Allow missing return type in route handlers
 ]
+"app/crud/*.py" = [
+	"D103",    # Ignore missing docstrings in CRUD modules
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
