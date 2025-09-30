@@ -1,6 +1,10 @@
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
 from sqlmodel import Field, Relationship, SQLModel
+
+if TYPE_CHECKING:
+    from app.models.items import Item
 
 
 class RelationBase(SQLModel):

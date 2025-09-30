@@ -1,9 +1,13 @@
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.links import ItemTagLink
 from app.models.users import User
+
+if TYPE_CHECKING:
+    from app.models.items import Item, ItemSummary
 
 
 class TagBase(SQLModel):
@@ -16,8 +20,6 @@ class Tag(TagBase, table=True):
     items: list["Item"] = Relationship(back_populates="tags", link_model=ItemTagLink)
     owner_id: uuid.UUID = Field(
         foreign_key="user.id",
-        nullable=True,
-        ondelete="SET NULL",
     )
     owner: User | None = Relationship(back_populates="tags")
 
