@@ -1,10 +1,16 @@
+# pyright: reportAny=false
 import uuid
+from typing import TYPE_CHECKING
 
 from pydantic import EmailStr, field_serializer, field_validator  # noqa: TC002
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.core.security import cipher_suite
 from app.models.collections import Collection
+
+if TYPE_CHECKING:
+    from app.models.items import Item
+    from app.models.tags import Tag
 
 
 # Shared properties
