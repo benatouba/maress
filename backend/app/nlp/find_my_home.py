@@ -647,11 +647,10 @@ class CoordinateClusterer:
     def cluster_coordinates(
         self,
         candidates: list[CoordinateCandidate],
-    ) -> dict[int, list[CoordinateCandidate]]:
-        """Cluster coordinates and return all clusters, not just the
-        largest."""
+    ) -> list[CoordinateCandidate]:
+        """Cluster coordinates and return the largest cluster only."""
         if len(candidates) <= 1:
-            return {0: candidates}
+            return candidates
 
         # Extract coordinates for clustering
         coords = [(float(c.latitude), float(c.longitude)) for c in candidates]
@@ -665,31 +664,36 @@ class CoordinateClusterer:
         eps_rad = self.eps_km / earth_radius_km
 
         # Perform clustering
-        clustering = DBSCAN(
+        clustering: DBSCAN = DBSCAN(
             eps=eps_rad,
             min_samples=self.min_samples,
             metric="haversine",
         ).fit(X)
 
+        # Get cluster labels
+        labels = clustering.labels_
+
         # Group candidates by cluster
-        clusters = {}
-        for i, (candidate, label) in enumerate(
-            zip(candidates, clustering.labels_, strict=False),
-        ):
-            if label not in clusters:
-                clusters[label] = []
-            clusters[label].append(candidate)
+        clustered: dict[int, list[CoordinateCandidate]] = {}
+        for label, candidate in zip(labels, candidates, strict=False):
+            if label not in clustered:
+                clustered[label] = []
+            clustered[label].append(candidate)
 
-        logger.info(f"Found {len(clusters)} coordinate clusters")
+        logger.info(f"DBSCAN found {len(clustered)} clusters with eps={self.eps_km:.1f} km")
 
-        # If we have noise points (label -1) and other clusters,
-        # keep noise points as individual clusters
-        if -1 in clusters and len(clusters) > 1:
-            noise_points = clusters.pop(-1)
-            for i, point in enumerate(noise_points):
-                clusters[f"noise_{i}"] = [point]
+        # Return only the largest cluster
+        if not clustered:
+            return []
 
-        return clusters
+        largest_cluster_label = max(clustered.keys(), key=lambda k: len(clustered[k]))
+        largest_cluster = clustered[largest_cluster_label]
+
+        logger.info(
+            f"Returning largest cluster with {len(largest_cluster)} candidates (label {largest_cluster_label})",
+        )
+
+        return largest_cluster
 
     def estimate_optimal_eps(self, coordinates: list[tuple[float, float]]) -> float:
         """Estimate optimal eps based on k-distance plot heuristic."""
@@ -780,8 +784,7 @@ class StudySiteValidator:
             for unique in unique_candidates:
                 if (
                     abs(float(candidate.latitude) - float(unique.latitude)) < threshold
-                    and abs(float(candidate.longitude) - float(unique.longitude))
-                    < threshold
+                    and abs(float(candidate.longitude) - float(unique.longitude)) < threshold
                 ):
                     # Keep the one with higher final score
                     if candidate.final_score > unique.final_score:
@@ -805,9 +808,7 @@ class StudySiteValidator:
 
         # Weight by final score and number of sources
         total_score = sum(c.final_score for c in candidates[:5])  # Top 5 candidates
-        max_possible_score = (
-            ExtractionPriority.REGEX_COORDINATES + 1.0
-        )  # Max priority + confidence
+        max_possible_score = ExtractionPriority.REGEX_COORDINATES + 1.0  # Max priority + confidence
         avg_score = total_score / (min(len(candidates), 5) * max_possible_score)
 
         # Bonus for multiple extraction methods
@@ -944,38 +945,28 @@ class StudySiteExtractor:
     def _calculate_validation_score(
         self,
         candidates: list[CoordinateCandidate],
-        clusters: dict[str, Any],
     ) -> float:
-        """Calculate validation score considering extraction diversity and
-        clustering."""
+        """Calculate validation score for clustered coordinates."""
         if not candidates:
             return 0.0
 
         # Base score from candidate quality
         total_score = sum(c.final_score for c in candidates[:5])  # Top 5 candidates
-        max_possible_score = (
-            ExtractionPriority.REGEX_COORDINATES + 1.0
-        )  # Max priority + confidence
+        max_possible_score = ExtractionPriority.REGEX_COORDINATES + 9  # Max priority + confidence
         avg_score = total_score / (min(len(candidates), 5) * max_possible_score)
 
         # Bonus for extraction method diversity
-        extraction_methods = set(c.extraction_method for c in candidates)
+        extraction_methods = {c.extraction_method for c in candidates}
         diversity_bonus = len(extraction_methods) * 0.05
 
         # Bonus for having regex coordinates (most reliable)
         regex_bonus = (
             0.1
-            if any(
-                c.priority_score == ExtractionPriority.REGEX_COORDINATES
-                for c in candidates
-            )
+            if any(c.priority_score == ExtractionPriority.REGEX_COORDINATES for c in candidates)
             else 0.0
         )
 
-        # Penalty for having only noise points
-        clustering_penalty = 0.1 if len(clusters) == 1 and -1 in clusters else 0.0
-
-        final_score = avg_score + diversity_bonus + regex_bonus - clustering_penalty
+        final_score = avg_score + diversity_bonus + regex_bonus
         return min(max(final_score, 0.0), 1.0)
 
 

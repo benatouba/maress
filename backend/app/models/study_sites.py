@@ -27,8 +27,6 @@ class StudySiteBase(SQLModel):
     context: str
     extraction_method: CoordinateExtractionMethod
     item_id: uuid.UUID = Field(foreign_key="item.id", index=True)
-    latitude: Latitude
-    longitude: Longitude  # validates -180 <= value <= 180
     validation_score: float = 0.0
     source_type: CoordinateSourceType = Field(
         description="Type of source from which the study site was extracted",
@@ -43,11 +41,7 @@ class StudySiteBase(SQLModel):
         description="Name of the study site, if available",
         max_length=255,
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(UTC),
-        sa_column=Column(DateTime(timezone=True), onupdate=func.now()),
-    )
+    location_id: uuid.UUID = Field(foreign_key="location.id", index=True)
 
 
 class StudySite(StudySiteBase, table=True):
@@ -56,6 +50,7 @@ class StudySite(StudySiteBase, table=True):
         primary_key=True,
     )
     item: "Item" = Relationship(back_populates="study_sites")
+    location: "Location" = Relationship(back_populates="study_sites")
 
 
 class StudySiteUpdate(StudySiteBase):
@@ -82,4 +77,54 @@ class StudySitePublic(StudySiteBase):
 
 
 class StudySiteCreate(StudySiteBase):
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+    )
     item_id: uuid.UUID
+    latitude: Latitude | None = None
+    longitude: Longitude | None = None
+    location_id: uuid.UUID | None = None
+
+    def validate_location_or_coordinates(self) -> Self:
+        """Ensure either location_id or coordinates are provided."""
+        if self.location_id is None and (self.latitude is None or self.longitude is None):
+            msg = "Either location_id or both latitude and longitude must be provided."
+            raise ValueError(msg)
+        return self
+
+
+class LocationBase(SQLModel):
+    """Database model (base) for geographic locations."""
+
+    created_at: datetime = timestamp_field()
+    updated_at: datetime = timestamp_field(onupdate_now=True)
+    latitude: Latitude
+    longitude: Longitude  # validates -180 <= value <= 180
+
+
+class Location(LocationBase, table=True):
+    id: uuid.UUID = Field(
+        default_factory=uuid.uuid4,
+        primary_key=True,
+    )
+    study_sites: list[StudySite] = Relationship(back_populates="location")
+
+
+class LocationPublic(LocationBase):
+    id: uuid.UUID
+    study_sites: list[StudySitePublic]
+
+
+class LocationsPublic(SQLModel):
+    data: list[LocationPublic]
+    count: int
+
+
+class LocationUpdate(LocationBase):
+    latitude: Latitude
+    longitude: Longitude  # validates -180 <= value <= 180
+
+
+class LocationCreate(LocationBase):
+    pass

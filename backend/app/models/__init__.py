@@ -6,7 +6,16 @@ from .creators import Creator, CreatorCreate, CreatorPublic
 from .items import Item, ItemCreate, ItemPublic, ItemUpdate
 from .links import ItemTagLink
 from .relations import Relation, RelationCreate, RelationPublic
-from .study_sites import StudySite, StudySiteCreate, StudySitePublic, StudySiteUpdate
+from .study_sites import (
+    Location,
+    LocationCreate,
+    LocationPublic,
+    LocationUpdate,
+    StudySite,
+    StudySiteCreate,
+    StudySitePublic,
+    StudySiteUpdate,
+)
 from .tags import Tag, TagCreate, TagPublic
 from .users import User, UserCreate, UserPublic, UserUpdate
 
@@ -23,6 +32,10 @@ __all__ = [
     "ItemPublic",
     "ItemTagLink",
     "ItemUpdate",
+    "Location",
+    "LocationCreate",
+    "LocationPublic",
+    "LocationUpdate",
     "Relation",
     "RelationCreate",
     "RelationPublic",
