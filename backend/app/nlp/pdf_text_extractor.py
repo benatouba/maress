@@ -56,7 +56,7 @@ class PyPDFTextExtractor:
     geographic coordinates.
     """
 
-    def __init__(self, model_manager: SpaCyModelManager | None) -> None:
+    def __init__(self, model_manager: SpaCyModelManager | None = None) -> None:
         """Initialize the PDF text extractor."""
         self.model_manager: SpaCyModelManager = model_manager or SpaCyModelManager()
 
