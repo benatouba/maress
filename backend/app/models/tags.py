@@ -1,10 +1,13 @@
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.links import ItemTagLink
 from app.models.users import User
+
+from .factories import timestamp_field
 
 if TYPE_CHECKING:
     from app.models.items import Item, ItemSummary
@@ -22,6 +25,8 @@ class Tag(TagBase, table=True):
         foreign_key="user.id",
     )
     owner: User | None = Relationship(back_populates="tags")
+    created_at: datetime = timestamp_field()
+    updated_at: datetime = timestamp_field(onupdate_now=True)
 
 
 class TagCreate(TagBase):

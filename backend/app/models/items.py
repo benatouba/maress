@@ -2,7 +2,8 @@
 # pyright: reportAny=false
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
+from .factories import timestamp_field
 from typing import TYPE_CHECKING
 
 from sqlmodel import Column, DateTime, Field, Relationship, SQLModel, func
@@ -46,11 +47,8 @@ class ItemBase(SQLModel):
     callNumber: str = Field(default="", max_length=64)
     rights: str | None = Field(default=None, max_length=255)
     extra: str = Field(default="", max_length=255)
-    dateAdded: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
-    dateModified: datetime | None = Field(
-        default_factory=lambda: datetime.now(UTC),
-        sa_column=Column(DateTime(timezone=True), onupdate=func.now()),
-    )
+    dateAdded: datetime | None = timestamp_field()
+    dateModified: datetime | None = timestamp_field(onupdate_now=True)
     attachment: str | None = Field(default=None, max_length=512)
 
     # get datetime of string if type of dateAdded or dateModified is str
@@ -118,7 +116,10 @@ class Item(ItemBase, table=True):
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
     creators: list[Creator] = Relationship(back_populates="item")
     relations: list[Relation] = Relationship(back_populates="item")
-    study_sites: list[StudySite] | None = Relationship(back_populates="item", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    study_sites: list["StudySite"] | None = Relationship(
+        back_populates="item",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
     key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
 
 
@@ -126,7 +127,7 @@ class Item(ItemBase, table=True):
 class ItemPublic(ItemBase):
     id: uuid.UUID
     owner_id: uuid.UUID
-    study_sites: list[StudySite] | None
+    study_sites: list["StudySite"] | None
 
 
 class ItemsPublic(SQLModel):

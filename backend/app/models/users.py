@@ -1,5 +1,6 @@
 # pyright: reportAny=false
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pydantic import EmailStr, field_serializer, field_validator  # noqa: TC002
@@ -8,6 +9,8 @@ from sqlmodel import Field, Relationship, SQLModel
 from app.core.security import cipher_suite
 from app.models.collections import Collection
 
+from .factories import timestamp_field
+
 if TYPE_CHECKING:
     from app.models.items import Item
     from app.models.tags import Tag
@@ -15,6 +18,8 @@ if TYPE_CHECKING:
 
 # Shared properties
 class UserBase(SQLModel):
+    created_at: datetime = timestamp_field()
+    updated_at: datetime = timestamp_field(onupdate_now=True)
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
     is_superuser: bool = False

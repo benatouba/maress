@@ -828,7 +828,7 @@ class StudySiteExtractor:
         self.clusterer = CoordinateClusterer(eps_km=75.0)
         self.validator = StudySiteValidator()
 
-    def extract_study_site(
+    def extract_study_sites(
         self,
         pdf_path: Path,
         title: str | None = None,
@@ -897,30 +897,8 @@ class StudySiteExtractor:
                 )
                 all_candidates.append(coord_candidate)
 
-        # 7. Cluster coordinates to identify multiple study sites
-        clusters = self.clusterer.cluster_coordinates(all_candidates)
-        result.cluster_info = {f"cluster_{k}": len(v) for k, v in clusters.items()}
-
-        # 8. Rank candidates within each cluster and globally
-        final_candidates = []
-        cluster_representatives = []
-
-        for cluster_id, cluster_candidates in clusters.items():
-            if not cluster_candidates:
-                continue
-
-            # Sort by final score (priority + confidence)
-            ranked_cluster = sorted(
-                cluster_candidates,
-                key=lambda x: x.final_score,
-                reverse=True,
-            )
-
-            final_candidates.extend(ranked_cluster)
-
-            # Keep the best candidate from each cluster as potential study site
-            if cluster_id != -1:  # Exclude noise points from representatives
-                cluster_representatives.append(ranked_cluster[0])
+        # 7. Cluster coordinates to identify areas
+        final_candidates = self.clusterer.cluster_coordinates(all_candidates)
 
         # 9. Final ranking: all candidates by final score
         result.coordinates = sorted(
@@ -930,26 +908,23 @@ class StudySiteExtractor:
         )
 
         # 10. Set primary study site (highest scoring overall)
-        result.primary_study_site = (
-            result.coordinates[0] if result.coordinates else None
-        )
+        result.primary_study_site = result.coordinates[0] if result.coordinates else None
 
         # 11. Calculate validation score
-        result.validation_score = self._calculate_validation_score(
-            result.coordinates,
-            clusters,
-        )
+        result.validation_score = self._calculate_validation_score(result.coordinates)
 
         logger.info("Extraction complete:")
         logger.info(f"  - Total candidates: {len(result.coordinates)}")
-        logger.info(f"  - Study site clusters: {len(cluster_representatives)}")
         logger.info(f"  - Validation score: {result.validation_score:.3f}")
 
         if result.primary_study_site:
             site = result.primary_study_site
             logger.info(
-                f"Primary site: {site.latitude:.4f}, {site.longitude:.4f} "
-                f"(score: {site.final_score:.1f}, method: {site.extraction_method})",
+                "Primary site: %.4f, %.4f (score: %.1f, method: %s)",
+                site.latitude,
+                site.longitude,
+                site.final_score,
+                site.extraction_method,
             )
 
         return result
@@ -1013,7 +988,7 @@ if __name__ == "__main__":
     if pdf_path.exists():
         # You can also provide a title for better geocoding bias
         title = "Late Holocene eruptive activity at Nevado Cayambe Volcano, Ecuador"
-        result = extractor.extract_study_site(pdf_path, title=title)
+        result = extractor.extract_study_sites(pdf_path, title=title)
 
         print(f"Validation Score: {result.validation_score:.3f}")
         print(f"Clusters found: {result.cluster_info}")
