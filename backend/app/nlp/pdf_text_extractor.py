@@ -231,7 +231,7 @@ class PyPDFTextExtractor:
                     if any(
                         word in heading_lower
                         for word in ["method", "material", "experiment", "data"]
-                    ) or clean_text_start.startswith(("method", "data")):
+                    ) or clean_text_start.startswith(("method", "data", "material")):
                         current_section = "methods"
                     elif "abstract" in heading_lower or clean_text_start.startswith("abstract"):
                         current_section = "abstract"
@@ -251,7 +251,7 @@ class PyPDFTextExtractor:
                         current_section = "introduction"
                     elif any(
                         word in heading_lower for word in ["reference", "bibliography"]
-                    ) or clean_text_start.startswith(("reference", "bibliography")):
+                    ) or clean_text_start.startswith(("reference", "bibliograph")):
                         current_section = "references"
                     else:
                         current_section = "other"
