@@ -7,8 +7,9 @@ from sqlmodel import Session
 from app.core.config import settings
 
 
+alphabet = string.ascii_letters.lower() + string.digits
 def random_lower_string() -> str:
-    return "".join(random.choices(string.ascii_lowercase, k=32))
+    return "".join(secrets.choice(alphabet) for _ in range(32))
 
 
 def random_email() -> str:
