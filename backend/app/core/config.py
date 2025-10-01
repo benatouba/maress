@@ -132,3 +132,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # pyright: ignore[reportCallIssue]
+
+
+class ConfigError(Exception):
+    """Custom exception for configuration errors."""
