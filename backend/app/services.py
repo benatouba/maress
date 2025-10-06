@@ -35,21 +35,29 @@ class SpaCyModelManager:
         """
         self.model_name: str = model_name
         self._nlp: Language
-        self._layout: spaCyLayout
+        self._layout: spaCyLayout | None = None
         self._is_loaded: bool = False
+        self.load_models()
 
     def load_models(self) -> None:
         """Load spaCy and spacy-layout models if not already loaded."""
         if not self._is_loaded:
             print(f"Loading spaCy model: {self.model_name}")
-            self._nlp = spacy.load(self.model_name)
+            if len(self.model_name.strip()) <= 2:
+                print("Short model name provided interpreted as language code. Loading spaCyLayout with blank model.")
+                self._nlp = spacy.blank(self.model_name)
+                print("Initialising spacy-layout")
+                self._layout = spaCyLayout(
+                    self._nlp,
+                    headings=["section_header", "title", "page_header"],
+                    separator="\n\n",
+                )
+            else:
+                if self.model_name not in spacy.util.get_installed_models():
+                    print(f"Model {self.model_name} not found. Downloading...")
+                    spacy.cli.download(self.model_name)
+                self._nlp = spacy.load(self.model_name)
 
-            print("Initialising spacy-layout")
-            self._layout = spaCyLayout(
-                self._nlp,
-                headings=["section_header", "title", "page_header"],
-                separator="\n\n",
-            )
             self._is_loaded = True
             print("Models loaded successfully")
 
@@ -89,8 +97,4 @@ class SpaCyModelManager:
         doc = self._layout(pdf_path)
         doc = self._nlp(doc)
         return doc
-
-
-model_manager = SpaCyModelManager()
-model_manager.load_models()
 

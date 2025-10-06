@@ -75,3 +75,12 @@ InitialTaskState = Literal["queued", "skipped", "no_attachment", "not_applicable
 CeleryState = Literal[
     "PENDING", "RECEIVED", "STARTED", "RETRY", "FAILURE", "SUCCESS", "REVOKED"
 ]
+
+class NERResultKeys(str, Enum):
+    WORD = "word"
+    ENTITY_GROUP = "entity_group"
+    CONTEXT = "context"
+    SECTION = "section"
+    SCORE = "score"
+    START = "start"
+    END = "end"
