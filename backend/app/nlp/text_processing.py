@@ -374,36 +374,72 @@ class PDFTextCleaner:
 
 
 class CoordinateParser:
-    """Coordinate parser with more robust pattern matching."""
+    """Coordinate parser with comprehensive pattern matching and validation.
 
+    Phase 2: Enhanced to detect 15+ coordinate formats with validation.
+    """
+
+    # Phase 2: Expanded patterns - prioritizing most common formats first
     PATTERNS: ClassVar[list[str]] = [
-        # Decimal degrees with optional negative sign: -45.123°N, 122.456°W
-        r"(-?\d+\.?\d*)\s*[°]\s*([NS])\s*,?\s*(-?\d+\.?\d*)\s*[°]\s*([EW])",
-        # Degrees minutes: 45°12'N, 122°30'W (with flexible spacing)
-        r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
-        # Degrees minutes seconds: 45°12'30"N (with flexible spacing)
+        # === HIGH PRIORITY: Most common in scientific papers ===
+
+        # Simple decimal pairs (most common): 45.123, -122.456 or -45.123, -122.456
+        r"(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})",
+
+        # With labels: Lat: 45.123, Lon: -122.456 or Latitude: 45.123, Longitude: -122.456
+        r"(?:Lat|Latitude|lat|latitude)[:\s]*(-?\d+\.\d+)[,\s]*(?:Lon|Longitude|long|longitude)[:\s]*(-?\d+\.\d+)",
+        r"(?:Lon|Longitude|long|longitude)[:\s]*(-?\d+\.\d+)[,\s]*(?:Lat|Latitude|lat|latitude)[:\s]*(-?\d+\.\d+)",
+
+        # In parentheses: (45.123, -122.456) or ( 45.123 , -122.456 )
+        r"\(\s*(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})\s*\)",
+
+        # In brackets: [45.123, -122.456]
+        r"\[\s*(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})\s*\]",
+
+        # === MEDIUM PRIORITY: Traditional formats with symbols ===
+
+        # Decimal degrees with degree symbol: -45.123°, 122.456° or 45.123° N, 122.456° W
+        r"(-?\d+\.\d+)\s*°\s*([NS])?\s*,?\s*(-?\d+\.\d+)\s*°\s*([EW])?",
+
+        # Degrees minutes seconds: 45°12'30"N, 122°30'15"W (with flexible spacing)
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([EW])",
-        # Alternative format with just degrees (no symbol): 45.5 N, 122.3 W
-        r"(\d+\.?\d*)\s+([NS])\s*,?\s*(\d+\.?\d*)\s+([EW])",
-        # Format with decimal minutes: 45°12.5'N
+
+        # Degrees minutes: 45°12'N, 122°30'W
+        r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
+
+        # Decimal minutes: 45°12.5'N, 122°30.8'W
         r"(\d+)\s*[°]\s*(\d+\.?\d*)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+\.?\d*)\s*[\'′]\s*([EW])",
-        # Compact format without spaces: 00°01'.72N, 77°59'.13E (from your example)
+
+        # === LOW PRIORITY: Alternative formats ===
+
+        # Without symbols (requires direction): 45.5 N, 122.3 W
+        r"(\d+\.\d+)\s+([NS])\s*,?\s*(\d+\.\d+)\s+([EW])",
+
+        # With explicit signs: +45.123, -122.456
+        r"([+-]\d+\.\d{2,})\s*,\s*([+-]\d+\.\d{2,})",
+
+        # Compact format: 00°01'.72N, 77°59'.13E
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([EW])",
-        # NEW: Pattern specifically for your corrupted format with spaces
-        # Matches: "00°01'.72 N" with optional spaces
+
+        # With spaces before direction: 00°01'.72 N (corrupted format)
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([EW])",
+
+        # Range format (extract midpoint): 45.1-45.2°N, 122.3-122.5°W
+        r"(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([NS])\s*,?\s*(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([EW])",
     ]
 
-    def extract_coordinates(self, text: str) -> list[tuple[str, int, int]]:
+    def extract_coordinates(self, text: str) -> list[tuple[str, int, int, float]]:
         """Extract coordinate strings with positions from text.
+
+        Phase 2: Now returns quality score for ranking.
 
         Args:
             text: Text string to search for coordinates
 
         Returns:
-            List of tuples (coordinate_string, start_pos, end_pos)
+            List of tuples (coordinate_string, start_pos, end_pos, quality_score)
         """
-        matches: list[tuple[str, int, int]] = []
+        matches: list[tuple[str, int, int, float]] = []
         seen_positions: set[tuple[int, int]] = set()
 
         for pattern in self.PATTERNS:
@@ -411,13 +447,93 @@ class CoordinateParser:
                 position = (match.start(), match.end())
                 # Avoid duplicate matches from overlapping patterns
                 if position not in seen_positions:
-                    seen_positions.add(position)
-                    matches.append((match.group(), match.start(), match.end()))
+                    coord_str = match.group()
+                    # Phase 2: Validate coordinates before adding
+                    parsed = self.parse_to_decimal(coord_str)
+                    if parsed and self._validate_coordinates(parsed):
+                        quality = self._assess_format_quality(coord_str, parsed)
+                        seen_positions.add(position)
+                        matches.append((coord_str, match.start(), match.end(), quality))
 
         return matches
 
+    def _validate_coordinates(self, coords: tuple[float, float]) -> bool:
+        """Validate that coordinates are within valid ranges.
+
+        Phase 2: Reject invalid coordinates.
+
+        Args:
+            coords: Tuple of (latitude, longitude)
+
+        Returns:
+            True if valid, False otherwise
+        """
+        lat, lon = coords
+
+        # Check latitude range
+        if lat < -90 or lat > 90:
+            return False
+
+        # Check longitude range
+        if lon < -180 or lon > 180:
+            return False
+
+        # Reject obviously wrong coordinates (e.g., 999.999)
+        if abs(lat) > 90 or abs(lon) > 180:
+            return False
+
+        # Reject coordinates that are exactly 0,0 (often placeholders)
+        if lat == 0.0 and lon == 0.0:
+            return False
+
+        return True
+
+    def _assess_format_quality(self, coord_str: str, coords: tuple[float, float]) -> float:
+        """Assess the quality/precision of coordinate format.
+
+        Phase 2: Higher scores for more precise formats.
+
+        Args:
+            coord_str: Original coordinate string
+            coords: Parsed (lat, lon) tuple
+
+        Returns:
+            Quality score between 0.0 and 1.0
+        """
+        lat, lon = coords
+
+        # Check for DMS format (most precise)
+        if '"' in coord_str or '″' in coord_str:
+            return 1.0
+
+        # Check decimal precision
+        lat_decimals = len(str(lat).split('.')[-1]) if '.' in str(lat) else 0
+        lon_decimals = len(str(lon).split('.')[-1]) if '.' in str(lon) else 0
+        avg_decimals = (lat_decimals + lon_decimals) / 2
+
+        if avg_decimals >= 4:
+            return 0.95  # Very high precision
+        elif avg_decimals >= 3:
+            return 0.90  # High precision
+        elif avg_decimals >= 2:
+            return 0.80  # Medium precision
+        elif avg_decimals >= 1:
+            return 0.70  # Low precision
+        else:
+            return 0.50  # Integer degrees only
+
+        # Check for DM format with decimal minutes
+        if "'" in coord_str or '′' in coord_str:
+            if '.' in coord_str:
+                return 0.90  # Decimal minutes
+            return 0.75  # Integer minutes only
+
+        return 0.80  # Default for valid coordinates
+
     def parse_to_decimal(self, coord_str: str) -> tuple[float, float] | None:
         """Convert coordinate string to decimal degrees (lat, lon).
+
+        Phase 2: Enhanced to handle 15+ coordinate formats.
 
         Args:
             coord_str: Coordinate string (e.g., "45°12'30\"N, 122°30'15\"W")
@@ -426,29 +542,34 @@ class CoordinateParser:
             Tuple of (latitude, longitude) in decimal degrees, or None if parsing fails
         """
         try:
-            # Try each pattern
+            # Phase 2: Try each pattern - ordered by commonality
             patterns = [
-                # Decimal degrees (with optional negative)
+                # Simple decimal pairs: 45.123, -122.456
                 (
-                    r"(-?\d+\.?\d*)\s*[°]\s*([NS])\s*,?\s*(-?\d+\.?\d*)\s*[°]\s*([EW])",
-                    lambda m: self._calc_decimal(
-                        [float(m.group(1))],
-                        m.group(2),
-                        [float(m.group(3))],
-                        m.group(4),
-                    ),
+                    r"^(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})$",
+                    lambda m: (float(m.group(1)), float(m.group(2))),
                 ),
-                # Degrees + minutes
+                # With labels (lat first): Lat: 45.123, Lon: -122.456
                 (
-                    r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
-                    lambda m: self._calc_decimal(
-                        [float(m.group(1)), float(m.group(2))],
-                        m.group(3),
-                        [float(m.group(4)), float(m.group(5))],
-                        m.group(6),
-                    ),
+                    r"(?:Lat|Latitude|lat|latitude)[:\s]*(-?\d+\.\d+)[,\s]*(?:Lon|Longitude|long|longitude)[:\s]*(-?\d+\.\d+)",
+                    lambda m: (float(m.group(1)), float(m.group(2))),
                 ),
-                # Degrees + minutes + seconds
+                # With labels (lon first): Lon: -122.456, Lat: 45.123
+                (
+                    r"(?:Lon|Longitude|long|longitude)[:\s]*(-?\d+\.\d+)[,\s]*(?:Lat|Latitude|lat|latitude)[:\s]*(-?\d+\.\d+)",
+                    lambda m: (float(m.group(2)), float(m.group(1))),
+                ),
+                # In parentheses: (45.123, -122.456)
+                (
+                    r"\(\s*(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})\s*\)",
+                    lambda m: (float(m.group(1)), float(m.group(2))),
+                ),
+                # In brackets: [45.123, -122.456]
+                (
+                    r"\[\s*(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})\s*\]",
+                    lambda m: (float(m.group(1)), float(m.group(2))),
+                ),
+                # Degrees + minutes + seconds: 45°12'30"N, 122°30'15"W
                 (
                     r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([EW])",
                     lambda m: self._calc_decimal(
@@ -458,7 +579,52 @@ class CoordinateParser:
                         m.group(8),
                     ),
                 ),
-                # Compact format: 00°01'.72N (degrees + minutes.decimals)
+                # Degrees + minutes: 45°12'N, 122°30'W
+                (
+                    r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+                # Decimal minutes: 45°12.5'N, 122°30.8'W
+                (
+                    r"(\d+)\s*[°]\s*(\d+\.?\d*)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+\.?\d*)\s*[\'′]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+                # Decimal degrees with symbol: 45.123° N, 122.456° W
+                (
+                    r"(-?\d+\.\d+)\s*°\s*([NS])?\s*,?\s*(-?\d+\.\d+)\s*°\s*([EW])?",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1))],
+                        m.group(2) or 'N' if float(m.group(1)) >= 0 else 'S',
+                        [float(m.group(3))],
+                        m.group(4) or 'E' if float(m.group(3)) >= 0 else 'W',
+                    ),
+                ),
+                # Without symbols (requires direction): 45.5 N, 122.3 W
+                (
+                    r"(\d+\.\d+)\s+([NS])\s*,?\s*(\d+\.\d+)\s+([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1))],
+                        m.group(2),
+                        [float(m.group(3))],
+                        m.group(4),
+                    ),
+                ),
+                # With explicit signs: +45.123, -122.456
+                (
+                    r"^([+-]\d+\.\d{2,})\s*,\s*([+-]\d+\.\d{2,})$",
+                    lambda m: (float(m.group(1)), float(m.group(2))),
+                ),
+                # Compact format: 00°01'.72N, 77°59'.13E
                 (
                     r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([EW])",
                     lambda m: self._calc_decimal(
@@ -468,14 +634,27 @@ class CoordinateParser:
                         m.group(8),
                     ),
                 ),
+                # Range format (use midpoint): 45.1-45.2°N, 122.3-122.5°W
+                (
+                    r"(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([NS])\s*,?\s*(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [(float(m.group(1)) + float(m.group(2))) / 2],
+                        m.group(3),
+                        [(float(m.group(4)) + float(m.group(5))) / 2],
+                        m.group(6),
+                    ),
+                ),
             ]
 
             for pattern, calculator in patterns:
                 match = re.search(pattern, coord_str, re.IGNORECASE)
                 if match:
-                    return calculator(match)
+                    result = calculator(match)
+                    # Ensure result is valid tuple
+                    if result and isinstance(result, tuple) and len(result) == 2:
+                        return result
 
-        except (ValueError, AttributeError, IndexError):
+        except (ValueError, AttributeError, IndexError, ZeroDivisionError):
             return None
 
         return None
