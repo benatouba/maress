@@ -7,14 +7,14 @@ from sqlmodel import create_engine, select
 
 from app import crud
 from app.core.config import settings
-from app.models.collections import Collection  # noqa: F401
-from app.models.creators import Creator  # noqa: F401
-from app.models.items import Item  # noqa: F401
-from app.models.links import ItemTagLink  # noqa: F401
-from app.models.relations import Relation  # noqa: F401
-from app.models.study_sites import StudySite  # noqa: F401
-from app.models.tags import Tag  # noqa: F401
-from app.models.users import User, UserCreate
+from app.models import Collection  # noqa: F401
+from app.models import Creator  # noqa: F401
+from app.models import Item  # noqa: F401
+from app.models import ItemTagLink  # noqa: F401
+from app.models import Relation  # noqa: F401
+from app.models import StudySite  # noqa: F401
+from app.models import Tag  # noqa: F401
+from app.models import User, UserCreate
 
 engine = create_engine(str(settings.SQLALCHEMY_DATABASE_URI), pool_pre_ping=True)
 

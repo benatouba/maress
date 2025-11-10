@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 from app.celery_app import celery
 from app.core.db import SessionLocal
 from app.crud import create_study_site
-from app.models.items import Item
-from app.models.study_sites import StudySiteCreate
-from app.nlp.find_my_home import StudySiteExtractor
+from app.models import Item
+from app.nlp.adapters import StudySiteResultAdapter, get_primary_study_site
+from app.nlp.factories import PipelineFactory
 
 if TYPE_CHECKING:
     from celery import Task
@@ -74,11 +74,24 @@ def _extract_study_site_impl(
 
     path = Path(item.attachment).resolve(strict=True)
 
-    extractor = StudySiteExtractor()
-    result = extractor.extract_study_sites(path, title=item.title or None)
+    # Use new SOLID pipeline with Phase 1 improvements
+    logger.info("Initializing extraction pipeline for item %s", item_id)
+    pipeline = PipelineFactory.create_pipeline_for_api()
 
-    if not result or not result.primary_study_site:
-        logger.warning("Study site not found for item %s", item.id)
+    # Extract using new architecture
+    logger.info("Extracting study sites from %s", path.name)
+    result = pipeline.extract_from_pdf(path, title=item.title or None)
+
+    # Convert to database models using adapter
+    logger.info("Converting extraction results to database models")
+    study_sites = StudySiteResultAdapter.to_study_sites(
+        result=result,
+        item_id=item.id,
+        min_confidence=0.5,  # Minimum confidence threshold
+    )
+
+    if not study_sites:
+        logger.warning("No study sites found for item %s", item.id)
         return {
             "item_id": item_id,
             "study_site_ids": [],
@@ -87,81 +100,59 @@ def _extract_study_site_impl(
             "message": "No study sites found in document",
         }
 
-    # Handle primary study site
-    primary = result.primary_study_site
-    primary_create = StudySiteCreate(
-        name=primary.name,
-        latitude=primary.latitude,
-        longitude=primary.longitude,
-        confidence_score=primary.confidence_score,
-        context=primary.context,
-        extraction_method=primary.extraction_method,
-        section=primary.section,
-        source_type=primary.source_type,
-        validation_score=result.validation_score,
-        item_id=item.id,
-    )
-    created_primary = create_study_site(session, primary_create)
-    logger.info(
-        "Created primary study site for item %s: %s",
-        item_id,
-        created_primary.id,
-    )
+    # Get primary study site (highest confidence)
+    primary_site = get_primary_study_site(study_sites)
 
-    # Collect all study site IDs
-    study_site_ids = [str(created_primary.id)]
+    # Save all study sites to database
+    study_site_ids = []
+    primary_site_id = None
 
-    # Save all additional study sites
-    additional_sites_created = 0
-    for site in result.coordinates:
-        # Skip the primary site
-        if (
-            site.latitude == primary.latitude
-            and site.longitude == primary.longitude
-            and site.context == primary.context
-        ):
-            continue
+    for idx, study_site in enumerate(study_sites):
+        created = create_study_site(session, study_site)
+        study_site_ids.append(str(created.id))
 
-        additional_site = StudySiteCreate(
-            name=site.name,
-            latitude=site.latitude,
-            longitude=site.longitude,
-            confidence_score=site.confidence_score,
-            context=site.context,
-            extraction_method=site.extraction_method,
-            section=site.section,
-            source_type=site.source_type,
-            validation_score=result.validation_score,
-            item_id=item.id,
-        )
-        created_additional = create_study_site(session, additional_site)
-        study_site_ids.append(str(created_additional.id))
-        additional_sites_created += 1
-        logger.info(
-            "Created additional study site %s for item %s",
-            created_additional.id,
-            item_id,
-        )
+        # Track primary site
+        if primary_site and study_site == primary_site:
+            primary_site_id = str(created.id)
+            logger.info(
+                "Created primary study site for item %s: %s (confidence: %.2f)",
+                item_id,
+                created.id,
+                study_site.confidence_score,
+            )
+        else:
+            logger.info(
+                "Created additional study site %d for item %s: %s (confidence: %.2f)",
+                idx + 1,
+                item_id,
+                created.id,
+                study_site.confidence_score,
+            )
 
-    total_created = 1 + additional_sites_created
+    total_created = len(study_site_ids)
     logger.info(
         "Completed extraction for item %s: %d total study sites created",
         item_id,
         total_created,
     )
 
+    # Build extraction metadata
+    extraction_metadata = result.extraction_metadata
+    metadata_summary = {
+        "total_entities": extraction_metadata.get("total_entities", 0),
+        "coordinates_found": extraction_metadata.get("coordinates", 0),
+        "clusters": extraction_metadata.get("clusters", 0),
+        "locations_geocoded": extraction_metadata.get("locations", 0),
+    }
+
     return {
         "item_id": item_id,
         "study_site_ids": study_site_ids,
         "count": len(study_site_ids),
         "status": "created",
-        "message": f"Successfully created {total_created} study site(s) (1 primary + {additional_sites_created} additional)",
-        "primary_site_id": str(created_primary.id),
-        "extraction_metadata": {
-            "validation_score": result.validation_score,
-            "extraction_method": primary.extraction_method,
-            "source_type": primary.source_type,
-        },
+        "message": f"Successfully created {total_created} study site(s) from {extraction_metadata.get('clusters', 1)} cluster(s)",
+        "primary_site_id": primary_site_id,
+        "extraction_metadata": metadata_summary,
     }
 
 
