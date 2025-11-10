@@ -5,6 +5,7 @@ from app.models.collections import CollectionCreate
 from app.models.creators import CreatorCreate
 from app.models.items import ItemCreate
 from app.models.relations import RelationCreate
+from app.models.study_sites import StudySiteCreate
 from app.models.tags import TagCreate
 from app.models.users import User
 from tests.utils.utils import random_email
@@ -27,3 +28,6 @@ class CollectionFactory(ModelFactory[CollectionCreate]): ...
 
 
 class RelationFactory(ModelFactory[RelationCreate]): ...
+
+
+class StudySiteFactory(ModelFactory[StudySiteCreate]): ...

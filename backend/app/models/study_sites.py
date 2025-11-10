@@ -101,6 +101,7 @@ class LocationBase(SQLModel):
     updated_at: datetime = timestamp_field(onupdate_now=True)
     latitude: Latitude
     longitude: Longitude  # validates -180 <= value <= 180
+    cluster_label: int | None = None
 
 
 class Location(LocationBase, table=True):
