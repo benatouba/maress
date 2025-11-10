@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from app import crud
 from app.core.config import settings
-from app.models.items import Item
-from app.models.users import User, UserUpdate
+from app.models import Item
+from app.models import User, UserUpdate
 from tests.factories import ItemFactory
 from tests.utils.item import create_random_item
 

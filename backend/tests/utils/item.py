@@ -3,11 +3,11 @@ from datetime import datetime
 from sqlmodel import Session
 
 from app import crud
-from app.models.collections import Collection
-from app.models.creators import Creator
-from app.models.items import Item
-from app.models.relations import Relation
-from app.models.tags import Tag
+from app.models import Collection
+from app.models import Creator
+from app.models import Item
+from app.models import Relation
+from app.models import Tag
 from tests.factories import (
     CollectionFactory,
     CreatorFactory,
