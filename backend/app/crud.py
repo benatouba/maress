@@ -9,13 +9,21 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 
 from app.core.security import get_password_hash, verify_password
-from app.models import Collection, CollectionCreate
-from app.models import Creator, CreatorCreate
-from app.models import Item, ItemCreate
-from app.models import Relation, RelationCreate
-from app.models import Location, StudySite, StudySiteCreate, StudySiteUpdate
-from app.models import Tag, TagCreate
 from app.models import (
+    Collection,
+    CollectionCreate,
+    Creator,
+    CreatorCreate,
+    Item,
+    ItemCreate,
+    Location,
+    Relation,
+    RelationCreate,
+    StudySite,
+    StudySiteCreate,
+    StudySiteUpdate,
+    Tag,
+    TagCreate,
     User,
     UserCreate,
     UserUpdate,
@@ -369,6 +377,28 @@ def update_study_site(
     session.refresh(db_study_site)
     return db_study_site
 
+def create_location_if_needed(
+    *,
+    session: Session,
+    latitude: Latitude,
+    longitude: Longitude,
+) -> Location:
+    existing_location = get_location_by_lat_lon(
+        session=session,
+        latitude=latitude,
+        longitude=longitude,
+    )
+    if existing_location:
+        return existing_location
+
+    new_location = Location(
+        latitude=latitude,
+        longitude=longitude,
+    )
+    session.add(new_location)
+    session.commit()
+    session.refresh(new_location)
+    return new_location
 
 def get_location_by_lat_lon(
     *,
@@ -421,7 +451,7 @@ def create_study_site(
     )
     study_site_dict["location_id"] = location_id
 
-    study_site = StudySite(**study_site_dict) # pyright: ignore[reportAny]
+    study_site = StudySite(**study_site_dict)  # pyright: ignore[reportAny]
     session.add(study_site)
     session.flush()
     session.refresh(study_site)
