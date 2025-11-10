@@ -41,8 +41,8 @@
                 density="comfortable"
                 class="mb-3"
                 :disabled="authStore.loading"
-                required
-                autofocus />
+                autocomplete="name"
+                required />
 
               <!-- Email Field -->
               <v-text-field
@@ -56,6 +56,7 @@
                 density="comfortable"
                 class="mb-3"
                 :disabled="authStore.loading"
+                autocomplete="email"
                 required />
 
               <!-- Password Field -->
@@ -71,6 +72,7 @@
                 density="comfortable"
                 class="mb-2"
                 :disabled="authStore.loading"
+                autocomplete="new-password"
                 required
                 @update:model-value="validatePasswordStrength"
                 @click:append-inner="showPassword = !showPassword" />
