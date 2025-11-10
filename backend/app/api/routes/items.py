@@ -20,11 +20,12 @@ from app.models import (
     ItemPublic,
     ItemsPublic,
     ItemUpdate,
+    Message,
+    StudySite,
+    Tag,
+    TaskRef,
+    TasksAccepted,
 )
-from app.models import Message
-from app.models import StudySite
-from app.models import Tag
-from app.models import TaskRef, TasksAccepted
 from app.services import Zotero
 from app.tasks.extract import extract_study_site_task
 from maress_types import ZoteroItemList
@@ -56,7 +57,7 @@ def read_db_items(
     return items, count
 
 
-@router.get("/", response_model=ItemsPublic)
+@router.get("/")
 def read_items(
     session: SessionDep,
     current_user: CurrentUser,
@@ -298,7 +299,7 @@ def import_files_from_zotero(
 
 
 @router.get("/files/{filename}")
-async def get_file(filename: str) -> Any:  # noqa: ANN401
+async def get_file(filename: str) -> Any:
     file_path = Path.cwd() / "zotero_files" / filename
     if file_path.exists():
         return FileResponse(file_path)
@@ -474,7 +475,7 @@ def get_task_status(
                 }
 
     # Add task metadata if available
-    if hasattr(result, 'info') and isinstance(result.info, dict):
+    if hasattr(result, "info") and isinstance(result.info, dict):
         response["metadata"] = result.info
 
     return response
@@ -487,10 +488,10 @@ def get_batch_task_status(
 ) -> dict[str, Any]:
     """Get status of multiple tasks.
 
-    Provide task IDs as comma-separated query parameter.
-    Returns individual task statuses and summary statistics.
+    Provide task IDs as comma-separated query parameter. Returns
+    individual task statuses and summary statistics.
     """
-    ids = [tid.strip() for tid in task_ids.split(',') if tid.strip()]
+    ids = [tid.strip() for tid in task_ids.split(",") if tid.strip()]
 
     if not ids:
         raise HTTPException(
@@ -556,13 +557,11 @@ def get_extraction_summary(
     current_user: CurrentUser,
 ) -> dict[str, Any]:
     """Get summary statistics of study site extractions for current user."""
-    from sqlmodel import and_
-
     # Total study sites for user's items
     total_sites = session.exec(
         select(func.count(StudySite.id))
         .join(Item, StudySite.item_id == Item.id)
-        .where(Item.owner_id == current_user.id)
+        .where(Item.owner_id == current_user.id),
     ).one()
 
     # Count by extraction method
@@ -573,44 +572,43 @@ def get_extraction_summary(
         )
         .join(Item, StudySite.item_id == Item.id)
         .where(Item.owner_id == current_user.id)
-        .group_by(StudySite.extraction_method)
+        .group_by(StudySite.extraction_method),
     ).all()
 
     # Average confidence
     avg_confidence = session.exec(
         select(func.avg(StudySite.confidence_score))
         .join(Item, StudySite.item_id == Item.id)
-        .where(Item.owner_id == current_user.id)
+        .where(Item.owner_id == current_user.id),
     ).one()
 
     # Average validation score
     avg_validation = session.exec(
         select(func.avg(StudySite.validation_score))
         .join(Item, StudySite.item_id == Item.id)
-        .where(Item.owner_id == current_user.id)
+        .where(Item.owner_id == current_user.id),
     ).one()
 
     # Total items with study sites
     items_with_sites = session.exec(
         select(func.count(func.distinct(StudySite.item_id)))
         .join(Item, StudySite.item_id == Item.id)
-        .where(Item.owner_id == current_user.id)
+        .where(Item.owner_id == current_user.id),
     ).one()
 
     # Total items owned by user
     total_items = session.exec(
-        select(func.count(Item.id))
-        .where(Item.owner_id == current_user.id)
+        select(func.count(Item.id)).where(Item.owner_id == current_user.id),
     ).one()
 
     return {
         "total_study_sites": total_sites or 0,
         "total_items": total_items or 0,
         "items_with_study_sites": items_with_sites or 0,
-        "coverage_percentage": round((items_with_sites / total_items * 100) if total_items > 0 else 0, 1),
+        "coverage_percentage": round(
+            (items_with_sites / total_items * 100) if total_items > 0 else 0, 1
+        ),
         "average_confidence": round(avg_confidence or 0, 3),
         "average_validation_score": round(avg_validation or 0, 3),
-        "by_extraction_method": {
-            str(method): count for method, count in by_method_results
-        },
+        "by_extraction_method": {str(method): count for method, count in by_method_results},
     }

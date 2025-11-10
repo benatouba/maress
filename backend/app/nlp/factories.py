@@ -3,6 +3,7 @@ from typing import ClassVar
 import spacy
 from transformers import pipeline
 
+from app.nlp.context_extraction import ContextExtractor
 from app.nlp.extractors import (
     BaseEntityExtractor,
     CoordinateExtractor,
@@ -12,15 +13,24 @@ from app.nlp.extractors import (
 from app.nlp.model_config import ModelConfig
 from app.nlp.orchestrator import StudySiteExtractionPipeline
 from app.nlp.pdf_parser import SpacyLayoutPDFParser
+from app.nlp.quality_assessment import TextQualityAssessor
+from app.nlp.sentence_boundaries import improve_sentence_boundaries
 
 
 class PipelineFactory:
     """Factory for creating configured extraction pipelines.
 
-    Creates pipelines with Phase 1 improvements enabled by default:
+    Creates pipelines with improvements enabled by default:
+
+    Phase 1 (Infrastructure):
     - Geocoding with caching and rate limiting
-    - Multi-cluster preservation
+    - Largest cluster selection
     - Table coordinate extraction
+
+    Phase 2 (NLP Enhancements - Quick Wins):
+    - Improved sentence boundary detection
+    - Text quality assessment
+    - Enriched coordinate context extraction
     """
 
     default_extractors: ClassVar[list[BaseEntityExtractor]] = []
@@ -32,6 +42,9 @@ class PipelineFactory:
         enable_geocoding: bool = True,
         enable_clustering: bool = True,
         enable_table_extraction: bool = True,
+        enable_improved_sentences: bool = True,
+        enable_quality_assessment: bool = True,
+        enable_enriched_context: bool = True,
     ) -> StudySiteExtractionPipeline:
         """Create a fully configured extraction pipeline.
 
@@ -39,8 +52,11 @@ class PipelineFactory:
             config: Model configuration
             extractors: List of extractors (creates defaults if None)
             enable_geocoding: Enable geocoding with caching (Phase 1)
-            enable_clustering: Enable multi-cluster preservation (Phase 1)
+            enable_clustering: Enable largest cluster selection (Phase 1)
             enable_table_extraction: Enable table extraction (Phase 1)
+            enable_improved_sentences: Enable improved sentence boundaries (Phase 2)
+            enable_quality_assessment: Enable text quality assessment (Phase 2)
+            enable_enriched_context: Enable enriched context extraction (Phase 2)
 
         Returns:
             Configured extraction pipeline
@@ -50,6 +66,10 @@ class PipelineFactory:
 
         nlp = spacy.blank(config.SPACY_LANGUAGE)
         nlp.add_pipe("sentencizer")
+
+        # Phase 2: Improve sentence boundaries for scientific text
+        if enable_improved_sentences:
+            nlp = improve_sentence_boundaries(nlp)
 
         pdf_parser = SpacyLayoutPDFParser(nlp)
 
@@ -76,6 +96,8 @@ class PipelineFactory:
             enable_geocoding=enable_geocoding,
             enable_clustering=enable_clustering,
             enable_table_extraction=enable_table_extraction,
+            enable_quality_assessment=enable_quality_assessment,
+            enable_enriched_context=enable_enriched_context,
         )
 
     @staticmethod
@@ -85,7 +107,8 @@ class PipelineFactory:
         """Create pipeline optimized for API use.
 
         This configuration:
-        - Enables all Phase 1 improvements
+        - Enables all Phase 1 improvements (geocoding, clustering, tables)
+        - Enables all Phase 2 improvements (quality, sentences, context)
         - Uses fast extractors (no transformer models)
         - Optimized for production use
 
