@@ -17,6 +17,16 @@
         </button>
       </div>
 
+      <div class="filter-section">
+        <select
+          v-model="filterType"
+          class="filter-select">
+          <option value="all">All Nodes</option>
+          <option value="items">Items Only</option>
+          <option value="tags">Tags Only</option>
+        </select>
+      </div>
+
       <div class="layout-section">
         <select
           v-model="selectedLayout"
@@ -59,22 +69,14 @@
       ref="minimapContainer"
       class="minimap-container"></div>
 
-    <!-- Node Info Panel -->
-    <div
-      v-if="selectedNode"
-      class="node-info-panel"
-    >
-      <v-btn
-        icon="mdi-close"
-        class="close-panel"
-        @click.stop="selectedNode = null" />
-      <div v-for="(v, k) in selectedNode.originalData">
-        <h3 v-if="k === 'title'">{{ v }}</h3>
-        <p v-else-if="v && !k.includes('id') && k !== 'attachment' && typeof v !== 'object'">
-          <strong>{{ k }}:</strong> {{ v }}
-        </p>
-      </div>
-    </div>
+    <!-- Node Info Dialog -->
+    <NodeInfoDialog
+      v-model="showNodeDialog"
+      :node-data="selectedNodeData"
+      :node-type="selectedNodeType"
+      :all-items="items"
+      :all-tags="tags"
+      @updated="handleNodeUpdated" />
   </v-card>
 </template>
 
@@ -84,10 +86,14 @@ import cytoscape from 'cytoscape'
 import fcose from 'cytoscape-fcose'
 import dagre from 'cytoscape-dagre'
 import { useGraphComposable } from '@/composables/useGraphComposable'
+import NodeInfoDialog from './NodeInfoDialog.vue'
 
 // Register layout extensions
 cytoscape.use(fcose)
 cytoscape.use(dagre)
+
+// Define emits
+const emit = defineEmits(['nodeSelected', 'graphUpdated'])
 
 // Props with enhanced configuration
 const props = defineProps({
@@ -108,7 +114,11 @@ const cytoscapeContainer = ref(null)
 const minimapContainer = ref(null)
 const searchQuery = ref('')
 const selectedLayout = ref(props.layoutType)
+const filterType = ref('all')
 const selectedNode = ref(null)
+const showNodeDialog = ref(false)
+const selectedNodeData = ref(null)
+const selectedNodeType = ref('item')
 let cy = null
 let minimap = null
 
@@ -131,7 +141,7 @@ const getInitials = (title) => {
     .substring(0, 3)
 }
 
-// Optimized computed graph data with search filtering
+// Optimized computed graph data with search and type filtering
 const buildGraphData = computed(() => {
   // Performance check
   if (props.items.length > props.maxNodes) {
@@ -141,7 +151,7 @@ const buildGraphData = computed(() => {
   }
 
   // Filter nodes by search query
-  const filteredItems =
+  let filteredItems =
     searchQuery.value ?
       props.items.filter(
         (item) =>
@@ -150,10 +160,17 @@ const buildGraphData = computed(() => {
       )
     : props.items
 
-  const filteredTags =
+  let filteredTags =
     searchQuery.value ?
       props.tags.filter((tag) => tag.name?.toLowerCase().includes(searchQuery.value.toLowerCase()))
     : props.tags
+
+  // Apply type filter
+  if (filterType.value === 'items') {
+    filteredTags = []
+  } else if (filterType.value === 'tags') {
+    filteredItems = []
+  }
 
   const nodes = []
   const edges = []
@@ -429,10 +446,15 @@ const setupEventHandlers = () => {
   // Node interaction events
   cy.on('tap', 'node', (evt) => {
     const node = evt.target
-    selectedNode.value = node.data()
+    const nodeData = node.data()
+
+    // Set selected node data and type
+    selectedNodeData.value = nodeData.originalData
+    selectedNodeType.value = nodeData.type
+    showNodeDialog.value = true
 
     // Emit custom events for parent component
-    emit('nodeSelected', node.data())
+    emit('nodeSelected', nodeData)
   })
 
   cy.on('mouseover', 'node', (evt) => {
@@ -625,6 +647,13 @@ const clearSearch = () => {
   searchQuery.value = ''
 }
 
+const handleNodeUpdated = () => {
+  // Emit event to parent component to refetch data
+  emit('graphUpdated')
+  // Re-render the graph with updated data
+  updateGraph()
+}
+
 const fitGraph = () => {
   if (cy) {
     cy.fit(cy.elements(), 50)
@@ -760,6 +789,26 @@ defineExpose({
 
 .clear-btn:hover {
   background: #d24b3d;
+}
+
+.filter-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-select {
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  background: white;
+  cursor: pointer;
+}
+
+.filter-select:focus {
+  outline: 2px solid #3498db;
+  outline-offset: 2px;
 }
 
 .layout-section {
