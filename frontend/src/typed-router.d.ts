@@ -30,6 +30,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/ForgotPassword': RouteRecordInfo<
+      '/ForgotPassword',
+      '/ForgotPassword',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/Graph': RouteRecordInfo<
       '/Graph',
       '/Graph',
@@ -116,6 +123,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/index.vue': {
       routes:
         | '/'
+      views:
+        | never
+    }
+    'src/pages/ForgotPassword.vue': {
+      routes:
+        | '/ForgotPassword'
       views:
         | never
     }

@@ -24,6 +24,7 @@ declare module 'vue' {
     StudySiteCreateDialog: typeof import('./components/maps/StudySiteCreateDialog.vue')['default']
     StudySiteEditDialog: typeof import('./components/maps/StudySiteEditDialog.vue')['default']
     StudySiteMap: typeof import('./components/maps/StudySiteMap.vue')['default']
+    TaskProgressBanner: typeof import('./components/common/TaskProgressBanner.vue')['default']
     TopBar: typeof import('./components/layout/TopBar.vue')['default']
   }
 }
