@@ -4,48 +4,55 @@ This module provides efficient PDF processing for academic/scientific documents
 with proper type annotations and model management.
 """
 
+from __future__ import annotations
+
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, field_serializer
-from spacy.tokens import Doc, Span
+from pydantic import BaseModel, BeforeValidator, ConfigDict
+from rich import print as rprint
+from spacy.tokens import Doc
+from spacy_layout import spaCyLayout
 
 from app.services import SpaCyModelManager
 
+if TYPE_CHECKING:
+    from spacy.tokens import Span
+
 # Type aliases for better readability
 PathLike = str | Path
-SectionDict = dict[str, str]
+SectionDict = dict[str, Doc]
 CaptionList = list[dict[str, Any]]
 CoordinateList = list[str]
 CleanResult = dict[str, SectionDict | CaptionList | Doc]
 
 
-class ExtractedPDF(BaseModel):
-    """Pydantic model for extracted PDF content."""
+def serialize_span(v: Any) -> dict[str, Any]:
+    """Convert Span to serializable dict."""
+    if hasattr(v, "text"):  # It's a Span object
+        return {
+            "text": v.text,
+            "start": v.start,
+            "end": v.end,
+            "start_char": v.start_char,
+            "end_char": v.end_char,
+            "label": v.label_ if hasattr(v, "label_") else None,
+        }
+    return v  # Already serialized
 
-    sections: SectionDict
+
+SerializedSpan = Annotated[dict[str, Any], BeforeValidator(serialize_span)]
+
+
+class ExtractedPDF(BaseModel):
+    sections: dict[str, str]
     captions: CaptionList
-    tables: list[Span]
+    tables: list[SerializedSpan]
     full_doc: Doc
 
     model_config: ConfigDict = ConfigDict(arbitrary_types_allowed=True)
-
-    @field_serializer("tables")
-    def serialize_tables(self, tables: list[Span]):
-        # choose what to serialize; avoid dumping the whole Doc
-        return [
-            {
-                "text": table.text,
-                "start": table.start,
-                "end": table.end,
-                "start_char": table.start_char,
-                "end_char": table.end_char,
-                "label": table.label_ if hasattr(table, "label_") else None,
-            }
-            for table in tables
-        ]
 
 
 class PyPDFTextExtractor:
@@ -150,7 +157,7 @@ class PyPDFTextExtractor:
                         "text": text,
                         "position": span.start_char,
                         "layout": getattr(span._, "layout", None),
-                    }
+                    },
                 )
 
         return captions
@@ -198,6 +205,8 @@ class PyPDFTextExtractor:
             # Fix common coordinate separators
             "Â ": " ",  # Non-breaking space issues
             "\xa0": " ",  # Non-breaking space
+            # Remove line breaks
+            "\n": " ",
         }
 
         for wrong, correct in symbol_fixes.items():
@@ -270,7 +279,6 @@ class PyPDFTextExtractor:
         Returns:
             List of coordinate strings found in the text.
             Supports formats like: 45.123°N, 45°12'N, 45°12'30"N
-
         """
         patterns = [
             # Decimal degrees: 45.123°N, -122.456°W
@@ -305,7 +313,6 @@ class PyPDFTextExtractor:
 
         Raises:
             FileNotFoundError: If the PDF file doesn't exist
-
         """
         if not pdf_path.exists():
             msg = f"PDF file not found: {pdf_path}"
@@ -336,7 +343,6 @@ class PyPDFTextExtractor:
         Returns:
             Dictionary mapping section names to lists of coordinates found
             in each section. Empty sections are omitted.
-
         """
         section_coordinates: dict[str, CoordinateList] = {}
 
@@ -351,31 +357,39 @@ class PyPDFTextExtractor:
 
 # Example usage:
 if __name__ == "__main__":
-    extractor = PyPDFTextExtractor()
+    model_manager = SpaCyModelManager("en")
+    extractor = PyPDFTextExtractor(model_manager)
 
     # Process first PDF in zotero_files directory
-    pdf_path = next(iter(Path.cwd().joinpath("zotero_files").glob("*.pdf")))
+    pdf_paths = Path.cwd().joinpath("zotero_files").glob("*.pdf")
 
     try:
-        result = extractor.process_scientific_pdf(pdf_path)
+        layout = spaCyLayout(model_manager.nlp)
+        for doc in layout.pipe(pdf_paths):
+            print(doc._.layout)
 
-        print(f"Processed {pdf_path}")
-        print(f"Results: {result}")
-        intro_text = result.sections.get("introduction", "")
-        methods_text = result.sections.get("methods", "")
+        # for span in doc.spans["layout"]:
+        #     rprint(f"{span.label_}: {span.text}")
 
-        figure_captions = result.captions
-        coordinates = extractor.extract_all_coordinates(result.model_dump())
-
-        print(f"Processed {pdf_path}")
-        print(f"Sections found: {list(result.sections.keys())}")
-        print(f"Figure captions: {len(figure_captions)}")
-        print(f"Tables found: {len(result.tables)}")
-        for table in result.tables:
-            print(f"Table text: {table.text}...")
-        print(f"Coordinates found: {sum(len(coords) for coords in coordinates.values())}")
+        # result = extractor.process_scientific_pdf(pdf_path)
+        #
+        # print(f"Processed {pdf_path}")
+        # for section, doc in result.sections.items():
+        #     print(f"Section: {section}, Length: {len(doc)} tokens")
+        #     rprint([doc.sent for doc in doc.sents][:2])
+        #
+        # captions = result.captions
+        # coordinates = extractor.extract_all_coordinates(result.model_dump())
+        #
+        # print(f"Processed {pdf_path}")
+        # print(f"Sections found: {list(result.sections.keys())}")
+        # print(f"Figure captions: {len(captions)}")
+        # print(f"Tables found: {len(result.tables)}")
+        # for table in result.tables:
+        #     print(f"Table text: {table.text}...")
+        # print(f"Coordinates found: {sum(len(coords) for coords in coordinates.values())}")
 
     except FileNotFoundError as e:
         print(f"Error: {e}")
     except Exception as e:
-        print(f"Processing error for {pdf_path}: {e}")
+        print(f"Processing error for {pdf_paths}: {e}")
