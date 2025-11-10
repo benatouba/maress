@@ -6,18 +6,18 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_tag, delete_tag, get_tag, get_tags, update_tag
-from app.models.tags import TagCreate, TagPublic, TagsPublic
+from app.models import TagCreate, TagPublic, TagsPublic
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
 
-@router.get("/")
+@router.get("/", response_model=TagsPublic)
 def read_tags(  # noqa: D103
     session: SessionDep,
     current_user: CurrentUser,
     skip: int = 0,
     limit: int = 100,
-) -> TagsPublic:
+):
     if current_user.is_superuser:
         tags, total = get_tags(session, skip=skip, limit=limit)
     else:
@@ -70,7 +70,7 @@ def update_tag_endpoint(  # noqa: D103
 
 
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_tag_endpoint(  # noqa: , D103
+def delete_tag_endpoint(  # noqa: ANN201, D103
     *,
     tag_id: int,
     session: SessionDep,

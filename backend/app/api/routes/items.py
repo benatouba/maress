@@ -14,17 +14,17 @@ from sqlmodel import col, func, or_, select
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
 from app.celery_app import celery
-from app.models.items import (
+from app.models import (
     Item,
     ItemCreate,
     ItemPublic,
     ItemsPublic,
     ItemUpdate,
 )
-from app.models.messages import Message
-from app.models.study_sites import StudySite
-from app.models.tags import Tag
-from app.models.tasks import TaskRef, TasksAccepted
+from app.models import Message
+from app.models import StudySite
+from app.models import Tag
+from app.models import TaskRef, TasksAccepted
 from app.services import Zotero
 from app.tasks.extract import extract_study_site_task
 from maress_types import ZoteroItemList
@@ -56,7 +56,7 @@ def read_db_items(
     return items, count
 
 
-@router.get("/")
+@router.get("/", response_model=ItemsPublic)
 def read_items(
     session: SessionDep,
     current_user: CurrentUser,

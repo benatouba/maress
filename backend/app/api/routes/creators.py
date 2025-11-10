@@ -11,7 +11,7 @@ from app.crud import (
     get_creators,
     update_creator,
 )
-from app.models.creators import CreatorCreate, CreatorPublic, CreatorsPublic
+from app.models import CreatorCreate, CreatorPublic, CreatorsPublic
 
 router = APIRouter(prefix="/creators", tags=["creators"])
 

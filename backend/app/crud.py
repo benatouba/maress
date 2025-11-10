@@ -9,13 +9,13 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import Session, func, select
 
 from app.core.security import get_password_hash, verify_password
-from app.models.collections import Collection, CollectionCreate
-from app.models.creators import Creator, CreatorCreate
-from app.models.items import Item, ItemCreate
-from app.models.relations import Relation, RelationCreate
-from app.models.study_sites import Location, StudySite, StudySiteCreate, StudySiteUpdate
-from app.models.tags import Tag, TagCreate
-from app.models.users import (
+from app.models import Collection, CollectionCreate
+from app.models import Creator, CreatorCreate
+from app.models import Item, ItemCreate
+from app.models import Relation, RelationCreate
+from app.models import Location, StudySite, StudySiteCreate, StudySiteUpdate
+from app.models import Tag, TagCreate
+from app.models import (
     User,
     UserCreate,
     UserUpdate,
