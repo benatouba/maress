@@ -258,28 +258,134 @@ class StudySiteExtractionPipeline:
         return unique
 
     def _rank_entities(self, entities: list[GeoEntity]) -> list[GeoEntity]:
-        """Rank entities by relevance for study site identification."""
+        """Rank entities by relevance for study site identification.
+
+        Phase 2: Multi-factor scoring system that strongly prioritizes coordinates.
+        Phase 3 Quick Wins: Context-aware filtering, keyword boosting, caption prioritization.
+        """
 
         def score(e: GeoEntity) -> float:
-            section_scores = {
-                "title": 100,
-                "methods": 100,
-                "study_area": 95,
-                "study site": 95,
-                "data": 80,
-                "materials": 75,
-            }
-            type_scores = {
-                "COORDINATE": 50,
-                "SPATIAL_RELATION": 40,
-                "GPE": 30,
-                "LOC": 25,
+            # Phase 2: Extraction method quality (0-100 points)
+            extraction_quality = {
+                "COORDINATE": 90,          # Direct coordinates - highest priority
+                "table_coordinate": 100,   # Table coordinates (if we add detection)
+                "caption_coordinate": 75,  # From captions
+                "SPATIAL_RELATION": 40,    # "10km north of X"
+                "GPE": 50,                 # Geocoded specific place
+                "LOC": 25,                 # Geocoded general location
             }
 
-            return (
-                section_scores.get(e.section, 50)
-                + type_scores.get(e.entity_type, 0)
-                + e.confidence * 10
-            )
+            # Phase 2: Section priority (0-100 points)
+            # Phase 3: Added figure/caption prioritization, references penalty
+            section_priority = {
+                "methods": 100,
+                "materials": 100,
+                "study_area": 95,
+                "study site": 95,
+                "study_site": 95,
+                "data": 85,
+                "results": 70,
+                "title": 60,           # Lower: often general location
+                "abstract": 50,
+                "figure": 80,          # Phase 3: Figures are high-quality sources
+                "caption": 80,         # Phase 3: Captions are high-quality sources
+                "introduction": 40,
+                "discussion": 30,
+                "conclusion": 20,
+                "references": 5,       # Phase 3: Almost exclude references
+                "bibliography": 5,     # Phase 3: Almost exclude bibliography
+            }
+
+            # Phase 2: Confidence multiplier (0.7-1.5x)
+            if e.confidence >= 0.95:
+                multiplier = 1.5
+            elif e.confidence >= 0.80:
+                multiplier = 1.2
+            elif e.confidence >= 0.60:
+                multiplier = 1.0
+            else:
+                multiplier = 0.7
+
+            # Phase 2: Validation bonuses
+            validation_bonus = 0
+
+            # Has coordinates (explicit location)
+            if e.coordinates:
+                validation_bonus += 20
+
+            # Has context (site name or description)
+            if e.context and len(e.context) > 20:
+                validation_bonus += 10
+
+            # Check if in table (from context)
+            if "table" in e.context.lower() or "tab" in e.section.lower():
+                validation_bonus += 5
+                extraction_quality["COORDINATE"] = 100  # Upgrade to table_coordinate
+
+            # Phase 3: Figure/caption prioritization
+            context_lower = e.context.lower()
+            if "figure" in context_lower or "fig" in context_lower or "fig." in context_lower:
+                validation_bonus += 15  # Figures are high-quality sources
+
+            if "caption" in context_lower:
+                validation_bonus += 10
+
+            # Phase 3: Contextual keyword boosting (high-value keywords)
+            positive_keywords = [
+                "study site", "study area", "study location",
+                "sampling site", "sampling location", "sampling station",
+                "field site", "field station", "research site",
+                "plot", "transect", "quadrat", "study region",
+                "our site", "our location", "this site", "these sites",
+            ]
+
+            for keyword in positive_keywords:
+                if keyword in context_lower:
+                    validation_bonus += 15
+                    break  # Only apply once
+
+            # Phase 2: Penalty factors
+            penalties = 0
+
+            # Low precision check (for coordinates)
+            if e.entity_type == "COORDINATE" and e.coordinates:
+                lat, lon = e.coordinates
+                lat_decimals = len(str(lat).split('.')[-1]) if '.' in str(lat) else 0
+                lon_decimals = len(str(lon).split('.')[-1]) if '.' in str(lon) else 0
+                if lat_decimals < 2 or lon_decimals < 2:
+                    penalties -= 20
+
+            # No context penalty (but not for table coordinates)
+            if not e.context or len(e.context) < 10:
+                if "table" not in e.section.lower():
+                    penalties -= 10
+
+            # Generic location penalty
+            if e.entity_type in ["LOC", "GPE"] and len(e.text) < 3:
+                penalties -= 15
+
+            # Phase 3: Contextual keyword penalties (low-value/citation keywords)
+            negative_keywords = [
+                "et al", "previous study", "earlier work", "prior study",
+                "reported by", "described by", "according to",
+                "compared to", "similar to", "literature",
+                "author", "affiliation", "department", "university",
+                "address", "correspondence",
+            ]
+
+            for keyword in negative_keywords:
+                if keyword in context_lower:
+                    penalties -= 25  # Heavy penalty for citations/affiliations
+                    break  # Only apply once
+
+            # Phase 3: Reference section filtering (additional penalty beyond section_priority)
+            if e.section.lower() in ["references", "bibliography", "reference"]:
+                penalties -= 50  # Almost eliminate references section
+
+            # Phase 2: Calculate final score
+            base_score = extraction_quality.get(e.entity_type, 20) + section_priority.get(e.section, 50)
+            final_score = (base_score * multiplier) + validation_bonus + penalties
+
+            return final_score
 
         return sorted(entities, key=score, reverse=True)

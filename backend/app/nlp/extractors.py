@@ -79,22 +79,26 @@ class CoordinateExtractor(BaseEntityExtractor):
 
     @override
     def extract(self, text: str, section: str) -> list[GeoEntity]:
-        """Extract coordinate entities from text."""
+        """Extract coordinate entities from text.
+
+        Phase 2: Now uses quality scoring for confidence.
+        """
         clean_text = self.cleaner.clean(text)
         coordinate_matches = self.parser.extract_coordinates(clean_text)
 
         entities: list[GeoEntity] = []
-        for coord_str, start, end in coordinate_matches:
+        for coord_str, start, end, quality in coordinate_matches:
             context = self._get_context(clean_text, start)
             parsed_coords = self.parser.parse_to_decimal(coord_str)
 
+            # Phase 2: Use format quality as confidence
             entities.append(
                 GeoEntity(
                     text=coord_str,
                     entity_type="COORDINATE",
                     context=context,
                     section=section,
-                    confidence=1.0,  # Pattern-based extraction
+                    confidence=quality,  # Phase 2: Use quality score
                     start_char=start,
                     end_char=end,
                     coordinates=parsed_coords,
