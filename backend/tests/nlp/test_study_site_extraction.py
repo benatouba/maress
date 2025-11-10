@@ -149,7 +149,7 @@ class TestLocationExtractorCache:
 
 
 class TestCoordinateClusterer:
-    """Test clustering that preserves multiple regions."""
+    """Test clustering that returns largest cluster."""
 
     def test_single_cluster_preservation(self) -> None:
         """Test clustering with single geographic region."""
@@ -193,10 +193,10 @@ class TestCoordinateClusterer:
         assert result[1].cluster_label is not None
         assert result[0].cluster_label == result[1].cluster_label
 
-    def test_multiple_clusters_preservation(self) -> None:
-        """Test that all clusters are preserved, not just the largest.
+    def test_multiple_clusters_largest_only(self) -> None:
+        """Test that only the largest cluster is returned.
 
-        This is the critical fix - verifying multiple geographic regions are kept.
+        When multiple geographic regions are detected, we keep only the largest cluster.
         """
         clusterer = CoordinateClusterer(eps_km=50.0)
 
@@ -252,25 +252,26 @@ class TestCoordinateClusterer:
 
         result, cluster_info = clusterer.cluster_coordinates(candidates)
 
-        # ALL candidates should be returned
-        assert len(result) == 4
+        # Only largest cluster (Ecuador with 2 sites) should be returned
+        assert len(result) == 2
 
-        # Should have 3 clusters
+        # Should detect 3 clusters in cluster_info
         assert len(cluster_info) == 3
-        assert cluster_info.get("cluster_0", 0) == 2  # Ecuador cluster
+        assert cluster_info.get("cluster_0", 0) == 2  # Ecuador cluster (largest)
         assert cluster_info.get("cluster_1", 0) == 1  # Peru cluster
         assert cluster_info.get("cluster_2", 0) == 1  # Chile cluster
 
-        # Verify cluster labels are assigned
+        # Verify all returned candidates are from the same (largest) cluster
         cluster_labels = {c.cluster_label for c in result}
-        assert len(cluster_labels) == 3
+        assert len(cluster_labels) == 1  # All from same cluster
 
-        # Verify largest cluster comes first in results
-        # (Ecuador cluster with 2 sites should be first 2 results)
+        # Verify both Ecuador sites are returned
         assert result[0].cluster_label == result[1].cluster_label
+        assert "Ecuador" in result[0].name
+        assert "Ecuador" in result[1].name
 
-    def test_cluster_sorting_by_size(self) -> None:
-        """Test that clusters are sorted by size (largest first)."""
+    def test_cluster_returns_largest_only(self) -> None:
+        """Test that only the largest cluster is returned."""
         clusterer = CoordinateClusterer(eps_km=50.0)
 
         candidates = [
@@ -324,13 +325,16 @@ class TestCoordinateClusterer:
 
         result, cluster_info = clusterer.cluster_coordinates(candidates)
 
-        # First 3 results should be from largest cluster (Ecuador)
+        # Only the 3 Ecuador sites should be returned (largest cluster)
+        assert len(result) == 3
+
+        # All results should be from the same (largest) cluster
         ecuador_cluster_label = result[0].cluster_label
         assert result[1].cluster_label == ecuador_cluster_label
         assert result[2].cluster_label == ecuador_cluster_label
 
-        # Last result should be from smaller cluster (Chile)
-        assert result[3].cluster_label != ecuador_cluster_label
+        # Verify all are Ecuador sites
+        assert all("Ecuador" in c.name for c in result)
 
     def test_noise_points_handling(self) -> None:
         """Test handling of noise points (cluster label -1)."""
@@ -376,12 +380,13 @@ class TestCoordinateClusterer:
 
         result, cluster_info = clusterer.cluster_coordinates(candidates)
 
-        # All points should be returned, including noise
-        assert len(result) == 3
+        # Only the largest cluster (2 points) should be returned, not noise
+        assert len(result) == 2
 
-        # Should have noise cluster (-1) and one valid cluster
+        # All returned points should be from the same valid cluster (not noise)
         cluster_labels = {c.cluster_label for c in result}
-        assert -1 in cluster_labels  # Noise points
+        assert len(cluster_labels) == 1
+        assert -1 not in cluster_labels  # Noise points excluded
 
 
 class TestTableExtraction:

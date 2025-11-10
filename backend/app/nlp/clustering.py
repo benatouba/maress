@@ -1,7 +1,7 @@
-"""Coordinate clustering with multi-region preservation.
+"""Coordinate clustering for study site extraction.
 
-This module implements DBSCAN clustering that preserves ALL geographic
-regions, not just the largest cluster (Phase 1 improvement).
+This module implements DBSCAN clustering that identifies the largest
+geographic cluster and returns the best-ranked results from it.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ if TYPE_CHECKING:
 
 
 class CoordinateClusterer:
-    """Clusters coordinates using DBSCAN, preserving all regions.
+    """Clusters coordinates using DBSCAN and returns largest cluster.
 
-    Key improvement: Returns ALL clusters ranked by size, not just largest.
-    This allows papers with multiple study regions to be fully captured.
+    Identifies all geographic clusters but returns only entities from the
+    largest cluster, which represents the primary study region.
     """
 
     def __init__(self, eps_km: float = 50.0, min_samples: int = 1) -> None:
@@ -40,13 +40,13 @@ class CoordinateClusterer:
         self,
         entities: list[GeoEntity],
     ) -> tuple[list[GeoEntity], dict[str, int]]:
-        """Cluster entities with coordinates and return ALL clusters.
+        """Cluster entities with coordinates and return largest cluster.
 
         Args:
             entities: List of GeoEntity objects with coordinates
 
         Returns:
-            Tuple of (clustered entities with labels, cluster size info)
+            Tuple of (entities from largest cluster, cluster size info)
         """
         # Filter entities with coordinates
         entities_with_coords = [e for e in entities if e.coordinates is not None]
@@ -91,29 +91,35 @@ class CoordinateClusterer:
             reverse=True,
         )
 
-        # Collect all entities with cluster labels
-        all_entities_with_labels = []
+        # Log all clusters for debugging
         cluster_info = {}
-
         for cluster_label in sorted_cluster_labels:
             cluster = clustered[cluster_label]
             cluster_info[f"cluster_{cluster_label}"] = len(cluster)
+            logger.info(f"Cluster {cluster_label}: {len(cluster)} entities")
 
-            # Add cluster metadata to entity context
-            for entity, label in cluster:
-                # Create new entity with cluster info in metadata
-                # Since GeoEntity is frozen, we need to track cluster separately
-                all_entities_with_labels.append(entity)
+        # Keep only the largest cluster
+        if sorted_cluster_labels:
+            largest_cluster_label = sorted_cluster_labels[0]
+            largest_cluster = clustered[largest_cluster_label]
 
             logger.info(
-                f"Cluster {cluster_label}: {len(cluster)} entities",
+                f"Keeping largest cluster ({largest_cluster_label}) with "
+                f"{len(largest_cluster)} entities out of {len(entities_with_coords)} total"
             )
 
-        # Return all entities (preserving those without coordinates too)
-        entities_without_coords = [e for e in entities if e.coordinates is None]
-        all_entities = all_entities_with_labels + entities_without_coords
+            # Extract entities from largest cluster only
+            largest_cluster_entities = [entity for entity, label in largest_cluster]
 
-        return all_entities, cluster_info
+            # Add entities without coordinates (they should still be considered)
+            entities_without_coords = [e for e in entities if e.coordinates is None]
+            result_entities = largest_cluster_entities + entities_without_coords
+
+            return result_entities, cluster_info
+        else:
+            # No clusters found, return original entities
+            logger.warning("No clusters found, returning all entities")
+            return entities, cluster_info
 
     def _estimate_optimal_eps(self, coordinates: list[tuple[float, float]]) -> float:
         """Estimate optimal eps using k-distance plot heuristic.
