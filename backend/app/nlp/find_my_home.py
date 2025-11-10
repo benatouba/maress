@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from enum import IntEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, final
@@ -13,10 +14,10 @@ from geopy.geocoders import Nominatim
 from geopy.point import Point
 from pydantic import BaseModel, Field
 from pydantic_extra_types.coordinate import Coordinate, Latitude, Longitude
+from rich import print as rprint
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 from spacy.matcher import Matcher, PhraseMatcher
-from spacy.tokens import Doc, Span
 
 from app.core.config import settings
 from app.nlp.nlp_logger import logger
@@ -28,9 +29,11 @@ from maress_types import CoordinateExtractionMethod, CoordinateSourceType, Paper
 if TYPE_CHECKING:
     from re import Match
 
-    import pandas as pd
     from geopy.location import Location as GeopyLocation
     from spacy.language import Language
+    from spacy.tokens import Doc, Span
+
+import pandas as pd
 
 # Use your existing geo_phrases
 geo_phrases = [
@@ -132,8 +135,11 @@ class CoordinateCandidate(BaseModel):
     )
     context: str = Field(description="Context around the coordinate in the text")
     section: PaperSections = Field(description="Document section where Coordinate was found")
-    name: str = Field(description="Optional name associated with the coordinate")
+    name: str = Field(default="Unknown", description="Optional name associated with the coordinate")
     extraction_method: CoordinateExtractionMethod
+    cluster_label: int | None = Field(
+        default=None, description="Cluster ID from DBSCAN (-1 for noise)"
+    )
 
     @property
     def final_score(self) -> float:
@@ -201,6 +207,10 @@ class LocationExtractor:
             user_agent="study_site_extractor",
             timeout=15,
         )
+
+        # Geocoding cache and rate limiting
+        self._geocode_cache: dict[str, tuple[float, float] | None] = {}
+        self._last_geocode_time: float = 0.0
 
     def _setup_geographic_patterns(self):
         """Set up enhanced patterns for geographic context detection."""
@@ -356,7 +366,9 @@ class LocationExtractor:
         """Extract named locations with enhanced confidence scoring."""
         # Process with full pipeline (need lemmatizer for patterns)
         doc = self.nlp(text)
-        print(f"text analysed for section {section}:\n{text}\n")
+        print(f"text analysed for section {section}\n")
+        print("Sentences found:")
+        rprint([sent.text for sent in doc.sents])
 
         candidates: list[LocationCandidate] = []
 
@@ -392,8 +404,35 @@ class LocationExtractor:
         locations: list[LocationCandidate],
         bias_point: Point | None = None,
     ) -> list[LocationCandidate]:
-        """Geocoding with geographic bias from title."""
+        """Geocoding with geographic bias, caching, and rate limiting."""
         for location in locations:
+            # Create cache key from location name and bias point
+            cache_key = f"{location.name}_{bias_point.latitude if bias_point else 'none'}_{bias_point.longitude if bias_point else 'none'}"
+
+            # Check cache first
+            if cache_key in self._geocode_cache:
+                cached_coords = self._geocode_cache[cache_key]
+                if cached_coords:
+                    location.coordinates = Coordinate(
+                        Latitude(cached_coords[0]),
+                        Longitude(cached_coords[1]),
+                    )
+                    location.confidence_score = min(
+                        location.confidence_score + 0.1,
+                        1.0,
+                    )
+                    logger.info(f"Using cached geocode for {location.name}: {location.coordinates}")
+                else:
+                    logger.info(f"Skipping {location.name} (cached as not found)")
+                continue
+
+            # Rate limiting: ensure minimum time between requests (Nominatim requires 1 req/sec)
+            elapsed = time.time() - self._last_geocode_time
+            if elapsed < settings.GEOCODING_RATE_LIMIT:
+                sleep_time = settings.GEOCODING_RATE_LIMIT - elapsed
+                logger.debug(f"Rate limiting: sleeping {sleep_time:.2f}s")
+                time.sleep(sleep_time)
+
             try:
                 # Use bias point if available
                 geocoded: GeopyLocation | None = None
@@ -423,7 +462,13 @@ class LocationExtractor:
                 if not geocoded:
                     geocoded = self.geocoder.geocode(location.name, timeout=10)
 
+                # Update last geocode time after request
+                self._last_geocode_time = time.time()
+
                 if geocoded:
+                    # Cache the result
+                    self._geocode_cache[cache_key] = (geocoded.latitude, geocoded.longitude)
+
                     location.coordinates = Coordinate(
                         Latitude(geocoded.latitude),
                         Longitude(geocoded.longitude),
@@ -434,9 +479,15 @@ class LocationExtractor:
                         1.0,
                     )
                     logger.info(f"Geocoded {location.name}: {location.coordinates}")
+                else:
+                    # Cache negative result to avoid repeated failed lookups
+                    self._geocode_cache[cache_key] = None
+                    logger.info(f"Could not geocode {location.name}")
 
             except Exception as e:
                 logger.warning(f"Failed to geocode {location.name}: {e}")
+                # Cache failure to avoid retrying
+                self._geocode_cache[cache_key] = None
 
         return locations
 
@@ -531,12 +582,35 @@ class CoordinateExtractor:
                 lat_col = lat_cols[0]
                 lon_col = lon_cols[0]
 
+                logger.info(
+                    f"Table {i}: Found coordinate columns - lat: {lat_col}, lon: {lon_col}",
+                )
+
                 for idx, row in table.iterrows():
                     try:
-                        lat = Latitude(str(row[lat_col]).replace("°", "").strip())
-                        lon = Longitude(str(row[lon_col]).replace("°", "").strip())
+                        # Clean coordinate values
+                        lat_val = str(row[lat_col]).replace("°", "").strip()
+                        lon_val = str(row[lon_col]).replace("°", "").strip()
+
+                        # Skip empty or non-numeric values
+                        if not lat_val or not lon_val or lat_val == "nan" or lon_val == "nan":
+                            continue
+
+                        lat = Latitude(float(lat_val))
+                        lon = Longitude(float(lon_val))
 
                         if self._is_valid_coordinate(lat, lon):
+                            # Extract name from table if available
+                            name_col = self._find_coordinate_columns(
+                                table,
+                                ["name", "site", "location", "station", "plot"],
+                            )
+                            name = (
+                                str(row[name_col[0]])
+                                if name_col
+                                else row.get("name") or row.get("site") or f"Table_{idx}_Row_{row}"
+                            )
+
                             candidates.append(
                                 CoordinateCandidate(
                                     latitude=lat,
@@ -544,13 +618,16 @@ class CoordinateExtractor:
                                     confidence_score=0.9,  # High confidence for table data
                                     priority_score=ExtractionPriority.TABLE_COORDINATES,
                                     source_type=CoordinateSourceType.TABLE,
-                                    context=f"Row {idx}: {row.to_string()}",
-                                    section=PaperSections(table._.heading),
-                                    name=None,
+                                    context=f"Table {i}, Row {idx}: {row.to_string()[:200]}",
+                                    section=PaperSections.METHODS,  # Tables usually in methods
+                                    name=name,
                                     extraction_method=CoordinateExtractionMethod.TABLE_PARSING,
                                 ),
                             )
-                    except (ValueError, TypeError):
+                            logger.debug(f"Extracted coordinate from table: {lat}, {lon}")
+
+                    except (ValueError, TypeError) as e:
+                        logger.debug(f"Failed to parse table row {idx}: {e}")
                         continue
 
         return candidates
@@ -647,10 +724,17 @@ class CoordinateClusterer:
     def cluster_coordinates(
         self,
         candidates: list[CoordinateCandidate],
-    ) -> list[CoordinateCandidate]:
-        """Cluster coordinates and return the largest cluster only."""
+    ) -> tuple[list[CoordinateCandidate], dict[str, int]]:
+        """Cluster coordinates and return ALL clusters with metadata.
+
+        Returns:
+            Tuple of (all candidates with cluster labels, cluster size info)
+        """
         if len(candidates) <= 1:
-            return candidates
+            # No clustering needed for single candidate
+            if candidates:
+                candidates[0].cluster_label = 0
+            return candidates, {0: len(candidates)} if candidates else {}
 
         # Extract coordinates for clustering
         coords = [(float(c.latitude), float(c.longitude)) for c in candidates]
@@ -673,27 +757,51 @@ class CoordinateClusterer:
         # Get cluster labels
         labels = clustering.labels_
 
-        # Group candidates by cluster
+        # Group candidates by cluster and assign cluster labels
         clustered: dict[int, list[CoordinateCandidate]] = {}
         for label, candidate in zip(labels, candidates, strict=False):
+            # Assign cluster label to candidate
+            candidate.cluster_label = int(label)
+
             if label not in clustered:
                 clustered[label] = []
             clustered[label].append(candidate)
 
         logger.info(f"DBSCAN found {len(clustered)} clusters with eps={self.eps_km:.1f} km")
 
-        # Return only the largest cluster
+        # Return ALL clusters, sorted by size (largest first)
         if not clustered:
-            return []
+            return [], {}
 
-        largest_cluster_label = max(clustered.keys(), key=lambda k: len(clustered[k]))
-        largest_cluster = clustered[largest_cluster_label]
-
-        logger.info(
-            f"Returning largest cluster with {len(largest_cluster)} candidates (label {largest_cluster_label})",
+        # Sort clusters by size (descending)
+        sorted_cluster_labels = sorted(
+            clustered.keys(),
+            key=lambda k: len(clustered[k]),
+            reverse=True,
         )
 
-        return largest_cluster
+        # Combine all candidates from all clusters (sorted by cluster size)
+        all_candidates_ranked = []
+        cluster_info = {}
+
+        for cluster_label in sorted_cluster_labels:
+            cluster = clustered[cluster_label]
+            cluster_info[f"cluster_{cluster_label}"] = len(cluster)
+
+            # Sort candidates within cluster by final_score
+            cluster_sorted = sorted(cluster, key=lambda x: x.final_score, reverse=True)
+            all_candidates_ranked.extend(cluster_sorted)
+
+            logger.info(
+                f"Cluster {cluster_label}: {len(cluster)} candidates "
+                f"(top score: {cluster_sorted[0].final_score:.1f})",
+            )
+
+        logger.info(
+            f"Returning {len(all_candidates_ranked)} candidates from {len(clustered)} clusters",
+        )
+
+        return all_candidates_ranked, cluster_info
 
     def estimate_optimal_eps(self, coordinates: list[tuple[float, float]]) -> float:
         """Estimate optimal eps based on k-distance plot heuristic."""
@@ -829,6 +937,58 @@ class StudySiteExtractor:
         self.clusterer = CoordinateClusterer(eps_km=75.0)
         self.validator = StudySiteValidator()
 
+    def _parse_table_to_dataframe(self, table_span: Span) -> pd.DataFrame | None:
+        """Convert table span to pandas DataFrame.
+
+        Args:
+            table_span: spaCy Span object representing a table
+
+        Returns:
+            DataFrame with parsed table data, or None if parsing fails
+        """
+        import pandas as pd
+
+        try:
+            # Get table text
+            table_text = table_span.text.strip()
+
+            # Split into lines
+            lines = [line.strip() for line in table_text.split("\n") if line.strip()]
+
+            if len(lines) < 2:
+                logger.debug("Table has fewer than 2 lines, skipping")
+                return None
+
+            # Split each line by multiple spaces or tabs
+            rows = []
+            for line in lines:
+                # Split by tabs or multiple spaces (2+)
+                row = re.split(r"\t+|\s{2,}", line)
+                row = [cell.strip() for cell in row if cell.strip()]
+                if row:
+                    rows.append(row)
+
+            if not rows or len(rows) < 2:
+                return None
+
+            # Use first row as header, rest as data
+            header = rows[0]
+            data_rows = rows[1:]
+
+            # Ensure all rows have the same length
+            max_cols = max(len(header), max(len(row) for row in data_rows))
+            header = header + [""] * (max_cols - len(header))
+            data_rows = [row + [""] * (max_cols - len(row)) for row in data_rows]
+
+            df = pd.DataFrame(data_rows, columns=header)
+            logger.debug(f"Parsed table with {len(df)} rows and {len(df.columns)} columns")
+
+            return df
+
+        except Exception as e:
+            logger.warning(f"Failed to parse table: {e}")
+            return None
+
     def extract_study_sites(
         self,
         pdf_path: Path,
@@ -876,6 +1036,26 @@ class StudySiteExtractor:
 
         logger.info(f"Found {len(result.locations)} location candidates from text")
 
+        # 5. Priority 3: Extract coordinates from tables
+        if text_data.tables:
+            logger.info(f"Processing {len(text_data.tables)} tables for coordinate extraction")
+
+            # Convert table spans to DataFrames
+            table_dfs = []
+            for table_span in text_data.tables:
+                df = self._parse_table_to_dataframe(table_span)
+                if df is not None:
+                    table_dfs.append(df)
+
+            if table_dfs:
+                table_coords = self.coordinate_extractor.extract_coordinates_from_tables(table_dfs)
+                all_candidates.extend(table_coords)
+                logger.info(f"Found {len(table_coords)} coordinates from tables")
+            else:
+                logger.info("No tables could be parsed into DataFrames")
+        else:
+            logger.info("No tables found in document")
+
         # 6. Priority 4: Geocode locations with bias
         geocoded_locations = self.location_extractor.geocode_with_bias(
             result.locations,
@@ -899,7 +1079,7 @@ class StudySiteExtractor:
                 all_candidates.append(coord_candidate)
 
         # 7. Cluster coordinates to identify areas
-        final_candidates = self.clusterer.cluster_coordinates(all_candidates)
+        final_candidates, cluster_info = self.clusterer.cluster_coordinates(all_candidates)
 
         # 9. Final ranking: all candidates by final score
         result.coordinates = sorted(
@@ -907,6 +1087,9 @@ class StudySiteExtractor:
             key=lambda x: x.final_score,
             reverse=True,
         )
+
+        # Store cluster information
+        result.cluster_info = cluster_info
 
         # 10. Set primary study site (highest scoring overall)
         result.primary_study_site = result.coordinates[0] if result.coordinates else None
@@ -916,16 +1099,18 @@ class StudySiteExtractor:
 
         logger.info("Extraction complete:")
         logger.info(f"  - Total candidates: {len(result.coordinates)}")
+        logger.info(f"  - Clusters found: {len(cluster_info)}")
         logger.info(f"  - Validation score: {result.validation_score:.3f}")
 
         if result.primary_study_site:
             site = result.primary_study_site
             logger.info(
-                "Primary site: %.4f, %.4f (score: %.1f, method: %s)",
+                "Primary site: %.4f, %.4f (score: %.1f, method: %s, cluster: %s)",
                 site.latitude,
                 site.longitude,
                 site.final_score,
                 site.extraction_method,
+                site.cluster_label,
             )
 
         return result
