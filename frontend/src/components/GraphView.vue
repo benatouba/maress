@@ -62,18 +62,18 @@
     <!-- Node Info Panel -->
     <div
       v-if="selectedNode"
-      class="node-info-panel">
+      class="node-info-panel"
+    >
+      <v-btn
+        icon="mdi-close"
+        class="close-panel"
+        @click.stop="selectedNode = null" />
       <div v-for="(v, k) in selectedNode.originalData">
         <h3 v-if="k === 'title'">{{ v }}</h3>
         <p v-else-if="v && !k.includes('id') && k !== 'attachment' && typeof v !== 'object'">
           <strong>{{ k }}:</strong> {{ v }}
         </p>
       </div>
-      <button
-        @click="selectedNode = null"
-        class="close-panel">
-        ×
-      </button>
     </div>
   </v-card>
 </template>
@@ -93,7 +93,7 @@ cytoscape.use(dagre)
 const props = defineProps({
   items: { type: Array, default: () => [] },
   tags: { type: Array, default: () => [] },
-  layoutType: { type: String, default: 'fcose' },
+  layoutType: { type: String, default: 'random' },
   showControls: { type: Boolean, default: true },
   showMinimap: { type: Boolean, default: false },
   enableClustering: { type: Boolean, default: false },
@@ -175,7 +175,7 @@ const buildGraphData = computed(() => {
       group: 'nodes',
       data: {
         id: `item_${item.id}`,
-        label: getInitials(item.title),
+        label: getInitials(item.authors),
         type: 'item',
         importance,
         originalData: item,
@@ -226,7 +226,7 @@ const getLayoutConfig = (layoutName = selectedLayout.value) => {
       randomize: true,
       // Set explicit boundaries to prevent clustering
       avoidOverlap: true,
-      avoidOverlapPadding: 10
+      avoidOverlapPadding: 10,
     },
     fcose: {
       name: 'fcose',
@@ -710,7 +710,6 @@ defineExpose({
   height: 1200px; /* SET EXPLICIT HEIGHT */
   min-height: 400px;
   max-height: 1200px; /* PREVENT INFINITE GROWTH */
-  background: #fafafa;
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -721,7 +720,6 @@ defineExpose({
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #ffffff;
   border-bottom: 1px solid #e0e0e0;
   gap: 16px;
   flex-wrap: wrap;
@@ -751,18 +749,17 @@ defineExpose({
 
 .clear-btn {
   padding: 6px 10px;
-  background: #e74c3c;
-  color: white;
+  background: #ff8979;
   border: none;
-  border-radius: 50%;
+  border-radius: 20%;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 22px;
   line-height: 1;
   transition: background-color 0.2s;
 }
 
 .clear-btn:hover {
-  background: #c0392b;
+  background: #d24b3d;
 }
 
 .layout-section {
@@ -776,7 +773,6 @@ defineExpose({
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 14px;
-  background: white;
 }
 
 .control-btn {
@@ -843,13 +839,6 @@ defineExpose({
   position: absolute;
   top: 8px;
   right: 8px;
-  background: none;
-  border: none;
-  font-size: 18px;
-  cursor: pointer;
-  color: #999;
-  padding: 4px;
-  line-height: 1;
 }
 
 .close-panel:hover {
@@ -895,30 +884,21 @@ defineExpose({
 
 /* Dark theme support */
 @media (prefers-color-scheme: dark) {
-  .graph-container {
-    background: white;
-  }
-
   .graph-controls {
-    background: white;
     border-bottom-color: #4a5f7a;
   }
 
   .cytoscape-graph {
     width: 100%;
     height: 100%;
-    background: #ffffff;
   }
 
   .search-input,
   .layout-select {
-    background: white;
     border-color: #4a5f7a;
-    color: white;
   }
 
   .node-info-panel {
-    background: white;
     border-color: #4a5f7a;
   }
 }
@@ -936,7 +916,6 @@ defineExpose({
   width: 40px;
   height: 40px;
   border: 1px solid #ddd;
-  background: rgba(255, 255, 255, 0.9);
   border-radius: 4px;
   cursor: pointer;
   display: flex;
@@ -949,7 +928,6 @@ defineExpose({
 }
 
 .zoom-btn:hover {
-  background: rgba(255, 255, 255, 1);
   border-color: #3498db;
   transform: translateY(-1px);
 }

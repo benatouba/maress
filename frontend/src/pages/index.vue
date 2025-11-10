@@ -76,7 +76,7 @@
             <div class="mb-6">
               <v-img
                 src="/project-overview.jpg"
-                alt="Climate Research"
+                alt="MaRESS Graphical Outline"
                 max-width="1000"
                 class="mx-auto"
                 contain />

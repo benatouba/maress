@@ -81,6 +81,7 @@ const openInNewTab = (url: string) => {
 
 onMounted(async () => {
   await zoteroStore.fetchItems()
+  console.log(items.data)
 })
 interface DataTableHeader {
   key: string // maps to the field in your data
