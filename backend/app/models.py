@@ -291,6 +291,11 @@ class StudySiteBase(SQLModel):
         description="Name of the study site, if available",
         max_length=255,
     )
+    is_manual: bool = Field(
+        default=False,
+        description="True if created or modified by a human, False if automatic extraction",
+        index=True,
+    )
     location_id: uuid.UUID = Field(foreign_key="location.id", index=True)
 
 
@@ -342,6 +347,38 @@ class StudySiteCreate(StudySiteBase):
             msg = "Either location_id or both latitude and longitude must be provided."
             raise ValueError(msg)
         return self
+
+
+class StudySiteManualCreate(SQLModel):
+    """Model for manually creating a study site via API."""
+
+    name: str = Field(description="Name of the study site", max_length=255)
+    latitude: Latitude = Field(description="Latitude coordinate")
+    longitude: Longitude = Field(description="Longitude coordinate")
+    context: str = Field(
+        default="Manually added by user",
+        description="Description or context about the study site",
+    )
+    confidence_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    validation_score: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class StudySiteManualUpdate(SQLModel):
+    """Model for manually updating a study site via API."""
+
+    name: str | None = Field(default=None, description="Name of the study site", max_length=255)
+    latitude: Latitude | None = Field(default=None, description="Latitude coordinate")
+    longitude: Longitude | None = Field(default=None, description="Longitude coordinate")
+    context: str | None = Field(default=None, description="Description or context")
+    confidence_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    validation_score: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class StudySitesPublic(SQLModel):
+    """Collection of study sites."""
+
+    data: list[StudySitePublic]
+    count: int
 
 
 class TagBase(SQLModel):
