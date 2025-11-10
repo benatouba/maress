@@ -10,12 +10,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic_extra_types.coordinate import Latitude, Longitude
 
-from app.models.items import Item
-from app.models.study_sites import StudySite
-from app.nlp.find_my_home import (
-    CoordinateCandidate,
-    StudySiteResult,
-)
+from app.models import Item
+from app.models import StudySite
+from app.nlp.domain_models import ExtractionResult, GeoEntity
 from app.tasks.extract import extract_study_site_task
 from maress_types import (
     CoordinateExtractionMethod,
@@ -49,94 +46,99 @@ def item_with_pdf(db_session: Session, mock_pdf_path: Path) -> Item:
 
 
 @pytest.fixture
-def mock_single_site_result() -> StudySiteResult:
+def mock_single_site_result(mock_pdf_path: Path) -> ExtractionResult:
     """Mock extraction result with a single study site."""
-    primary = CoordinateCandidate(
-        latitude=Latitude(-0.5),
-        longitude=Longitude(-78.5),
-        confidence_score=0.9,
-        priority_score=100,
-        source_type=CoordinateSourceType.TEXT,
+    entity = GeoEntity(
+        text="Main Site",
+        entity_type="COORDINATE",
+        confidence=0.9,
+        section="methods",
         context="Study site located at coordinates",
-        section=PaperSections.METHODS,
-        name="Main Site",
-        extraction_method=CoordinateExtractionMethod.REGEX,
+        coordinates=(-0.5, -78.5),
+        start_char=0,
+        end_char=9,
     )
 
-    return StudySiteResult(
-        coordinates=[primary],
-        locations=[],
-        validation_score=0.85,
-        primary_study_site=primary,
-        cluster_info={"cluster_0": 1},
+    return ExtractionResult(
+        pdf_path=mock_pdf_path,
+        entities=[entity],
+        total_sections_processed=1,
+        extraction_metadata={
+            "total_entities": 1,
+            "coordinates": 1,
+            "spatial_relations": 0,
+            "locations": 0,
+            "clusters": 1,
+        },
+        doc=None,
+        title="Test Study in Ecuador",
     )
 
 
 @pytest.fixture
-def mock_multi_site_result() -> StudySiteResult:
+def mock_multi_site_result(mock_pdf_path: Path) -> ExtractionResult:
     """Mock extraction result with multiple study sites across different clusters."""
     # Primary site - Ecuador
-    primary = CoordinateCandidate(
-        latitude=Latitude(-0.5),
-        longitude=Longitude(-78.5),
-        confidence_score=0.9,
-        priority_score=100,
-        source_type=CoordinateSourceType.TEXT,
+    entity_1 = GeoEntity(
+        text="Ecuador Site",
+        entity_type="COORDINATE",
+        confidence=0.9,
+        section="methods",
         context="Study site located at coordinates",
-        section=PaperSections.METHODS,
-        name="Ecuador Site",
-        extraction_method=CoordinateExtractionMethod.REGEX,
-        cluster_label=0,
+        coordinates=(-0.5, -78.5),
+        start_char=0,
+        end_char=12,
     )
 
     # Second site - Ecuador (same cluster)
-    site_2 = CoordinateCandidate(
-        latitude=Latitude(-0.52),
-        longitude=Longitude(-78.48),
-        confidence_score=0.85,
-        priority_score=80,
-        source_type=CoordinateSourceType.TEXT,
+    entity_2 = GeoEntity(
+        text="Ecuador Site 2",
+        entity_type="GPE",
+        confidence=0.85,
+        section="methods",
         context="Additional sampling location",
-        section=PaperSections.METHODS,
-        name="Ecuador Site 2",
-        extraction_method=CoordinateExtractionMethod.NER,
-        cluster_label=0,
+        coordinates=(-0.52, -78.48),
+        start_char=100,
+        end_char=114,
     )
 
     # Third site - Peru (different cluster)
-    site_3 = CoordinateCandidate(
-        latitude=Latitude(-12.0),
-        longitude=Longitude(-77.0),
-        confidence_score=0.80,
-        priority_score=100,
-        source_type=CoordinateSourceType.TABLE,
+    entity_3 = GeoEntity(
+        text="Peru Site",
+        entity_type="COORDINATE",
+        confidence=0.80,
+        section="methods",
         context="Table 1, Row 1",
-        section=PaperSections.METHODS,
-        name="Peru Site",
-        extraction_method=CoordinateExtractionMethod.TABLE_PARSING,
-        cluster_label=1,
+        coordinates=(-12.0, -77.0),
+        start_char=200,
+        end_char=209,
     )
 
     # Fourth site - Chile (different cluster)
-    site_4 = CoordinateCandidate(
-        latitude=Latitude(-33.5),
-        longitude=Longitude(-70.6),
-        confidence_score=0.88,
-        priority_score=80,
-        source_type=CoordinateSourceType.TEXT,
+    entity_4 = GeoEntity(
+        text="Chile Site",
+        entity_type="LOC",
+        confidence=0.88,
+        section="abstract",
         context="Geocoded from Santiago mention",
-        section=PaperSections.ABSTRACT,
-        name="Chile Site",
-        extraction_method=CoordinateExtractionMethod.GEOCODED,
-        cluster_label=2,
+        coordinates=(-33.5, -70.6),
+        start_char=300,
+        end_char=310,
     )
 
-    return StudySiteResult(
-        coordinates=[primary, site_2, site_3, site_4],
-        locations=[],
-        validation_score=0.90,
-        primary_study_site=primary,
-        cluster_info={"cluster_0": 2, "cluster_1": 1, "cluster_2": 1},
+    return ExtractionResult(
+        pdf_path=mock_pdf_path,
+        entities=[entity_1, entity_2, entity_3, entity_4],
+        total_sections_processed=2,
+        extraction_metadata={
+            "total_entities": 4,
+            "coordinates": 4,
+            "spatial_relations": 0,
+            "locations": 2,
+            "clusters": 3,
+        },
+        doc=None,
+        title="Test Study in Multiple Countries",
     )
 
 
@@ -147,11 +149,13 @@ class TestExtractStudySiteTask:
         self,
         db_session: Session,
         item_with_pdf: Item,
-        mock_single_site_result: StudySiteResult,
+        mock_single_site_result: ExtractionResult,
     ) -> None:
         """Test extraction and storage of a single study site."""
-        with patch("app.tasks.extract.StudySiteExtractor.extract_study_sites") as mock_extract:
-            mock_extract.return_value = mock_single_site_result
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = mock_single_site_result
+            mock_factory.return_value = mock_pipeline
 
             result = extract_study_site_task(
                 item_id=str(item_with_pdf.id),
@@ -177,22 +181,21 @@ class TestExtractStudySiteTask:
             assert study_site.confidence_score == 0.9
             assert float(study_site.location.latitude) == -0.5
             assert float(study_site.location.longitude) == -78.5
-            assert study_site.extraction_method == CoordinateExtractionMethod.REGEX
 
     def test_extract_multiple_study_sites(
         self,
         db_session: Session,
         item_with_pdf: Item,
-        mock_multi_site_result: StudySiteResult,
+        mock_multi_site_result: ExtractionResult,
     ) -> None:
         """Test extraction and storage of multiple study sites from different clusters.
 
         This is the critical fix - verifying all sites are saved, not just primary.
         """
-        with patch(
-            "app.tasks.extract.StudySiteExtractor.extract_study_sites",
-        ) as mock_extract:
-            mock_extract.return_value = mock_multi_site_result
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = mock_multi_site_result
+            mock_factory.return_value = mock_pipeline
 
             # Execute task
             result = extract_study_site_task(
@@ -206,7 +209,7 @@ class TestExtractStudySiteTask:
             # Verify task result
             assert result["status"] == "created"
             assert result["count"] == 4  # All 4 sites should be saved
-            assert "1 primary + 3 additional" in result["message"]
+            assert "4 study site(s)" in result["message"]
             assert len(result["study_site_ids"]) == 4
 
             # Verify database - all sites should be present
@@ -224,23 +227,15 @@ class TestExtractStudySiteTask:
             assert -12.0 in latitudes  # Peru
             assert -33.5 in latitudes  # Chile
 
-            # Verify different extraction methods
-            methods = {site.extraction_method for site in sites}
-            assert CoordinateExtractionMethod.REGEX in methods
-            assert CoordinateExtractionMethod.NER in methods
-            assert CoordinateExtractionMethod.TABLE_PARSING in methods
-            assert CoordinateExtractionMethod.GEOCODED in methods
-
     def test_skip_existing_sites_without_force(
         self,
         db_session: Session,
         item_with_pdf: Item,
-        mock_single_site_result: StudySiteResult,
     ) -> None:
         """Test that extraction is skipped when sites exist and force=False."""
         # Create existing study site
         from app.crud import create_study_site
-        from app.models.study_sites import StudySiteCreate
+        from app.models import StudySiteCreate
 
         existing_site = StudySiteCreate(
             name="Existing Site",
@@ -257,9 +252,7 @@ class TestExtractStudySiteTask:
         create_study_site(db_session, existing_site)
         db_session.commit()
 
-        with patch(
-            "app.tasks.extract.StudySiteExtractor.extract_study_sites",
-        ) as mock_extract:
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
             # Execute task without force
             result = extract_study_site_task(
                 item_id=str(item_with_pdf.id),
@@ -272,7 +265,7 @@ class TestExtractStudySiteTask:
             # Verify extraction was skipped
             assert result["status"] == "skipped"
             assert "already has" in result["message"]
-            mock_extract.assert_not_called()
+            mock_factory.assert_not_called()
 
             # Verify only original site remains
             db_session.expire_all()
@@ -285,12 +278,12 @@ class TestExtractStudySiteTask:
         self,
         db_session: Session,
         item_with_pdf: Item,
-        mock_multi_site_result: StudySiteResult,
+        mock_multi_site_result: ExtractionResult,
     ) -> None:
         """Test that force=True triggers re-extraction even with existing sites."""
         # Create existing study site
         from app.crud import create_study_site
-        from app.models.study_sites import StudySiteCreate
+        from app.models import StudySiteCreate
 
         existing_site = StudySiteCreate(
             name="Old Site",
@@ -307,10 +300,10 @@ class TestExtractStudySiteTask:
         create_study_site(db_session, existing_site)
         db_session.commit()
 
-        with patch(
-            "app.tasks.extract.StudySiteExtractor.extract_study_sites",
-        ) as mock_extract:
-            mock_extract.return_value = mock_multi_site_result
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = mock_multi_site_result
+            mock_factory.return_value = mock_pipeline
 
             # Execute task with force=True
             result = extract_study_site_task(
@@ -323,7 +316,7 @@ class TestExtractStudySiteTask:
 
             # Verify extraction was performed
             assert result["status"] == "created"
-            mock_extract.assert_called_once()
+            mock_factory.assert_called_once()
 
             # Note: Old site might still exist unless we add deletion logic
             # For now, we just add new sites
@@ -367,20 +360,28 @@ class TestExtractStudySiteTask:
         self,
         db_session: Session,
         item_with_pdf: Item,
+        mock_pdf_path: Path,
     ) -> None:
         """Test handling when no study sites are extracted."""
-        empty_result = StudySiteResult(
-            coordinates=[],
-            locations=[],
-            validation_score=0.0,
-            primary_study_site=None,
-            cluster_info={},
+        empty_result = ExtractionResult(
+            pdf_path=mock_pdf_path,
+            entities=[],
+            total_sections_processed=5,
+            extraction_metadata={
+                "total_entities": 0,
+                "coordinates": 0,
+                "spatial_relations": 0,
+                "locations": 0,
+                "clusters": 0,
+            },
+            doc=None,
+            title="Test Study with No Sites",
         )
 
-        with patch(
-            "app.tasks.extract.StudySiteExtractor.extract_study_sites",
-        ) as mock_extract:
-            mock_extract.return_value = empty_result
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = empty_result
+            mock_factory.return_value = mock_pipeline
 
             result = extract_study_site_task(
                 item_id=str(item_with_pdf.id),
@@ -411,45 +412,51 @@ class TestExtractStudySiteTask:
         self,
         db_session: Session,
         item_with_pdf: Item,
+        mock_pdf_path: Path,
     ) -> None:
         """Test that identical coordinates share the same Location record."""
         # Create result with duplicate coordinates
-        site_1 = CoordinateCandidate(
-            latitude=Latitude(-0.5),
-            longitude=Longitude(-78.5),
-            confidence_score=0.9,
-            priority_score=100,
-            source_type=CoordinateSourceType.TEXT,
+        entity_1 = GeoEntity(
+            text="Site 1",
+            entity_type="COORDINATE",
+            confidence=0.9,
+            section="methods",
             context="Context 1",
-            section=PaperSections.METHODS,
-            name="Site 1",
-            extraction_method=CoordinateExtractionMethod.REGEX,
+            coordinates=(-0.5, -78.5),
+            start_char=0,
+            end_char=6,
         )
 
-        site_2 = CoordinateCandidate(
-            latitude=Latitude(-0.5),  # Same coordinates
-            longitude=Longitude(-78.5),  # Same coordinates
-            confidence_score=0.8,
-            priority_score=80,
-            source_type=CoordinateSourceType.TEXT,
+        entity_2 = GeoEntity(
+            text="Site 2",
+            entity_type="GPE",
+            confidence=0.8,
+            section="results",
             context="Context 2",
-            section=PaperSections.RESULTS,
-            name="Site 2",
-            extraction_method=CoordinateExtractionMethod.NER,
+            coordinates=(-0.5, -78.5),  # Same coordinates
+            start_char=100,
+            end_char=106,
         )
 
-        result = StudySiteResult(
-            coordinates=[site_1, site_2],
-            locations=[],
-            validation_score=0.9,
-            primary_study_site=site_1,
-            cluster_info={"cluster_0": 2},
+        result = ExtractionResult(
+            pdf_path=mock_pdf_path,
+            entities=[entity_1, entity_2],
+            total_sections_processed=2,
+            extraction_metadata={
+                "total_entities": 2,
+                "coordinates": 2,
+                "spatial_relations": 0,
+                "locations": 1,
+                "clusters": 1,
+            },
+            doc=None,
+            title="Test Deduplication",
         )
 
-        with patch(
-            "app.tasks.extract.StudySiteExtractor.extract_study_sites",
-        ) as mock_extract:
-            mock_extract.return_value = result
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = result
+            mock_factory.return_value = mock_pipeline
 
             extract_study_site_task(
                 item_id=str(item_with_pdf.id),

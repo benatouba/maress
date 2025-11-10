@@ -10,8 +10,8 @@ import pytest
 from celery.result import AsyncResult
 
 from app.core.config import settings
-from app.models.items import Item
-from app.models.study_sites import StudySite
+from app.models import Item
+from app.models import StudySite
 from maress_types import CoordinateExtractionMethod
 from tests.utils.item import create_random_item
 
@@ -278,7 +278,7 @@ class TestExtractionSummaryEndpoint:
         """Test retrieving extraction summary statistics."""
         # Create items with study sites
         from app.crud import create_study_site
-        from app.models.study_sites import StudySiteCreate
+        from app.models import StudySiteCreate
         from pydantic_extra_types.coordinate import Latitude, Longitude
 
         # Create 3 items, 2 with study sites
@@ -383,7 +383,7 @@ class TestExtractionSummaryEndpoint:
     ) -> None:
         """Test that summary breaks down sites by extraction method."""
         from app.crud import create_study_site
-        from app.models.study_sites import StudySiteCreate
+        from app.models import StudySiteCreate
         from pydantic_extra_types.coordinate import Latitude, Longitude
 
         item = create_random_item(db_session)

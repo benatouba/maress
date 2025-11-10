@@ -9,14 +9,14 @@ from sqlmodel import Session, SQLModel
 
 from app.core.config import settings
 from app.main import app
-from app.models.collections import Collection  # noqa: F401
-from app.models.creators import Creator  # noqa: F401
-from app.models.items import Item  # noqa: F401
-from app.models.links import ItemTagLink  # noqa: F401
-from app.models.relations import Relation  # noqa: F401
-from app.models.study_sites import StudySite  # noqa: F401
-from app.models.tags import Tag  # noqa: F401
-from app.models.users import User
+from app.models import Collection  # noqa: F401
+from app.models import Creator  # noqa: F401
+from app.models import Item  # noqa: F401
+from app.models import ItemTagLink  # noqa: F401
+from app.models import Relation  # noqa: F401
+from app.models import StudySite  # noqa: F401
+from app.models import Tag  # noqa: F401
+from app.models import User
 from app.services import SpaCyModelManager
 
 # Create a separate test database
