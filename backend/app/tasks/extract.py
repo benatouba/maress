@@ -164,39 +164,14 @@ def extract_study_site_task(
     except FileNotFoundError as e:
         msg = f"Attachment file not found for item {item_id}"
         logger.exception(msg)
-        self.update_state(
-            state=states.FAILURE,
-            meta={
-                "reason": "file_not_found",
-                "message": msg,
-                "item_id": item_id,
-            },
-        )
         raise FileNotFoundError(msg) from e
 
     except PermissionError:
         msg = f"Permission denied for item {item_id}"
         logger.exception(msg)
-        self.update_state(
-            state=states.FAILURE,
-            meta={
-                "reason": "permission_denied",
-                "message": msg,
-                "item_id": item_id,
-            },
-        )
         raise
 
     except Exception as e:
         msg = f"extract_study_site_task failed for item {item_id}: {e!s}"
         logger.exception(msg)
-        self.update_state(
-            state=states.FAILURE,
-            meta={
-                "reason": "extraction_error",
-                "message": msg,
-                "item_id": item_id,
-                "error_type": type(e).__name__,
-            },
-        )
         raise
