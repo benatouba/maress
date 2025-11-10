@@ -46,8 +46,8 @@ class ItemBase(SQLModel):
     callNumber: str = Field(default="", max_length=64)
     rights: str | None = Field(default=None, max_length=255)
     extra: str = Field(default="", max_length=255)
-    dateAdded: datetime | None = timestamp_field()
-    dateModified: datetime | None = timestamp_field(onupdate_now=True)
+    dateAdded: datetime = timestamp_field()
+    dateModified: datetime = timestamp_field(onupdate_now=True)
     attachment: str | None = Field(default=None, max_length=512)
 
     # get datetime of string if type of dateAdded or dateModified is str

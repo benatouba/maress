@@ -423,7 +423,7 @@ def create_study_site(
 
     study_site = StudySite(**study_site_dict) # pyright: ignore[reportAny]
     session.add(study_site)
-    session.commit()
+    session.flush()
     session.refresh(study_site)
 
     return study_site

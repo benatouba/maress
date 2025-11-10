@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+from celery.result import AsyncResult
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from magic import Magic
@@ -12,6 +13,7 @@ from sqlmodel import col, func, or_, select
 
 from app import crud
 from app.api.deps import CurrentUser, SessionDep
+from app.celery_app import celery
 from app.models.items import (
     Item,
     ItemCreate,
@@ -432,3 +434,183 @@ def patch_study_site(
         db_study_site=study_site,
         study_site_in=study_site_in,
     )
+
+
+# Task Status Endpoints
+
+
+@router.get("/tasks/{task_id}")
+def get_task_status(
+    task_id: str,
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Get Celery task status by ID.
+
+    Returns task state, progress, and result/error information.
+    """
+    result = AsyncResult(task_id, app=celery)
+
+    response: dict[str, Any] = {
+        "task_id": task_id,
+        "status": result.status,
+        "ready": result.ready(),
+        "successful": result.successful() if result.ready() else None,
+        "failed": result.failed() if result.ready() else None,
+    }
+
+    # Add result data if task is complete
+    if result.ready():
+        if result.successful():
+            response["result"] = result.result
+        else:
+            # Task failed - include error info
+            error_info = result.info
+            if isinstance(error_info, dict):
+                response["error"] = error_info
+            else:
+                response["error"] = {
+                    "message": str(error_info),
+                    "type": type(error_info).__name__,
+                }
+
+    # Add task metadata if available
+    if hasattr(result, 'info') and isinstance(result.info, dict):
+        response["metadata"] = result.info
+
+    return response
+
+
+@router.get("/tasks/batch/")
+def get_batch_task_status(
+    task_ids: Annotated[str, Query(description="Comma-separated task IDs")],
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Get status of multiple tasks.
+
+    Provide task IDs as comma-separated query parameter.
+    Returns individual task statuses and summary statistics.
+    """
+    ids = [tid.strip() for tid in task_ids.split(',') if tid.strip()]
+
+    if not ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No task IDs provided",
+        )
+
+    if len(ids) > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maximum 100 tasks can be queried at once",
+        )
+
+    results: dict[str, Any] = {}
+
+    for task_id in ids:
+        result = AsyncResult(task_id, app=celery)
+        task_info: dict[str, Any] = {
+            "status": result.status,
+            "ready": result.ready(),
+        }
+
+        # Add minimal result info
+        if result.ready():
+            task_info["successful"] = result.successful()
+            if result.successful():
+                # Include only essential result data
+                task_result = result.result
+                if isinstance(task_result, dict):
+                    task_info["item_id"] = task_result.get("item_id")
+                    task_info["study_site_count"] = task_result.get("count", 0)
+                    task_info["extraction_status"] = task_result.get("status")
+            else:
+                task_info["error"] = "Task failed"
+
+        results[task_id] = task_info
+
+    # Calculate summary statistics
+    statuses = [r["status"] for r in results.values()]
+    ready_tasks = [r for r in results.values() if r.get("ready")]
+
+    summary = {
+        "total": len(results),
+        "pending": statuses.count("PENDING"),
+        "started": statuses.count("STARTED"),
+        "success": statuses.count("SUCCESS"),
+        "failure": statuses.count("FAILURE"),
+        "retry": statuses.count("RETRY"),
+        "ready": len(ready_tasks),
+        "successful": sum(1 for r in ready_tasks if r.get("successful")),
+        "failed": sum(1 for r in ready_tasks if not r.get("successful")),
+    }
+
+    return {
+        "tasks": results,
+        "summary": summary,
+    }
+
+
+@router.get("/tasks/summary/")
+def get_extraction_summary(
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Get summary statistics of study site extractions for current user."""
+    from sqlmodel import and_
+
+    # Total study sites for user's items
+    total_sites = session.exec(
+        select(func.count(StudySite.id))
+        .join(Item, StudySite.item_id == Item.id)
+        .where(Item.owner_id == current_user.id)
+    ).one()
+
+    # Count by extraction method
+    by_method_results = session.exec(
+        select(
+            StudySite.extraction_method,
+            func.count(StudySite.id),
+        )
+        .join(Item, StudySite.item_id == Item.id)
+        .where(Item.owner_id == current_user.id)
+        .group_by(StudySite.extraction_method)
+    ).all()
+
+    # Average confidence
+    avg_confidence = session.exec(
+        select(func.avg(StudySite.confidence_score))
+        .join(Item, StudySite.item_id == Item.id)
+        .where(Item.owner_id == current_user.id)
+    ).one()
+
+    # Average validation score
+    avg_validation = session.exec(
+        select(func.avg(StudySite.validation_score))
+        .join(Item, StudySite.item_id == Item.id)
+        .where(Item.owner_id == current_user.id)
+    ).one()
+
+    # Total items with study sites
+    items_with_sites = session.exec(
+        select(func.count(func.distinct(StudySite.item_id)))
+        .join(Item, StudySite.item_id == Item.id)
+        .where(Item.owner_id == current_user.id)
+    ).one()
+
+    # Total items owned by user
+    total_items = session.exec(
+        select(func.count(Item.id))
+        .where(Item.owner_id == current_user.id)
+    ).one()
+
+    return {
+        "total_study_sites": total_sites or 0,
+        "total_items": total_items or 0,
+        "items_with_study_sites": items_with_sites or 0,
+        "coverage_percentage": round((items_with_sites / total_items * 100) if total_items > 0 else 0, 1),
+        "average_confidence": round(avg_confidence or 0, 3),
+        "average_validation_score": round(avg_validation or 0, 3),
+        "by_extraction_method": {
+            str(method): count for method, count in by_method_results
+        },
+    }
