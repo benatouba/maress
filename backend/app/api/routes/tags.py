@@ -31,7 +31,7 @@ def read_tags(  # noqa: D103
     return TagsPublic(data=public_tags, count=total)
 
 
-@router.get("/tag_id}", response_model=TagPublic)
+@router.get("/{tag_id}", response_model=TagPublic)
 def read_tag(tag_id: int, session: SessionDep, current_user: CurrentUser) -> TagPublic:  # noqa: D103
     tag = get_tag(session, tag_id)
     if not tag:
@@ -82,3 +82,80 @@ def delete_tag_endpoint(  # noqa: ANN201, D103
         raise HTTPException(status_code=403, detail="Not enough permissions")
     if not success:
         raise HTTPException(status_code=404, detail="Tag not found")
+
+
+@router.post("/{tag_id}/items/{item_id}", response_model=TagPublic)
+def add_item_to_tag(  # noqa: D103
+    *,
+    tag_id: int,
+    item_id: str,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> TagPublic:
+    """Add an item to a tag."""
+    from uuid import UUID
+    from app.crud import get_item
+
+    tag = get_tag(session, tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    if not current_user.is_superuser and tag.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    # Get the item
+    try:
+        item_uuid = UUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid item ID format")
+
+    item = get_item(session, item_uuid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if not current_user.is_superuser and item.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    # Add item to tag if not already present
+    if item not in tag.items:
+        tag.items.append(item)
+        session.add(tag)
+        session.commit()
+        session.refresh(tag)
+
+    return TagPublic.model_validate(tag)
+
+
+@router.delete("/{tag_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_item_from_tag(  # noqa: ANN201, D103
+    *,
+    tag_id: int,
+    item_id: str,
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    """Remove an item from a tag."""
+    from uuid import UUID
+    from app.crud import get_item
+
+    tag = get_tag(session, tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    if not current_user.is_superuser and tag.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+
+    # Get the item
+    try:
+        item_uuid = UUID(item_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid item ID format")
+
+    item = get_item(session, item_uuid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Remove item from tag if present
+    if item in tag.items:
+        tag.items.remove(item)
+        session.add(tag)
+        session.commit()
+
+    return None
