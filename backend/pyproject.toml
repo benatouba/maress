@@ -42,11 +42,11 @@ dev = [
   "celery-types>=0.23.0",
   "coverage>=7.11.0",
   "ipython>=9.6.0",
-  "pandas-stubs>=2.3.2.2509026",
+  "pandas-stubs<=2.3.2.2509026",
   "polyfactory>=2.22.1",
   "pre-commit>=4.3.0",
   "pytest-cov>=7.0.0",
-  "pytest>=8.4.0",
+  "pytest>=8.1.0",
   "types-jinja2>=2.11.9",
 ]
 
@@ -163,6 +163,7 @@ docstring-code-format = true
 [tool.basedpyright]
 reportExplicitAny      = false
 reportUnusedCallResult = false
+completeFunctionParens = false
 
 [tool.pytest.ini_options]
 addopts = [
