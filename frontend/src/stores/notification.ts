@@ -1,6 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, type Ref } from 'vue'
 
+// Notification types
+export type NotificationType = 'success' | 'error' | 'warning' | 'info'
+
+export interface Notification {
+  message: string
+  type: NotificationType
+}
+
 // Define the store's return type for better intellisense
 export interface NotificationStore {
   notification: Ref<Notification | null>

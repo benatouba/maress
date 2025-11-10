@@ -5,6 +5,48 @@ import axios from '@/services/api'
 
 import { useNotificationStore } from './notification'
 
+// User interface
+export interface User {
+  id: string
+  email: string
+  full_name: string
+  is_active: boolean
+  is_superuser: boolean
+}
+
+// Login credentials
+export interface LoginCredentials {
+  email: string
+  password: string
+}
+
+// Register data
+export interface RegisterData {
+  email: string
+  full_name: string
+  password: string
+}
+
+// Update profile data
+export interface UpdateProfileData {
+  full_name?: string
+  email?: string
+}
+
+// API response types
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+}
+
+export interface RegisterResponse {
+  user: User
+}
+
+export interface ApiErrorResponse {
+  detail: string
+}
+
 // Auth store interface for better intellisense
 export interface AuthStore {
   user: Ref<User | null>
@@ -94,11 +136,19 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       const response = await axios.post<RegisterResponse>('/users/signup', userData)
       const { user } = response.data
 
-      useNotificationStore().showNotification(
-        `Registration successful! Please check ${user.email} for confirmation email!.`,
+      notificationStore.showNotification(
+        `Registration successful! Welcome ${user.full_name}!`,
         'success',
       )
-      return true
+
+      // Auto-login after successful registration
+      loading.value = false // Reset loading before login
+      const loginSuccess = await login({
+        email: userData.email,
+        password: userData.password,
+      })
+
+      return loginSuccess
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorResponse>
       notificationStore.showNotification(
@@ -107,12 +157,6 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       )
       return false
     } finally {
-      // Auto-login after registration
-      await login({
-        email: userData.email,
-        password: userData.password,
-      })
-
       loading.value = false
     }
   }
