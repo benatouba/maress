@@ -143,12 +143,15 @@ class StudySiteExtractionPipeline:
             geocoded_count = sum(1 for e in all_entities if e.coordinates)
             logger.info(f"Geocoded entities: {geocoded_count} now have coordinates")
 
-        # 6. Cluster coordinates (Phase 1 improvement - preserve all clusters)
+        # 6. Cluster coordinates and keep largest cluster
         cluster_info = {}
         if self.enable_clustering:
             logger.info("Clustering coordinates...")
             all_entities, cluster_info = self.clusterer.cluster_entities(all_entities)
-            logger.info(f"Clustering complete: {len(cluster_info)} clusters found")
+            logger.info(
+                f"Clustering complete: {len(cluster_info)} clusters found, "
+                f"keeping largest cluster"
+            )
 
         # 7. Deduplicate and rank
         unique_entities = self._deduplicate_entities(all_entities)
