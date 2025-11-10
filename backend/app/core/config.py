@@ -1,9 +1,7 @@
-import os
 import secrets
 import warnings
 from typing import Annotated, Any, Literal, Self
 
-from cryptography.fernet import Fernet
 from pydantic import (
     AnyUrl,
     BeforeValidator,
@@ -16,16 +14,14 @@ from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-def parse_cors(v: Any) -> list[str] | str:
+def parse_cors(v: list[Any] | str) -> list[str] | str:
     if isinstance(v, str) and not v.startswith("["):
         return [i.strip() for i in v.split(",") if i.strip()]
-    if isinstance(v, list | str):
-        return v
-    raise ValueError(v)
+    return v
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
+    model_config = SettingsConfigDict(  # pyright: ignore[reportUnannotatedClassAttribute]
         # Use top level .env file (one level above ./backend/)
         env_file="../.env.local",
         env_ignore_empty=True,
@@ -59,7 +55,7 @@ class Settings(BaseSettings):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def SQLALCHEMY_DATABASE_URI(self) -> PostgresDsn:
+    def SQLALCHEMY_DATABASE_URI(self) -> MultiHostUrl:  # noqa: N802
         return MultiHostUrl.build(
             scheme="postgresql+psycopg",
             username=self.POSTGRES_USER,
@@ -101,9 +97,15 @@ class Settings(BaseSettings):
     ZOTERO_API_KEY: str
     ZOTERO_USER_ID: str
     ZOTERO_LIBRARY_TYPE: Literal["user", "group"] = "user"
-    SPACY_MODEL: str = "en_core_web_lg"
 
     ENCRYPTION_KEY: str
+
+    # NLP Configuration
+    SPACY_MODEL: str = "en_core_web_lg"
+
+    # Geocoding Configuration
+    GEOCODING_CACHE_TTL: int = 60 * 60 * 24 * 30  # 30 days in seconds
+    GEOCODING_RATE_LIMIT: float = 1.0  # requests per second for Nominatim
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":

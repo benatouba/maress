@@ -245,3 +245,6 @@ Thumbs.db
 uploads/
 logs/
 ssl/
+
+# nvim files
+.exrc
