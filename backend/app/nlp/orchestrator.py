@@ -32,6 +32,8 @@ class StudySiteExtractionPipeline:
         enable_geocoding: bool = True,
         enable_clustering: bool = True,
         enable_table_extraction: bool = True,
+        enable_quality_assessment: bool = True,
+        enable_enriched_context: bool = True,
     ) -> None:
         """Initialize pipeline with dependencies.
 
@@ -42,6 +44,8 @@ class StudySiteExtractionPipeline:
             enable_geocoding: Enable geocoding of location names
             enable_clustering: Enable coordinate clustering
             enable_table_extraction: Enable table coordinate extraction
+            enable_quality_assessment: Enable text quality assessment (Phase 2)
+            enable_enriched_context: Enable enriched context extraction (Phase 2)
         """
         self.config: ModelConfig = config
         self.pdf_parser: PDFParser = pdf_parser
@@ -52,6 +56,10 @@ class StudySiteExtractionPipeline:
         self.enable_clustering = enable_clustering
         self.enable_table_extraction = enable_table_extraction
 
+        # Phase 2 improvements
+        self.enable_quality_assessment = enable_quality_assessment
+        self.enable_enriched_context = enable_enriched_context
+
         # Initialize components
         if enable_geocoding:
             self.geocoder = get_geocoder()
@@ -60,17 +68,27 @@ class StudySiteExtractionPipeline:
         if enable_table_extraction:
             self.table_extractor = TableCoordinateExtractor(config)
 
+        # Phase 2 components
+        if enable_quality_assessment:
+            from app.nlp.quality_assessment import TextQualityAssessor
+
+            self.quality_assessor = TextQualityAssessor()
+        if enable_enriched_context:
+            from app.nlp.context_extraction import ContextExtractor
+
+            self.context_extractor = ContextExtractor()
+
     def extract_from_pdf(self, pdf_path: Path, title: str | None = None) -> ExtractionResult:
-        """Complete extraction pipeline for a PDF with Phase 1 improvements.
+        """Complete extraction pipeline for a PDF with Phase 1 & 2 improvements.
 
         Pipeline steps:
-        1. Parse PDF
-        2. Extract from text sections
+        1. Parse PDF (with improved sentence boundaries - Phase 2)
+        2. Extract from text sections (with quality assessment - Phase 2)
         3. Extract from tables (Phase 1)
         4. Extract title location for geocoding bias
         5. Geocode location entities (Phase 1 - with caching)
-        6. Cluster coordinates (Phase 1 - preserve all clusters)
-        7. Deduplicate and rank
+        6. Cluster coordinates and keep largest cluster (Phase 1)
+        7. Deduplicate and rank (with enriched context - Phase 2)
 
         Args:
             pdf_path: Path to scientific PDF
@@ -108,6 +126,7 @@ class StudySiteExtractionPipeline:
             logger.info(f"Extracted {len(title_entities)} entities from title")
 
         # 3. Extract from text sections
+        section_quality_scores = {}
         for span in doc.spans.get("layout", []):
             if span.label_ != "text":
                 continue
@@ -117,6 +136,16 @@ class StudySiteExtractionPipeline:
 
             if not section_text:
                 continue
+
+            # Phase 2: Assess text quality
+            if self.enable_quality_assessment:
+                quality_score = self.quality_assessor.assess_quality(section_text)
+                section_quality_scores[section_name] = quality_score
+
+                if quality_score.overall_score < 0.5:
+                    logger.warning(
+                        f"Low quality text in section '{section_name}': {quality_score}"
+                    )
 
             sections_processed += 1
 
@@ -168,6 +197,23 @@ class StudySiteExtractionPipeline:
             "clusters": len(cluster_info),
             "cluster_info": cluster_info,
         }
+
+        # Phase 2: Add quality assessment to metadata
+        if self.enable_quality_assessment and section_quality_scores:
+            avg_quality = sum(q.overall_score for q in section_quality_scores.values()) / len(
+                section_quality_scores
+            )
+            metadata["average_text_quality"] = round(avg_quality, 3)
+            metadata["section_quality_scores"] = {
+                section: {
+                    "overall": round(score.overall_score, 3),
+                    "char_ratio": round(score.char_ratio, 3),
+                    "word_completeness": round(score.word_completeness, 3),
+                    "encoding_health": round(score.encoding_health, 3),
+                }
+                for section, score in section_quality_scores.items()
+            }
+            logger.info(f"Average text quality: {avg_quality:.3f}")
 
         logger.info(f"Extraction complete: {len(ranked_entities)} total entities")
 
