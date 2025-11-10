@@ -87,6 +87,9 @@ export default defineConfig({
     },
     port: 3000,
   },
+  experimental: {
+    paramParsers: true
+  },
   css: {
     preprocessorOptions: {
       sass: {
