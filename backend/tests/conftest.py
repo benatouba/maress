@@ -17,7 +17,6 @@ from app.models import Relation  # noqa: F401
 from app.models import StudySite  # noqa: F401
 from app.models import Tag  # noqa: F401
 from app.models import User
-from app.services import SpaCyModelManager
 
 # Create a separate test database
 POSTGRES_BASE_URL = str(settings.SQLALCHEMY_DATABASE_URI).rsplit("/", 1)[0]
@@ -162,11 +161,6 @@ def normal_user_token_headers(
         email=test_user.email,
         db=db_session,
     )
-
-
-@pytest.fixture(scope="module")
-def model_manager() -> SpaCyModelManager:
-    return SpaCyModelManager()
 
 
 @pytest.fixture(scope="module")

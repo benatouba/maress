@@ -445,7 +445,7 @@ class TestTaskStatusIntegration:
         db_session.commit()
 
         # Mock the extraction result
-        with patch("app.tasks.extract.StudySiteExtractor") as mock_extractor_class:
+        with patch("app.tasks.extract.PipelineFactory") as mock_pipeline_factory:
             from pydantic_extra_types.coordinate import Latitude, Longitude
 
             from app.nlp.domain_models import ExtractionResult, GeoEntity
@@ -461,11 +461,23 @@ class TestTaskStatusIntegration:
                 coordinates=(Latitude(-1.0), Longitude(-77.0)),
             )
 
+            from app.nlp.domain_models import ExtractionMetadata
+
+            mock_metadata = ExtractionMetadata(
+                total_sections_processed=5,
+                average_text_quality=0.95,
+                total_entities=1,
+                coordinates=1,
+                clusters=1,
+                locations=1,
+                section_quality_scores={},
+            )
+
             mock_result = ExtractionResult(
                 pdf_path=pdf_path,
                 entities=[mock_site],
                 total_sections_processed=5,
-                extraction_metadata={"sections_extracted": 5},
+                extraction_metadata=mock_metadata,
                 doc=None,
                 title="Test Document",
                 cluster_info={"cluster_1": 1},
@@ -473,8 +485,8 @@ class TestTaskStatusIntegration:
                 section_quality_scores={},
             )
 
-            mock_extractor = mock_extractor_class.return_value
-            mock_extractor.extract_study_sites.return_value = mock_result
+            mock_pipeline = mock_pipeline_factory.create_pipeline_for_api.return_value
+            mock_pipeline.extract_from_pdf.return_value = mock_result
 
             # Trigger extraction
             response = client.post(
