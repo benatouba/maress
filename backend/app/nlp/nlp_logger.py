@@ -6,7 +6,7 @@ file_handler = logging.FileHandler("../nlp.log")
 file_handler.setLevel(logging.DEBUG)  # Logs all levels to file
 console_handler = logging.StreamHandler()
 console_handler.setLevel(
-    logging.INFO
+    logging.WARNING
 )  # Only logs INFO, WARNING, ERROR, CRITICAL to console
 
 file_formatter = logging.Formatter(
