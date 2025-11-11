@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.orm import Session
+from sqlmodel import Session
 
 from app.celery_app import celery
 from app.core.db import SessionLocal
@@ -74,20 +74,17 @@ def _extract_study_site_impl(
 
     path = Path(item.attachment).resolve(strict=True)
 
-    # Use new SOLID pipeline with Phase 1 improvements
     logger.info("Initializing extraction pipeline for item %s", item_id)
     pipeline = PipelineFactory.create_pipeline_for_api()
 
-    # Extract using new architecture
     logger.info("Extracting study sites from %s", path.name)
     result = pipeline.extract_from_pdf(path, title=item.title or None)
 
-    # Convert to database models using adapter
     logger.info("Converting extraction results to database models")
     study_sites = StudySiteResultAdapter.to_study_sites(
         result=result,
         item_id=item.id,
-        min_confidence=0.5,  # Minimum confidence threshold
+        min_confidence=0.7,  # Minimum confidence threshold
     )
 
     if not study_sites:
@@ -100,15 +97,55 @@ def _extract_study_site_impl(
             "message": "No study sites found in document",
         }
 
-    # Get primary study site (highest confidence)
-    primary_site = get_primary_study_site(study_sites)
+    # Phase 4: Save ALL extraction candidates to extraction_result table
+    from app.models import ExtractionResult
 
-    # Save all study sites to database
+    logger.info("Saving all %d extraction candidates to database", len(study_sites))
+    extraction_result_ids = []
+
+    for rank, study_site in enumerate(study_sites, start=1):
+        # Determine if this will be saved as a StudySite (top 10)
+        is_saved = rank <= 10
+
+        extraction_result = ExtractionResult(
+            item_id=item.id,
+            name=study_site.name,
+            latitude=study_site.latitude,
+            longitude=study_site.longitude,
+            context=study_site.context,
+            confidence_score=study_site.confidence_score or 0.0,
+            extraction_method=study_site.extraction_method,
+            source_type=study_site.source_type,
+            section=study_site.section,
+            rank=rank,
+            is_saved=is_saved,
+        )
+        session.add(extraction_result)
+        extraction_result_ids.append(extraction_result.id)
+
+    session.flush()  # Ensure IDs are generated
+    logger.info("Saved %d extraction candidates", len(extraction_result_ids))
+
+    # Phase 4: Limit to top 10 study sites for StudySite table
+    MAX_STUDY_SITES = 10
+    top_study_sites = study_sites[:MAX_STUDY_SITES]
+
+    if len(study_sites) > MAX_STUDY_SITES:
+        logger.info(
+            "Limiting study sites from %d to top %d results",
+            len(study_sites),
+            MAX_STUDY_SITES,
+        )
+
+    # Get primary study site (highest confidence from top results)
+    primary_site = get_primary_study_site(top_study_sites)
+
+    # Save top study sites to database
     study_site_ids = []
     primary_site_id = None
 
-    for idx, study_site in enumerate(study_sites):
-        created = create_study_site(session, study_site)
+    for idx, study_site in enumerate(top_study_sites):
+        created = create_study_site(session=session, study_site_data=study_site)
         study_site_ids.append(str(created.id))
 
         # Track primary site
@@ -136,13 +173,12 @@ def _extract_study_site_impl(
         total_created,
     )
 
-    # Build extraction metadata
     extraction_metadata = result.extraction_metadata
     metadata_summary = {
-        "total_entities": extraction_metadata.get("total_entities", 0),
-        "coordinates_found": extraction_metadata.get("coordinates", 0),
-        "clusters": extraction_metadata.get("clusters", 0),
-        "locations_geocoded": extraction_metadata.get("locations", 0),
+        "total_entities": extraction_metadata.total_entities,
+        "coordinates_found": extraction_metadata.coordinates,
+        "clusters": extraction_metadata.clusters,
+        "locations_geocoded": extraction_metadata.locations,
     }
 
     return {
@@ -150,7 +186,7 @@ def _extract_study_site_impl(
         "study_site_ids": study_site_ids,
         "count": len(study_site_ids),
         "status": "created",
-        "message": f"Successfully created {total_created} study site(s) from {extraction_metadata.get('clusters', 1)} cluster(s)",
+        "message": f"Successfully created {total_created} study site(s) from {extraction_metadata.clusters} cluster(s)",
         "primary_site_id": primary_site_id,
         "extraction_metadata": metadata_summary,
     }

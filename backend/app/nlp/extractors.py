@@ -108,6 +108,104 @@ class CoordinateExtractor(BaseEntityExtractor):
         return entities
 
 
+class SpaCyCoordinateExtractor(BaseEntityExtractor):
+    """Extracts coordinates using spaCy pipeline with integrated regex patterns.
+
+    This extractor uses a custom spaCy component (coordinate_matcher) that
+    detects both well-formed and malformed coordinates directly in the NLP pipeline.
+    It's more efficient and handles PDF extraction artifacts better than
+    external regex matching.
+    """
+
+    def __init__(self, config: ModelConfig) -> None:
+        """Initialize spaCy coordinate extractor."""
+        super().__init__(config)
+        self.parser: CoordinateParser = CoordinateParser()
+
+        # Ensure the coordinate_matcher component is in the pipeline
+        # Add it BEFORE the NER component to avoid conflicts
+        if "coordinate_matcher" not in self.nlp.pipe_names:
+            from app.nlp.spacy_coordinate_matcher import CoordinateMatcher
+
+            # Add before NER if it exists, otherwise add last
+            if "ner" in self.nlp.pipe_names:
+                self.nlp.add_pipe("coordinate_matcher", before="ner")
+            else:
+                self.nlp.add_pipe("coordinate_matcher", last=True)
+
+    @override
+    def extract(self, text: str, section: str) -> list[GeoEntity]:
+        """Extract coordinate entities using spaCy pipeline.
+
+        Args:
+            text: Text to extract coordinates from
+            section: Document section name
+
+        Returns:
+            List of GeoEntity objects with parsed coordinates
+        """
+        # Process text through spaCy pipeline (includes coordinate_matcher)
+        doc = self.nlp(text)
+
+        entities: list[GeoEntity] = []
+
+        # Extract COORDINATE entities added by our matcher
+        for ent in doc.ents:
+            if ent.label_ != "COORDINATE":
+                continue
+
+            # Get coordinate format and confidence from custom attributes
+            format_type = ent._.coordinate_format if hasattr(ent._, "coordinate_format") else "unknown"
+            confidence = ent._.coordinate_confidence if hasattr(ent._, "coordinate_confidence") else 0.7
+
+            # Parse the coordinate string to decimal
+            coord_str = ent.text
+            parsed_coords = self.parser.parse_to_decimal(coord_str)
+
+            # Validate parsed coordinates
+            if parsed_coords and self._validate_coordinates(parsed_coords):
+                # Get full sentence context
+                context = ent.sent.text if ent.sent else coord_str
+
+                entities.append(
+                    GeoEntity(
+                        text=coord_str,
+                        entity_type="COORDINATE",
+                        context=context,
+                        section=section,
+                        confidence=confidence,
+                        start_char=ent.start_char,
+                        end_char=ent.end_char,
+                        coordinates=parsed_coords,
+                    ),
+                )
+
+        return entities
+
+    def _validate_coordinates(self, coords: tuple[float, float]) -> bool:
+        """Validate coordinate ranges.
+
+        Args:
+            coords: Tuple of (latitude, longitude)
+
+        Returns:
+            True if valid, False otherwise
+        """
+        lat, lon = coords
+
+        # Check ranges
+        if not (-90 <= lat <= 90):
+            return False
+        if not (-180 <= lon <= 180):
+            return False
+
+        # Reject (0, 0) as likely placeholder
+        if lat == 0.0 and lon == 0.0:
+            return False
+
+        return True
+
+
 class SpatialRelationEntityExtractor(BaseEntityExtractor):
     """Extracts spatial relation entities."""
 
@@ -292,7 +390,6 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         entities: list[GeoEntity] = []
 
         for ent in doc.ents:
-            print(ent.text, ent.label_)
             if ent.label_ not in self.GEO_LABELS:
                 continue
 

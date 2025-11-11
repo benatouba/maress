@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 from geopy.point import Point
 
-from app.nlp.clustering import CoordinateClusterer, add_cluster_labels_to_entities
-from app.nlp.domain_models import ExtractionResult, GeoEntity
+from app.nlp.clustering import CoordinateClusterer
+from app.nlp.domain_models import ExtractionMetadata, ExtractionResult, GeoEntity
 from app.nlp.extractors import BaseEntityExtractor
 from app.nlp.geocoding import get_geocoder
 from app.nlp.model_config import ModelConfig
@@ -29,6 +29,7 @@ class StudySiteExtractionPipeline:
         config: ModelConfig,
         pdf_parser: PDFParser,
         extractors: list[BaseEntityExtractor],
+        *,
         enable_geocoding: bool = True,
         enable_clustering: bool = True,
         enable_table_extraction: bool = True,
@@ -79,7 +80,8 @@ class StudySiteExtractionPipeline:
             self.context_extractor = ContextExtractor()
 
     def extract_from_pdf(self, pdf_path: Path, title: str | None = None) -> ExtractionResult:
-        """Complete extraction pipeline for a PDF with Phase 1 & 2 improvements.
+        """Complete extraction pipeline for a PDF with Phase 1 & 2
+        improvements.
 
         Pipeline steps:
         1. Parse PDF (with improved sentence boundaries - Phase 2)
@@ -144,7 +146,7 @@ class StudySiteExtractionPipeline:
 
                 if quality_score.overall_score < 0.5:
                     logger.warning(
-                        f"Low quality text in section '{section_name}': {quality_score}"
+                        f"Low quality text in section '{section_name}': {quality_score}",
                     )
 
             sections_processed += 1
@@ -178,33 +180,47 @@ class StudySiteExtractionPipeline:
             logger.info("Clustering coordinates...")
             all_entities, cluster_info = self.clusterer.cluster_entities(all_entities)
             logger.info(
-                f"Clustering complete: {len(cluster_info)} clusters found, "
-                f"keeping largest cluster"
+                f"Clustering complete: {len(cluster_info)} clusters found, keeping largest cluster",
             )
 
-        # 7. Deduplicate and rank
+        # 7. Deduplicate, filter by confidence, and rank
         unique_entities = self._deduplicate_entities(all_entities)
-        ranked_entities = self._rank_entities(unique_entities)
 
-        # Build metadata
-        metadata = {
-            "total_entities": len(ranked_entities),
-            "coordinates": sum(1 for e in ranked_entities if e.coordinates),
-            "spatial_relations": sum(
-                1 for e in ranked_entities if e.entity_type == "SPATIAL_RELATION"
+        # Phase 4: Filter by minimum confidence threshold (0.75)
+        MIN_CONFIDENCE_THRESHOLD = 0.75
+        confident_entities = [
+            e for e in unique_entities
+            if e.confidence >= MIN_CONFIDENCE_THRESHOLD
+        ]
+
+        if len(confident_entities) < len(unique_entities):
+            filtered_count = len(unique_entities) - len(confident_entities)
+            logger.info(
+                f"Filtered out {filtered_count} entities with confidence < {MIN_CONFIDENCE_THRESHOLD}"
+            )
+
+        ranked_entities = self._rank_entities(confident_entities)
+
+        metadata = ExtractionMetadata(
+            total_sections_processed=sections_processed,
+            average_text_quality=0.0,  # Updated later
+            section_quality_scores={},  # Updated later
+            total_entities=len(ranked_entities),
+            coordinates=sum(1 for e in ranked_entities if e.coordinates),
+            clusters=cluster_info.get("total_clusters", 0),
+            locations=sum(
+                1 for e in ranked_entities if e.entity_type in ["LOC", "GPE"] and e.coordinates
             ),
-            "locations": sum(1 for e in ranked_entities if e.entity_type in ["LOC", "GPE"]),
-            "clusters": len(cluster_info),
-            "cluster_info": cluster_info,
-        }
+        )
 
         # Phase 2: Add quality assessment to metadata
+        avg_quality = 0.0
+        quality_scores_dict = {}
         if self.enable_quality_assessment and section_quality_scores:
             avg_quality = sum(q.overall_score for q in section_quality_scores.values()) / len(
-                section_quality_scores
+                section_quality_scores,
             )
-            metadata["average_text_quality"] = round(avg_quality, 3)
-            metadata["section_quality_scores"] = {
+            quality_scores_dict = {
                 section: {
                     "overall": round(score.overall_score, 3),
                     "char_ratio": round(score.char_ratio, 3),
@@ -224,6 +240,9 @@ class StudySiteExtractionPipeline:
             extraction_metadata=metadata,
             doc=doc,
             title=title,
+            cluster_info=cluster_info,
+            average_text_quality=avg_quality,
+            section_quality_scores=quality_scores_dict,
         )
 
     def _extract_title_bias_point(self, title: str) -> Point | None:
@@ -248,7 +267,9 @@ class StudySiteExtractionPipeline:
                     # Geocode it
                     coords = self.geocoder.geocode(entity.text)
                     if coords:
-                        logger.info(f"Using title location '{entity.text}' as geocoding bias: {coords}")
+                        logger.info(
+                            f"Using title location '{entity.text}' as geocoding bias: {coords}",
+                        )
                         return Point(latitude=coords[0], longitude=coords[1])
 
         except Exception as e:
@@ -316,12 +337,12 @@ class StudySiteExtractionPipeline:
         def score(e: GeoEntity) -> float:
             # Phase 2: Extraction method quality (0-100 points)
             extraction_quality = {
-                "COORDINATE": 90,          # Direct coordinates - highest priority
-                "table_coordinate": 100,   # Table coordinates (if we add detection)
+                "COORDINATE": 90,  # Direct coordinates - highest priority
+                "table_coordinate": 100,  # Table coordinates (if we add detection)
                 "caption_coordinate": 75,  # From captions
-                "SPATIAL_RELATION": 40,    # "10km north of X"
-                "GPE": 50,                 # Geocoded specific place
-                "LOC": 25,                 # Geocoded general location
+                "SPATIAL_RELATION": 40,  # "10km north of X"
+                "GPE": 50,  # Geocoded specific place
+                "LOC": 25,  # Geocoded general location
             }
 
             # Phase 2: Section priority (0-100 points)
@@ -334,15 +355,15 @@ class StudySiteExtractionPipeline:
                 "study_site": 95,
                 "data": 85,
                 "results": 70,
-                "title": 60,           # Lower: often general location
+                "title": 60,  # Lower: often general location
                 "abstract": 50,
-                "figure": 80,          # Phase 3: Figures are high-quality sources
-                "caption": 80,         # Phase 3: Captions are high-quality sources
+                "figure": 80,  # Phase 3: Figures are high-quality sources
+                "caption": 80,  # Phase 3: Captions are high-quality sources
                 "introduction": 40,
                 "discussion": 30,
                 "conclusion": 20,
-                "references": 5,       # Phase 3: Almost exclude references
-                "bibliography": 5,     # Phase 3: Almost exclude bibliography
+                "references": 5,  # Phase 3: Almost exclude references
+                "bibliography": 5,  # Phase 3: Almost exclude bibliography
             }
 
             # Phase 2: Confidence multiplier (0.7-1.5x)
@@ -380,18 +401,66 @@ class StudySiteExtractionPipeline:
                 validation_bonus += 10
 
             # Phase 3: Contextual keyword boosting (high-value keywords)
-            positive_keywords = [
-                "study site", "study area", "study location",
-                "sampling site", "sampling location", "sampling station",
-                "field site", "field station", "research site",
-                "plot", "transect", "quadrat", "study region",
-                "our site", "our location", "this site", "these sites",
+            # Phase 4: Enhanced with more specific study site indicators and higher weights
+
+            # Tier 1: Very high confidence study site indicators (50 points)
+            tier1_keywords = [
+                "study site",
+                "study area",
+                "study location",
+                "our study site",
+                "our study area",
+                "study sites were",
+                "study area was",
+                "sites were located",
+                "area was located",
             ]
 
-            for keyword in positive_keywords:
+            # Tier 2: High confidence field work indicators (40 points)
+            tier2_keywords = [
+                "sampling site",
+                "sampling location",
+                "sampling station",
+                "field site",
+                "field station",
+                "research site",
+                "research station",
+                "research area",
+                "experimental site",
+                "observation site",
+            ]
+
+            # Tier 3: Medium confidence location indicators (30 points)
+            tier3_keywords = [
+                "plot",
+                "transect",
+                "quadrat",
+                "study region",
+                "our site",
+                "our location",
+                "this site",
+                "these sites",
+                "at this location",
+                "at these locations",
+                "the site",
+                "the sites",
+            ]
+
+            # Apply tier-based bonuses (only one tier applies)
+            for keyword in tier1_keywords:
                 if keyword in context_lower:
-                    validation_bonus += 15
-                    break  # Only apply once
+                    validation_bonus += 50
+                    break
+            else:
+                for keyword in tier2_keywords:
+                    if keyword in context_lower:
+                        validation_bonus += 40
+                        break
+                else:
+                    for keyword in tier3_keywords:
+                        if keyword in context_lower:
+                            validation_bonus += 30
+                            break
 
             # Phase 2: Penalty factors
             penalties = 0
@@ -399,8 +468,8 @@ class StudySiteExtractionPipeline:
             # Low precision check (for coordinates)
             if e.entity_type == "COORDINATE" and e.coordinates:
                 lat, lon = e.coordinates
-                lat_decimals = len(str(lat).split('.')[-1]) if '.' in str(lat) else 0
-                lon_decimals = len(str(lon).split('.')[-1]) if '.' in str(lon) else 0
+                lat_decimals = len(str(lat).split(".")[-1]) if "." in str(lat) else 0
+                lon_decimals = len(str(lon).split(".")[-1]) if "." in str(lon) else 0
                 if lat_decimals < 2 or lon_decimals < 2:
                     penalties -= 20
 
@@ -415,11 +484,22 @@ class StudySiteExtractionPipeline:
 
             # Phase 3: Contextual keyword penalties (low-value/citation keywords)
             negative_keywords = [
-                "et al", "previous study", "earlier work", "prior study",
-                "reported by", "described by", "according to",
-                "compared to", "similar to", "literature",
-                "author", "affiliation", "department", "university",
-                "address", "correspondence",
+                "et al",
+                "previous study",
+                "earlier work",
+                "prior study",
+                "reported by",
+                "described by",
+                "according to",
+                "compared to",
+                "similar to",
+                "literature",
+                "author",
+                "affiliation",
+                "department",
+                "university",
+                "address",
+                "correspondence",
             ]
 
             for keyword in negative_keywords:
@@ -432,9 +512,11 @@ class StudySiteExtractionPipeline:
                 penalties -= 50  # Almost eliminate references section
 
             # Phase 2: Calculate final score
-            base_score = extraction_quality.get(e.entity_type, 20) + section_priority.get(e.section, 50)
-            final_score = (base_score * multiplier) + validation_bonus + penalties
+            base_score = extraction_quality.get(e.entity_type, 20) + section_priority.get(
+                e.section,
+                50,
+            )
+            return (base_score * multiplier) + validation_bonus + penalties
 
-            return final_score
 
         return sorted(entities, key=score, reverse=True)
