@@ -29,6 +29,7 @@ export interface ZoteroStore {
   importItem: (itemId: string) => Promise<any | null>
   updateStudySite: (studySiteId: string, updateData: object) => Promise<any>
   importFileFromZotero: (itemId: string) => Promise<any | null>
+  getExtractionResults: (itemId: string) => Promise<any | null>
   extractStudySites: (itemId?: string | null, force?: boolean) => Promise<any | null>
 }
 export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
@@ -210,6 +211,26 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     }
   }
 
+  // Get extraction results (all candidates) for an item
+  const getExtractionResults = async (itemId: string) => {
+    const notificationStore = useNotificationStore()
+    loading.value = true
+
+    try {
+      const response = await axios.get(`/items/${itemId}/extraction-results`)
+      return response.data
+    } catch (error) {
+      console.error('Error fetching extraction results:', error)
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to fetch extraction results',
+        'error',
+      )
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   // Extract study sites for items
   // oxlint-disable-next-line no-explicit-any
   const extractStudySites = async (itemIds: string | string[] | null = null, force: boolean = false): Promise<{ count: number; tasks: any[] } | null> => {
@@ -269,6 +290,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     importItem,
     updateStudySite,
     importFileFromZotero,
+    getExtractionResults,
     extractStudySites,
   }
 })
