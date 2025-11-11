@@ -1,14 +1,12 @@
 <template>
   <v-expand-transition>
     <v-banner
-      v-if="taskStore.hasTasks"
+      v-if="taskStore.hasTasks && dismissed !== true"
       color="info"
       icon="mdi-cog-sync"
-      sticky
       elevation="4"
       class="task-progress-banner clickable"
-      @click="navigateToTasks"
-    >
+      @click="navigateToTasks">
       <template #text>
         <div class="d-flex align-center justify-space-between flex-wrap">
           <div class="d-flex align-center">
@@ -17,32 +15,53 @@
               :size="32"
               :width="3"
               color="white"
-              class="mr-3"
-            >
-              <span class="text-caption">{{ taskStore.completedCount }}/{{ taskStore.taskCount }}</span>
+              class="mr-3">
+              <span class="text-caption"
+                >{{ taskStore.completedCount }}/{{ taskStore.taskCount }}</span
+              >
             </v-progress-circular>
 
             <div>
               <div class="text-subtitle-2 font-weight-bold">
                 Processing Study Site Extractions
-                <v-icon size="small" class="ml-1">mdi-arrow-right</v-icon>
+                <v-icon
+                  size="small"
+                  class="ml-1"
+                  >mdi-arrow-right</v-icon
+                >
               </div>
               <div class="text-caption">
                 {{ taskStore.completedCount }} of {{ taskStore.taskCount }} tasks completed
-                <span v-if="taskStore.successCount > 0" class="ml-2">
-                  <v-icon size="x-small" color="success">mdi-check-circle</v-icon>
+                <span
+                  v-if="taskStore.successCount > 0"
+                  class="ml-2">
+                  <v-icon
+                    size="x-small"
+                    color="success"
+                    >mdi-check-circle</v-icon
+                  >
                   {{ taskStore.successCount }} succeeded
                 </span>
-                <span v-if="taskStore.failedCount > 0" class="ml-2">
-                  <v-icon size="x-small" color="error">mdi-alert-circle</v-icon>
+                <span
+                  v-if="taskStore.failedCount > 0"
+                  class="ml-2">
+                  <v-icon
+                    size="x-small"
+                    color="error"
+                    >mdi-alert-circle</v-icon
+                  >
                   {{ taskStore.failedCount }} failed
                 </span>
               </div>
             </div>
           </div>
 
-          <div class="d-flex align-center gap-2" @click.stop>
-            <v-tooltip text="Cancel pending tasks" location="bottom">
+          <div
+            class="d-flex align-center gap-2"
+            @click.stop>
+            <v-tooltip
+              text="Cancel pending tasks"
+              location="bottom">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
@@ -52,14 +71,15 @@
                   color="warning"
                   @click.stop="handleCancelPending"
                   :disabled="taskStore.pendingCount === 0"
-                  :loading="cancelling"
-                >
+                  :loading="cancelling">
                   <v-icon>mdi-cancel</v-icon>
                 </v-btn>
               </template>
             </v-tooltip>
 
-            <v-tooltip text="Clear completed tasks" location="bottom">
+            <v-tooltip
+              text="Clear completed tasks"
+              location="bottom">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
@@ -67,22 +87,22 @@
                   size="small"
                   variant="text"
                   @click.stop="taskStore.clearCompletedTasks"
-                  :disabled="taskStore.completedCount === 0"
-                >
+                  :disabled="taskStore.completedCount === 0">
                   <v-icon>mdi-broom</v-icon>
                 </v-btn>
               </template>
             </v-tooltip>
 
-            <v-tooltip text="Dismiss all" location="bottom">
+            <v-tooltip
+              text="Dismiss all"
+              location="bottom">
               <template #activator="{ props }">
                 <v-btn
                   v-bind="props"
                   icon
                   size="small"
                   variant="text"
-                  @click.stop="taskStore.clearAllTasks"
-                >
+                  @click.stop="taskStore.clearAllTasks">
                   <v-icon>mdi-close</v-icon>
                 </v-btn>
               </template>
@@ -92,7 +112,20 @@
       </template>
 
       <template #actions>
-        <!-- Empty to prevent default action slot -->
+        <v-tooltip
+          text="Close Banner"
+          location="top">
+          <template #activator="{ props }">
+            <v-btn
+              v-bind="props"
+              icon
+              size="small"
+              variant="text"
+              @click.stop="dismissed = true">
+              <v-icon>mdi-close</v-icon>
+            </v-btn>
+          </template>
+        </v-tooltip>
       </template>
     </v-banner>
   </v-expand-transition>
@@ -105,7 +138,8 @@ import { useTaskStore } from '@/stores/tasks'
 
 const router = useRouter()
 const taskStore = useTaskStore()
-const cancelling = ref(false)
+const cancelling = ref<boolean>(false)
+const dismissed = ref<boolean>(false)
 
 const progressPercentage = computed(() => {
   if (taskStore.taskCount === 0) return 0
@@ -133,11 +167,14 @@ onMounted(() => {
 })
 
 // Watch for task changes and ensure polling continues
-watch(() => taskStore.hasTasks, (hasTasks) => {
-  if (hasTasks && !taskStore.isPolling) {
-    taskStore.startPolling()
-  }
-})
+watch(
+  () => taskStore.hasTasks,
+  (hasTasks) => {
+    if (hasTasks && !taskStore.isPolling) {
+      taskStore.startPolling()
+    }
+  },
+)
 </script>
 
 <style scoped>
