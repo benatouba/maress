@@ -3,12 +3,20 @@ import { ref, computed } from 'vue'
 import api from '@/services/api'
 import { useNotificationStore } from './notification'
 
+export interface Location {
+  id: string
+  latitude: number
+  longitude: number
+  cluster_label?: number | null
+  created_at: string
+  updated_at: string
+}
+
 export interface StudySite {
   id: string
   item_id: string
   name: string | null
-  latitude?: number
-  longitude?: number
+  location: Location
   location_id: string
   confidence_score: number
   validation_score: number
@@ -96,15 +104,9 @@ export const useStudySitesStore = defineStore('studySites', () => {
       items.forEach((item: any) => {
         if (item.study_sites && Array.isArray(item.study_sites)) {
           item.study_sites.forEach((site: any) => {
-            // Get coordinates from the item's study_site if available
-            // The backend may return lat/lon in different structures
-            const latitude = site.latitude
-            const longitude = site.longitude
-
+            // Site already has location object from backend
             enrichedSites.push({
               ...site,
-              latitude,
-              longitude,
               item_title: item.title || 'Unknown',
               item
             })

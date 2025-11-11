@@ -193,7 +193,7 @@
                 size="small"
                 :color="site.is_manual ? 'success' : 'info'"
                 variant="outlined">
-                {{ site.name || `${site.latitude}, ${site.longitude}` }}
+                {{ site.name || `${site.location.latitude}, ${site.location.longitude}` }}
               </v-chip>
             </v-chip-group>
           </div>

@@ -30,6 +30,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/Account': RouteRecordInfo<
+      '/Account',
+      '/Account',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
     '/ForgotPassword': RouteRecordInfo<
       '/ForgotPassword',
       '/ForgotPassword',
@@ -40,13 +47,6 @@ declare module 'vue-router/auto-routes' {
     '/Graph': RouteRecordInfo<
       '/Graph',
       '/Graph',
-      Record<never, never>,
-      Record<never, never>,
-      | never
-    >,
-    '/Home': RouteRecordInfo<
-      '/Home',
-      '/Home',
       Record<never, never>,
       Record<never, never>,
       | never
@@ -107,6 +107,13 @@ declare module 'vue-router/auto-routes' {
       Record<never, never>,
       | never
     >,
+    '/Tasks': RouteRecordInfo<
+      '/Tasks',
+      '/Tasks',
+      Record<never, never>,
+      Record<never, never>,
+      | never
+    >,
   }
 
   /**
@@ -126,6 +133,12 @@ declare module 'vue-router/auto-routes' {
       views:
         | never
     }
+    'src/pages/Account.vue': {
+      routes:
+        | '/Account'
+      views:
+        | never
+    }
     'src/pages/ForgotPassword.vue': {
       routes:
         | '/ForgotPassword'
@@ -135,12 +148,6 @@ declare module 'vue-router/auto-routes' {
     'src/pages/Graph.vue': {
       routes:
         | '/Graph'
-      views:
-        | never
-    }
-    'src/pages/Home.vue': {
-      routes:
-        | '/Home'
       views:
         | never
     }
@@ -189,6 +196,12 @@ declare module 'vue-router/auto-routes' {
     'src/pages/Register.vue': {
       routes:
         | '/Register'
+      views:
+        | never
+    }
+    'src/pages/Tasks.vue': {
+      routes:
+        | '/Tasks'
       views:
         | never
     }
