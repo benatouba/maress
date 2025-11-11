@@ -202,8 +202,8 @@ const initializeForm = () => {
 
   form.value = {
     name: props.studySite.name || '',
-    latitude: props.studySite.latitude,
-    longitude: props.studySite.longitude,
+    latitude: props.studySite.location.latitude,
+    longitude: props.studySite.location.longitude,
     context: props.studySite.context || '',
     confidence_score: props.studySite.confidence_score || 1.0,
     validation_score: props.studySite.validation_score || 1.0

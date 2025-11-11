@@ -12,6 +12,8 @@ export interface User {
   full_name: string
   is_active: boolean
   is_superuser: boolean
+  zotero_id: string | null
+  zotero_api_key: string | null  // Will be redacted as "****" from backend
 }
 
 // Login credentials
@@ -31,6 +33,14 @@ export interface RegisterData {
 export interface UpdateProfileData {
   full_name?: string
   email?: string
+  zotero_id?: string
+  zotero_api_key?: string
+}
+
+// Update password data
+export interface UpdatePasswordData {
+  current_password: string
+  new_password: string
 }
 
 // API response types
@@ -58,6 +68,7 @@ export interface AuthStore {
   logout: () => void
   fetchUser: () => Promise<void>
   updateProfile: (userData: UpdateProfileData) => Promise<boolean>
+  updatePassword: (passwordData: UpdatePasswordData) => Promise<boolean>
   initializeAuth: () => Promise<void>
 }
 
@@ -197,6 +208,27 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
     }
   }
 
+  // Update password
+  const updatePassword = async (passwordData: UpdatePasswordData): Promise<boolean> => {
+    const notificationStore = useNotificationStore()
+    loading.value = true
+
+    try {
+      await axios.patch('/users/me/password', passwordData)
+      notificationStore.showNotification('Password updated successfully!', 'success')
+      return true
+    } catch (error) {
+      const axiosError = error as AxiosError<ApiErrorResponse>
+      notificationStore.showNotification(
+        axiosError.response?.data?.detail || 'Password update failed',
+        'error',
+      )
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     user,
     token,
@@ -207,6 +239,7 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
     logout,
     fetchUser,
     updateProfile,
+    updatePassword,
     initializeAuth,
   }
 })

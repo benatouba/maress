@@ -8,7 +8,15 @@
           Manage your research papers and study sites
         </p>
       </v-col>
-      <v-col cols="12" md="6" class="d-flex justify-end align-center">
+      <v-col cols="12" md="6" class="d-flex justify-end align-center flex-wrap">
+        <v-switch
+          v-model="forceReload"
+          color="warning"
+          density="compact"
+          hide-details
+          class="mr-4"
+          label="Force Reload"
+        />
         <v-btn
           color="primary"
           prepend-icon="mdi-sync"
@@ -16,7 +24,35 @@
           :loading="syncing"
           class="mr-2"
         >
-          Sync Library
+          {{ syncButtonText }}
+        </v-btn>
+        <v-btn
+          color="secondary"
+          prepend-icon="mdi-download"
+          @click="handleDownloadAttachments"
+          :loading="loading"
+          class="mr-2"
+        >
+          Download Files
+        </v-btn>
+        <v-btn
+          v-if="hasSelectedItems"
+          color="error"
+          prepend-icon="mdi-close"
+          @click="clearSelection"
+          variant="outlined"
+          class="mr-2"
+        >
+          Clear ({{ selectedItems.length }})
+        </v-btn>
+        <v-btn
+          :color="hasSelectedItems ? 'success' : 'accent'"
+          prepend-icon="mdi-map-marker-plus"
+          @click="handleExtractAll"
+          :loading="loading"
+          class="mr-2"
+        >
+          {{ hasSelectedItems ? `Extract ${selectedItems.length} Selected` : 'Extract All Sites' }}
         </v-btn>
         <v-btn
           color="secondary"
@@ -28,6 +64,39 @@
         </v-btn>
       </v-col>
     </v-row>
+
+    <!-- Zotero Collections -->
+    <v-card class="mb-4" elevation="2" v-if="zoteroCollections.length > 0">
+      <v-card-title class="text-subtitle-1">
+        <v-icon class="mr-2">mdi-folder-multiple</v-icon>
+        Zotero Collections
+      </v-card-title>
+      <v-card-text>
+        <v-chip-group
+          v-model="selectedCollectionIndex"
+          selected-class="text-primary"
+          mandatory
+          column
+        >
+          <v-chip
+            value="-1"
+            prepend-icon="mdi-library"
+            variant="outlined"
+          >
+            All Library
+          </v-chip>
+          <v-chip
+            v-for="(collection, index) in zoteroCollections"
+            :key="collection.key"
+            :value="index"
+            prepend-icon="mdi-folder"
+            variant="outlined"
+          >
+            {{ collection.name }}
+          </v-chip>
+        </v-chip-group>
+      </v-card-text>
+    </v-card>
 
     <!-- Filters and Search -->
     <v-card class="mb-4" elevation="2">
@@ -91,12 +160,14 @@
         v-model:page="page"
         v-model:items-per-page="itemsPerPage"
         v-model:sort-by="sortBy"
+        v-model="selectedItems"
         :headers="headers"
         :items="filteredItems"
         :loading="loading"
         :items-length="totalItems"
         :search="search"
         item-value="id"
+        show-select
         class="elevation-0"
         hover
         @click:row="handleRowClick"
@@ -200,7 +271,14 @@
                 </template>
                 <v-list-item-title>View on Map</v-list-item-title>
               </v-list-item>
-              <v-list-item @click="extractStudySites(item)">
+              <v-divider />
+              <v-list-item @click="handleImportFile(item)">
+                <template #prepend>
+                  <v-icon size="small">mdi-download</v-icon>
+                </template>
+                <v-list-item-title>Download File from Zotero</v-list-item-title>
+              </v-list-item>
+              <v-list-item @click="handleExtractStudySites(item)">
                 <template #prepend>
                   <v-icon size="small">mdi-map-marker-plus</v-icon>
                 </template>
@@ -284,7 +362,7 @@
                   </template>
                   <v-list-item-title>{{ site.name || 'Unnamed' }}</v-list-item-title>
                   <v-list-item-subtitle>
-                    {{ site.latitude?.toFixed(4) }}, {{ site.longitude?.toFixed(4) }}
+                    {{ site.location.latitude?.toFixed(4) }}, {{ site.location.longitude?.toFixed(4) }}
                   </v-list-item-subtitle>
                 </v-list-item>
               </v-list>
@@ -313,13 +391,15 @@ import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useZoteroStore } from '@/stores/zotero'
 import { useNotificationStore } from '@/stores/notification'
+import { useTaskStore } from '@/stores/tasks'
 import { debounce } from 'lodash'
 
 // Stores
 const router = useRouter()
 const zoteroStore = useZoteroStore()
 const notificationStore = useNotificationStore()
-const { items, loading, syncing } = storeToRefs(zoteroStore)
+const taskStore = useTaskStore()
+const { items, loading, syncing, zoteroCollections } = storeToRefs(zoteroStore)
 
 // State
 const search = ref('')
@@ -327,9 +407,12 @@ const filterType = ref<string | null>(null)
 const filterStudySites = ref<string | null>(null)
 const page = ref(1)
 const itemsPerPage = ref(25)
+const selectedCollectionIndex = ref<number>(-1)
 const sortBy = ref<any[]>([{ key: 'dateModified', order: 'desc' }])
 const detailsDialog = ref(false)
 const selectedItem = ref<any>(null)
+const forceReload = ref(false)
+const selectedItems = ref<any[]>([])
 
 // Filter options
 const itemTypeOptions = [
@@ -384,6 +467,24 @@ const hasActiveFilters = computed(() => {
   return search.value !== '' || filterType.value !== null || filterStudySites.value !== null
 })
 
+const hasSelectedItems = computed(() => {
+  return selectedItems.value.length > 0
+})
+
+const selectedCollection = computed(() => {
+  if (selectedCollectionIndex.value === -1 || selectedCollectionIndex.value === undefined) {
+    return null
+  }
+  return zoteroCollections.value[selectedCollectionIndex.value]
+})
+
+const syncButtonText = computed(() => {
+  if (selectedCollection.value) {
+    return `Sync Collection: ${selectedCollection.value.name}`
+  }
+  return 'Sync Library'
+})
+
 // Methods
 const debouncedSearch = debounce(() => {
   page.value = 1 // Reset to first page on search
@@ -396,21 +497,86 @@ const clearFilters = () => {
   page.value = 1
 }
 
+const clearSelection = () => {
+  selectedItems.value = []
+}
+
 const handleSync = async () => {
   try {
-    const synced = await zoteroStore.syncLibrary()
+    const collectionId = selectedCollection.value?.key || null
+    const synced = await zoteroStore.syncLibrary(forceReload.value, collectionId)
     if (synced) {
       await zoteroStore.fetchItems()
-      notificationStore.showNotification('Library synced successfully', 'success')
-    }
-
-    const downloaded = await zoteroStore.downloadAttachments()
-    if (downloaded) {
-      await zoteroStore.fetchItems()
-      notificationStore.showNotification('Attachments downloaded', 'success')
+      const message = collectionId
+        ? `Collection "${selectedCollection.value?.name}" synced successfully`
+        : 'Library synced successfully'
+      notificationStore.showNotification(message, 'success')
     }
   } catch (error) {
     console.error('Sync error:', error)
+  }
+}
+
+const handleDownloadAttachments = async () => {
+  try {
+    const downloaded = await zoteroStore.downloadAttachments()
+    if (downloaded) {
+      await zoteroStore.fetchItems()
+      notificationStore.showNotification('Files downloaded successfully', 'success')
+    }
+  } catch (error) {
+    console.error('Download error:', error)
+  }
+}
+
+const handleExtractAll = async () => {
+  try {
+    if (hasSelectedItems.value) {
+      // Extract for selected items only - map to IDs
+      const itemIds = selectedItems.value.map(item => item.id)
+      const totalSelected = itemIds.length
+
+      try {
+        const result = await zoteroStore.extractStudySites(itemIds, forceReload.value)
+        if (result && result.tasks) {
+          // Add tasks to task store for tracking
+          taskStore.addTasks(result.tasks)
+
+          notificationStore.showNotification(
+            `Queued extraction for ${totalSelected} selected item(s)`,
+            'success'
+          )
+        }
+      } catch (error) {
+        console.error(`Extraction error for selected items:`, error)
+        notificationStore.showNotification(
+          `Failed to queue extraction for selected items`,
+          'error'
+        )
+      }
+
+      // Clear selection after extraction
+      clearSelection()
+
+      // Refresh items when all tasks complete
+      setTimeout(() => {
+        zoteroStore.fetchItems()
+      }, 5000)
+    } else {
+      // Extract for all items
+      const result = await zoteroStore.extractStudySites(null, forceReload.value)
+      if (result && result.tasks) {
+        // Add tasks to task store for tracking
+        taskStore.addTasks(result.tasks)
+
+        // Refresh items when tasks complete
+        setTimeout(() => {
+          zoteroStore.fetchItems()
+        }, 5000)
+      }
+    }
+  } catch (error) {
+    console.error('Extraction error:', error)
   }
 }
 
@@ -437,12 +603,29 @@ const viewOnMap = (item: any) => {
   })
 }
 
-const extractStudySites = async (item: any) => {
+const handleImportFile = async (item: any) => {
   try {
-    // Call the extraction API endpoint
-    notificationStore.showNotification('Study site extraction started', 'info')
-    // TODO: Implement extraction API call
-    // await zoteroStore.extractStudySites(item.id)
+    const result = await zoteroStore.importFileFromZotero(item.id)
+    if (result) {
+      await zoteroStore.fetchItems()
+    }
+  } catch (error) {
+    console.error('Import file error:', error)
+  }
+}
+
+const handleExtractStudySites = async (item: any) => {
+  try {
+    const result = await zoteroStore.extractStudySites(item.id, forceReload.value)
+    if (result && result.tasks) {
+      // Add tasks to task store for tracking
+      taskStore.addTasks(result.tasks)
+
+      // Refresh items when tasks complete
+      setTimeout(() => {
+        zoteroStore.fetchItems()
+      }, 5000)
+    }
   } catch (error) {
     console.error('Extraction error:', error)
   }
@@ -513,7 +696,10 @@ const getStudySitesColor = (studySites: any[]): string => {
 
 // Lifecycle
 onMounted(async () => {
-  await zoteroStore.fetchItems()
+  await Promise.all([
+    zoteroStore.fetchItems(),
+    zoteroStore.fetchZoteroCollections('group')
+  ])
 })
 </script>
 

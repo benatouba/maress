@@ -717,9 +717,6 @@ watch(
   },
 )
 
-// Emits for parent component
-const emit = defineEmits(['nodeSelected', 'layoutChanged', 'searchChanged'])
-
 // Expose methods for parent component
 defineExpose({
   getCytoscape: () => cy,

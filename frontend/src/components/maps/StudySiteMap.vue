@@ -81,6 +81,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { Map, View } from 'ol'
 import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer'
 import { OSM, Vector as VectorSource } from 'ol/source'
@@ -229,15 +230,11 @@ const updateMarkers = () => {
 
   // Add features for each study site
   studySites.value.forEach((site) => {
-    // Get coordinates from the location (assuming location has lat/lon)
-    // Since the API doesn't directly return lat/lon in StudySite,
-    // we need to fetch from the location or use the item's study_sites array
-    // For now, let's assume the site has latitude/longitude properties
-
-    if (!site.latitude || !site.longitude) return
+    // Get coordinates from the location object
+    if (!site.location || !site.location.latitude || !site.location.longitude) return
 
     const feature = new Feature({
-      geometry: new Point(fromLonLat([site.longitude, site.latitude])),
+      geometry: new Point(fromLonLat([site.location.longitude, site.location.latitude])),
       studySite: site
     })
 
