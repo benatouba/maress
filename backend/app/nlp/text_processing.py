@@ -534,16 +534,87 @@ class CoordinateParser:
         """Convert coordinate string to decimal degrees (lat, lon).
 
         Phase 2: Enhanced to handle 15+ coordinate formats.
+        Phase 3: Enhanced to handle malformed coordinates with corrupted symbols.
 
         Args:
-            coord_str: Coordinate string (e.g., "45°12'30\"N, 122°30'15\"W")
+            coord_str: Coordinate string (e.g., "45°12'30\"N, 122°30'15\"W" or malformed "45 7 12 b N")
 
         Returns:
             Tuple of (latitude, longitude) in decimal degrees, or None if parsing fails
         """
         try:
-            # Phase 2: Try each pattern - ordered by commonality
+            # Phase 3: Try each pattern - including malformed variations
             patterns = [
+                # === MALFORMED COORDINATE PATTERNS (Priority 1 - Most common corruptions) ===
+
+                # Degree as "7" with proper minute/second symbols: 45 7 12'N, 122 7 30'W
+                (
+                    r"(\d+)\s+7\s+(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s+7\s+(\d+)\s*[\'′]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+
+                # Degree as "7", minute as "b": 45 7 12 b N, 122 7 30 b W
+                (
+                    r"(\d+)\s+7\s+(\d+)\s+b\s+([NS])\s*,?\s*(\d+)\s+7\s+(\d+)\s+b\s+([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+
+                # Degree as "7", minute as "b" with DMS: 45 7 12 b 30"N
+                (
+                    r"(\d+)\s+7\s+(\d+)\s+b\s+(\d+\.?\d*)\s*[\"″c]\s*([NS])\s*,?\s*(\d+)\s+7\s+(\d+)\s+b\s+(\d+\.?\d*)\s*[\"″c]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2)), float(m.group(3))],
+                        m.group(4),
+                        [float(m.group(5)), float(m.group(6)), float(m.group(7))],
+                        m.group(8),
+                    ),
+                ),
+
+                # Compact format with decimal minute: 00°01'.72N or 00 7 01 b .72N
+                (
+                    r"(\d+)\s*[°7o]\s*(\d+)\s*[\'′b]\s*\.(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°7o]\s*(\d+)\s*[\'′b]\s*\.(\d+)\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(f"{m.group(2)}.{m.group(3)}")],
+                        m.group(4),
+                        [float(m.group(5)), float(f"{m.group(6)}.{m.group(7)}")],
+                        m.group(8),
+                    ),
+                ),
+
+                # Degree as "o" or "O": 45o12'N, 122o30'W
+                (
+                    r"(\d+)\s*[oO]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[oO]\s*(\d+)\s*[\'′]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+
+                # Minute as backtick or acute: 45°12`N or 45°12´N
+                (
+                    r"(\d+)\s*[°]\s*(\d+)\s*[`´]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[`´]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+
+                # === WELL-FORMED PATTERNS (Priority 2) ===
+
                 # Simple decimal pairs: 45.123, -122.456
                 (
                     r"^(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})$",

@@ -1,7 +1,8 @@
 """Coordinate clustering for study site extraction.
 
-This module implements DBSCAN clustering that identifies the largest
-geographic cluster and returns the best-ranked results from it.
+This module implements DBSCAN clustering that identifies all
+geographic clusters and filters only noise points, allowing the
+ranking system to determine which coordinates represent study sites.
 """
 
 from __future__ import annotations
@@ -20,10 +21,10 @@ if TYPE_CHECKING:
 
 
 class CoordinateClusterer:
-    """Clusters coordinates using DBSCAN and returns largest cluster.
+    """Clusters coordinates using DBSCAN and filters noise points.
 
-    Identifies all geographic clusters but returns only entities from the
-    largest cluster, which represents the primary study region.
+    Identifies all geographic clusters and returns entities from all
+    clusters, filtering only noise points. Ranking determines study sites.
     """
 
     def __init__(self, eps_km: float = 50.0, min_samples: int = 1) -> None:
@@ -40,13 +41,13 @@ class CoordinateClusterer:
         self,
         entities: list[GeoEntity],
     ) -> tuple[list[GeoEntity], dict[str, int]]:
-        """Cluster entities with coordinates and return largest cluster.
+        """Cluster entities with coordinates and filter noise points.
 
         Args:
             entities: List of GeoEntity objects with coordinates
 
         Returns:
-            Tuple of (entities from largest cluster, cluster size info)
+            Tuple of (entities from all clusters, cluster size info)
         """
         # Filter entities with coordinates
         entities_with_coords = [e for e in entities if e.coordinates is not None]
@@ -98,26 +99,33 @@ class CoordinateClusterer:
             cluster_info[f"cluster_{cluster_label}"] = len(cluster)
             logger.info(f"Cluster {cluster_label}: {len(cluster)} entities")
 
-        # Keep only the largest cluster
+        # Keep all clusters, filter only noise points (label=-1)
         if sorted_cluster_labels:
-            largest_cluster_label = sorted_cluster_labels[0]
-            largest_cluster = clustered[largest_cluster_label]
+            # Filter out noise points (label=-1) but keep all clusters
+            non_noise_labels = [label for label in sorted_cluster_labels if label != -1]
+
+            # Count noise points for logging
+            noise_count = len(clustered.get(-1, [])) if -1 in clustered else 0
 
             logger.info(
-                f"Keeping largest cluster ({largest_cluster_label}) with "
-                f"{len(largest_cluster)} entities out of {len(entities_with_coords)} total"
+                f"Keeping all {len(non_noise_labels)} clusters "
+                f"({len(entities_with_coords) - noise_count} entities), "
+                f"filtering {noise_count} noise points"
             )
 
-            # Extract entities from largest cluster only
-            largest_cluster_entities = [entity for entity, label in largest_cluster]
+            # Extract entities from all non-noise clusters
+            clustered_entities = []
+            for cluster_label in non_noise_labels:
+                cluster = clustered[cluster_label]
+                clustered_entities.extend([entity for entity, label in cluster])
 
             # Add entities without coordinates (they should still be considered)
             entities_without_coords = [e for e in entities if e.coordinates is None]
-            result_entities = largest_cluster_entities + entities_without_coords
+            result_entities = clustered_entities + entities_without_coords
 
             return result_entities, cluster_info
         else:
-            # No clusters found, return original entities
+            # No clusters found, return all entities
             logger.warning("No clusters found, returning all entities")
             return entities, cluster_info
 

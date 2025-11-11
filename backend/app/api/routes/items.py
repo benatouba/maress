@@ -15,6 +15,10 @@ from app import crud
 from app.api.deps import CurrentUser, SessionDep
 from app.celery_app import celery
 from app.models import (
+    ExtractionResult,
+    ExtractionResultPublic,
+    ExtractionResultsPublic,
+    ExtractStudySitesRequest,
     Item,
     ItemCreate,
     ItemPublic,
@@ -22,6 +26,7 @@ from app.models import (
     ItemUpdate,
     Message,
     StudySite,
+    StudySiteUpdate,
     Tag,
     TaskRef,
     TasksAccepted,
@@ -42,18 +47,32 @@ def read_db_items(
     limit: int = 500,
 ) -> tuple[Sequence[Item], int]:
     """Helper function to retrieve items with pagination."""
+    from sqlalchemy.orm import joinedload
+
     if current_user.is_superuser:
         count_statement = select(func.count()).select_from(Item)
         count = session.exec(count_statement).one()
-        statement = select(Item).offset(skip).limit(limit)
-        items = session.exec(statement).all()
+        statement = (
+            select(Item)
+            .offset(skip)
+            .limit(limit)
+            .options(joinedload(Item.study_sites).joinedload(StudySite.location))
+        )
+        items = session.exec(statement).unique().all()
     else:
         count_statement = (
             select(func.count()).select_from(Item).where(Item.owner_id == current_user.id)
         )
         count = session.exec(count_statement).one()
-        statement = select(Item).where(Item.owner_id == current_user.id).offset(skip).limit(limit)
-        items = session.exec(statement).all()
+        statement = (
+            select(Item)
+            .where(Item.owner_id == current_user.id)
+            .offset(skip)
+            .limit(limit)
+            .options(joinedload(Item.study_sites).joinedload(StudySite.location))
+        )
+        items = session.exec(statement).unique().all()
+
     return items, count
 
 
@@ -161,8 +180,15 @@ def import_zotero_items(
     limit: int = 500,
     *,
     reload: bool = False,
-    library_type: Literal["group", "user"] = "user",
+    library_type: Literal["group", "user"] = "group",
+    collection_id: str | None = None,
 ):
+    """Import items from Zotero library or specific collection.
+
+    Args:
+        collection_id: Optional Zotero collection ID. If provided, imports only from that collection.
+                      If None, imports all items from the library.
+    """
     db_user = crud.get_user_by_email(session=session, email=current_user.email)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -175,7 +201,13 @@ def import_zotero_items(
     zot_items: ZoteroItemList = []
     start = skip
     while True:
-        batch: ZoteroItemList = zot.collection_items("AQXEVQ8C", start=start)  # pyright: ignore[reportUnknownMemberType]
+        if collection_id:
+            # Fetch items from specific collection
+            batch: ZoteroItemList = zot.collection_items(collection_id, start=start)  # pyright: ignore[reportUnknownMemberType]
+        else:
+            # Fetch all items from library
+            batch: ZoteroItemList = zot.items(start=start, limit=100)  # pyright: ignore[reportUnknownMemberType]
+
         if not batch:
             break
         zot_items.extend(batch)
@@ -349,20 +381,21 @@ def delete_item(
 def start_extract_study_site(
     session: SessionDep,
     current_user: CurrentUser,
-    id: uuid.UUID | None = None,
+    request: ExtractStudySitesRequest,
     skip: int = 0,
     limit: int = 500,
-    *,
-    force: bool = False,
 ) -> TasksAccepted:
     items: list[Item] = []
-    if id:
-        item = read_item(session, current_user, id)
-        items.append(item)
+    if request.item_ids:
+        # Process only the specified items
+        for item_id in request.item_ids:
+            item = read_item(session, current_user, item_id)
+            items.append(item)
     else:
+        # No specific items requested - fetch all items
         items.extend(read_db_items(session, current_user, skip, limit)[0])
 
-    if not force:
+    if not request.force:
         # Only process items without a study site
         items = [item for item in items if not item.study_sites]
 
@@ -373,7 +406,7 @@ def start_extract_study_site(
             item_id=str(item.id),
             user_id=str(current_user.id),
             is_superuser=bool(current_user.is_superuser),
-            force=bool(force),
+            force=bool(request.force),
         )
         enqueued.append(
             TaskRef(
@@ -408,9 +441,8 @@ def get_study_sites(
     current_user: CurrentUser,
 ) -> Sequence[StudySite]:
     """Get all study sites."""
-    statement = select(StudySite).where(StudySite.owner_id == current_user.id)
-    if not current_user.is_superuser:
-        statement = statement.where(StudySite.owner_id == current_user.id)
+    # NOTE: Anyone can view all study sites for now
+    statement = select(StudySite)
     study_sites = session.exec(statement).all()
     if not study_sites:
         raise HTTPException(status_code=404, detail="No study sites found")
@@ -422,7 +454,7 @@ def patch_study_site(
     session: SessionDep,
     current_user: CurrentUser,
     id: uuid.UUID,  # noqa: A002
-    study_site_in: dict[str, Any],
+    study_site_in: StudySiteUpdate,
 ) -> StudySite:
     """Get study site by item ID."""
     study_site = session.get(StudySite, id)
@@ -606,9 +638,139 @@ def get_extraction_summary(
         "total_items": total_items or 0,
         "items_with_study_sites": items_with_sites or 0,
         "coverage_percentage": round(
-            (items_with_sites / total_items * 100) if total_items > 0 else 0, 1
+            (items_with_sites / total_items * 100) if total_items > 0 else 0,
+            1,
         ),
         "average_confidence": round(avg_confidence or 0, 3),
         "average_validation_score": round(avg_validation or 0, 3),
         "by_extraction_method": {str(method): count for method, count in by_method_results},
     }
+
+
+@router.delete("/tasks/{task_id}")
+def cancel_task(
+    task_id: str,
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Cancel/revoke a Celery task.
+
+    Args:
+        task_id: The Celery task ID to cancel
+        current_user: The authenticated user
+
+    Returns:
+        Confirmation message with task cancellation status
+    """
+    try:
+        # Revoke the task
+        # terminate=True will kill the worker process if task is running
+        # signal='SIGTERM' is more graceful than SIGKILL
+        celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
+
+        # Check if task was actually running or pending
+        result = AsyncResult(task_id, app=celery)
+        task_status = result.status
+
+        return {
+            "task_id": task_id,
+            "message": "Task cancellation requested",
+            "previous_status": task_status,
+            "cancelled": True,
+        }
+    except Exception as e:
+        logger.error(f"Error cancelling task {task_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel task: {e!s}",
+        )
+
+
+@router.post("/tasks/batch/cancel")
+def cancel_batch_tasks(
+    task_ids: Annotated[str, Query(description="Comma-separated task IDs to cancel")],
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Cancel multiple Celery tasks at once.
+
+    Args:
+        task_ids: Comma-separated list of task IDs
+        current_user: The authenticated user
+
+    Returns:
+        Summary of cancellation results
+    """
+    ids = [tid.strip() for tid in task_ids.split(",") if tid.strip()]
+
+    if not ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No task IDs provided",
+        )
+
+    if len(ids) > 100:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Maximum 100 tasks can be cancelled at once",
+        )
+
+    cancelled_tasks = []
+    failed_tasks = []
+
+    for task_id in ids:
+        try:
+            celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
+            cancelled_tasks.append(task_id)
+        except Exception as e:
+            logger.error(f"Error cancelling task {task_id}: {e}")
+            failed_tasks.append({"task_id": task_id, "error": str(e)})
+
+    return {
+        "cancelled_count": len(cancelled_tasks),
+        "failed_count": len(failed_tasks),
+        "cancelled_tasks": cancelled_tasks,
+        "failed_tasks": failed_tasks,
+    }
+
+
+@router.get("/{id}/extraction-results", response_model=ExtractionResultsPublic)
+def get_extraction_results(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+) -> Any:
+    """Get all extraction results (candidates) for an item.
+
+    This returns ALL entities that were detected during extraction, not
+    just the top 10 that were saved as StudySites.
+    """
+    item = session.get(Item, id)
+    if not item:
+        raise HTTPException(
+            status_code=404,
+            detail="Item not found",
+        )
+
+    # Check ownership
+    if item.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="Not enough permissions",
+        )
+
+    # Get all extraction results ordered by rank
+    statement = (
+        select(ExtractionResult)
+        .where(ExtractionResult.item_id == id)
+        .order_by(ExtractionResult.rank)
+    )
+    results = session.exec(statement).all()
+
+    # Count how many were saved as StudySites (top 10)
+    top_10_count = sum(1 for r in results if r.is_saved)
+
+    return ExtractionResultsPublic(
+        data=[ExtractionResultPublic.model_validate(r) for r in results],
+        count=len(results),
+        top_10_count=top_10_count,
+    )

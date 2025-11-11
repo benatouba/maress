@@ -34,6 +34,20 @@ from maress_types import (
 router = APIRouter(prefix="/study-sites", tags=["study-sites"])
 
 
+def study_site_to_public(study_site: StudySite) -> StudySitePublic:
+    """Convert StudySite ORM model to StudySitePublic with location data.
+
+    Args:
+        study_site: StudySite ORM object with loaded location relationship
+
+    Returns:
+        StudySitePublic with location data (lat/lon automatically computed)
+    """
+    # Pydantic will automatically populate computed fields (latitude/longitude)
+    # from the location relationship
+    return StudySitePublic.model_validate(study_site)
+
+
 @router.get("/items/{item_id}/study-sites", response_model=StudySitesPublic)
 def get_item_study_sites(
     *,
@@ -53,16 +67,20 @@ def get_item_study_sites(
     if not current_user.is_superuser and item.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
 
-    # Get all study sites for this item
+    # Get all study sites for this item with location relationship loaded
+    from sqlmodel import select as sql_select
+    from sqlalchemy.orm import joinedload
+
     statement = (
-        select(StudySite)
+        sql_select(StudySite)
         .where(StudySite.item_id == item_id)
         .order_by(StudySite.confidence_score.desc(), StudySite.created_at.desc())
+        .options(joinedload(StudySite.location))  # Eagerly load location
     )
-    study_sites = session.exec(statement).all()
+    study_sites = session.exec(statement).unique().all()
 
     return StudySitesPublic(
-        data=[StudySitePublic.model_validate(site) for site in study_sites],
+        data=[study_site_to_public(site) for site in study_sites],
         count=len(study_sites),
     )
 
@@ -75,9 +93,20 @@ def get_study_site(
     study_site_id: uuid.UUID,
 ) -> Any:
     """Get a specific study site by ID."""
-    study_site = session.get(StudySite, study_site_id)
-    if not study_site:
+    from sqlmodel import select as sql_select
+    from sqlalchemy.orm import joinedload
+
+    # Load study site with location relationship
+    statement = (
+        sql_select(StudySite)
+        .where(StudySite.id == study_site_id)
+        .options(joinedload(StudySite.location))
+    )
+    result = session.exec(statement).first()
+    if not result:
         raise HTTPException(status_code=404, detail="Study site not found")
+
+    study_site = result
 
     # Check access
     item = session.get(Item, study_site.item_id)
@@ -87,7 +116,7 @@ def get_study_site(
     if not current_user.is_superuser and item.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
 
-    return study_site
+    return study_site_to_public(study_site)
 
 
 @router.post("/items/{item_id}/study-sites", response_model=StudySitePublic)
@@ -113,7 +142,7 @@ def create_manual_study_site(
 
     # Create or get location for the coordinates
     location = create_location_if_needed(
-        session,
+        session=session,
         latitude=study_site_in.latitude,
         longitude=study_site_in.longitude,
     )
@@ -121,8 +150,6 @@ def create_manual_study_site(
     # Create the study site marked as manual
     study_site = StudySite(
         name=study_site_in.name,
-        latitude=study_site_in.latitude,
-        longitude=study_site_in.longitude,
         context=study_site_in.context,
         confidence_score=study_site_in.confidence_score,
         validation_score=study_site_in.validation_score,
@@ -137,8 +164,10 @@ def create_manual_study_site(
     session.add(study_site)
     session.commit()
     session.refresh(study_site)
+    # Load the location relationship
+    session.refresh(study_site, ["location"])
 
-    return study_site
+    return study_site_to_public(study_site)
 
 
 @router.put("/study-sites/{study_site_id}", response_model=StudySitePublic)
@@ -175,7 +204,7 @@ def update_study_site(
         new_lat = update_data.get("latitude", study_site.location.latitude)
         new_lon = update_data.get("longitude", study_site.location.longitude)
 
-        location = create_location_if_needed(session, latitude=new_lat, longitude=new_lon)
+        location = create_location_if_needed(session=session, latitude=new_lat, longitude=new_lon)
         study_site.location_id = location.id
 
         # Remove lat/lon from update_data as we handled them
@@ -195,8 +224,10 @@ def update_study_site(
     session.add(study_site)
     session.commit()
     session.refresh(study_site)
+    # Load the location relationship
+    session.refresh(study_site, ["location"])
 
-    return study_site
+    return study_site_to_public(study_site)
 
 
 @router.patch("/study-sites/{study_site_id}", response_model=StudySitePublic)

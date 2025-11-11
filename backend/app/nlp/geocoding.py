@@ -209,7 +209,7 @@ class CachedGeocoder:
                 continue
 
             # Skip if not a location entity
-            if entity.entity_type not in ["LOC", "GPE", "SPATIAL_RELATION", "CONTEXTUAL_LOCATION"]:
+            if entity.entity_type not in ["LOC", "GPE"]:
                 geocoded_entities.append(entity)
                 continue
 

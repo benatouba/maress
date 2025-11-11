@@ -7,6 +7,7 @@ from app.nlp.context_extraction import ContextExtractor
 from app.nlp.extractors import (
     BaseEntityExtractor,
     CoordinateExtractor,
+    SpaCyCoordinateExtractor,
     SpaCyGeoExtractor,
     SpatialRelationEntityExtractor,
 )
@@ -45,6 +46,7 @@ class PipelineFactory:
         enable_improved_sentences: bool = True,
         enable_quality_assessment: bool = True,
         enable_enriched_context: bool = True,
+        use_spacy_coordinate_matcher: bool = True,  # Phase 3: New option
     ) -> StudySiteExtractionPipeline:
         """Create a fully configured extraction pipeline.
 
@@ -57,6 +59,8 @@ class PipelineFactory:
             enable_improved_sentences: Enable improved sentence boundaries (Phase 2)
             enable_quality_assessment: Enable text quality assessment (Phase 2)
             enable_enriched_context: Enable enriched context extraction (Phase 2)
+            use_spacy_coordinate_matcher: Enable spaCy-integrated coordinate matching (Phase 3)
+                This handles malformed coordinates better than regex-only extraction.
 
         Returns:
             Configured extraction pipeline
@@ -83,8 +87,14 @@ class PipelineFactory:
 
         # Create default extractors if none provided
         if extractors is None:
+            # Phase 3: Choose coordinate extractor based on flag
+            if use_spacy_coordinate_matcher:
+                coord_extractor = SpaCyCoordinateExtractor(config)
+            else:
+                coord_extractor = CoordinateExtractor(config)
+
             extractors = [
-                CoordinateExtractor(config),
+                coord_extractor,
                 SpatialRelationEntityExtractor(config),
                 SpaCyGeoExtractor(config),
             ]
@@ -103,17 +113,20 @@ class PipelineFactory:
     @staticmethod
     def create_pipeline_for_api(
         config: ModelConfig | None = None,
+        use_spacy_coordinate_matcher: bool = True,  # Phase 3: Enabled by default
     ) -> StudySiteExtractionPipeline:
         """Create pipeline optimized for API use.
 
         This configuration:
         - Enables all Phase 1 improvements (geocoding, clustering, tables)
         - Enables all Phase 2 improvements (quality, sentences, context)
+        - Enables Phase 3 spaCy coordinate matcher (handles malformed coordinates)
         - Uses fast extractors (no transformer models)
         - Optimized for production use
 
         Args:
             config: Model configuration
+            use_spacy_coordinate_matcher: Use spaCy-integrated coordinate matching
 
         Returns:
             API-optimized pipeline
@@ -124,9 +137,15 @@ class PipelineFactory:
             config.MIN_CONFIDENCE = 0.6  # Higher threshold for API
             config.CONTEXT_WINDOW = 100
 
+        # Phase 3: Choose coordinate extractor
+        if use_spacy_coordinate_matcher:
+            coord_extractor = SpaCyCoordinateExtractor(config)
+        else:
+            coord_extractor = CoordinateExtractor(config)
+
         # Use only fast extractors
         extractors = [
-            CoordinateExtractor(config),
+            coord_extractor,
             SpatialRelationEntityExtractor(config),
             SpaCyGeoExtractor(config),  # Uses spaCy NER (fast)
         ]
@@ -137,4 +156,5 @@ class PipelineFactory:
             enable_geocoding=True,  # Phase 1
             enable_clustering=True,  # Phase 1
             enable_table_extraction=True,  # Phase 1
+            use_spacy_coordinate_matcher=use_spacy_coordinate_matcher,  # Phase 3
         )

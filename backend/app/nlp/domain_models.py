@@ -46,6 +46,16 @@ class GeoEntity(BaseModel):
             "longitude": self.coordinates[1] if self.coordinates else None,
         }
 
+class ExtractionMetadata(BaseModel):
+    """Metadata for extraction process."""
+
+    total_sections_processed: int
+    average_text_quality: float
+    section_quality_scores: dict[str, dict[str, float]] = Field(default_factory=dict)
+    total_entities: int
+    coordinates: int
+    clusters: int
+    locations: int
 
 class ExtractionResult(BaseModel):
     """Complete extraction result with metadata."""
@@ -53,9 +63,12 @@ class ExtractionResult(BaseModel):
     pdf_path: Path
     entities: list[GeoEntity]
     total_sections_processed: int
-    extraction_metadata: dict[str, int] = Field(default_factory=dict)
+    extraction_metadata: ExtractionMetadata
     doc: Any  = Field(..., description="Processed spaCy Doc object")  # pyright: ignore[reportAny]
     title: str | None = None
+    cluster_info: dict[str, int]  # or Dict[str, int]
+    average_text_quality: float
+    section_quality_scores: dict
 
     def get_high_confidence_entities(self, threshold: float = 0.8) -> list[GeoEntity]:
         """Filter entities by confidence threshold."""

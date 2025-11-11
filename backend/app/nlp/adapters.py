@@ -1,13 +1,12 @@
 """Adapters for converting between new architecture and legacy models.
 
-This module provides compatibility layers between the new SOLID architecture
-and the existing API/database models.
+This module provides compatibility layers between the new SOLID
+architecture and the existing API/database models.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
 
 from pydantic_extra_types.coordinate import Latitude, Longitude
 
@@ -19,9 +18,6 @@ from maress_types import (
     CoordinateSourceType,
     PaperSections,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 class StudySiteResultAdapter:
@@ -53,9 +49,7 @@ class StudySiteResultAdapter:
         entities_with_coords = result.get_entities_with_coordinates()
 
         # Filter by confidence
-        high_confidence = [
-            e for e in entities_with_coords if e.confidence >= min_confidence
-        ]
+        high_confidence = [e for e in entities_with_coords if e.confidence >= min_confidence]
 
         if not high_confidence:
             logger.warning(
@@ -69,7 +63,7 @@ class StudySiteResultAdapter:
                 study_site = StudySiteResultAdapter._entity_to_study_site(
                     entity,
                     item_id,
-                    result.extraction_metadata.get("cluster_info", {}),
+                    cluster_info=result.cluster_info,
                 )
                 study_sites.append(study_site)
             except Exception as e:

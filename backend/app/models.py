@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Optional, Self
 
-from pydantic import EmailStr, field_serializer, field_validator  # noqa: TC002
+from pydantic import ConfigDict, EmailStr, computed_field, field_serializer, field_validator  # noqa: TC002
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
@@ -179,6 +179,10 @@ class Item(ItemBase, table=True):
         back_populates="item",
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
+    extraction_results: list["ExtractionResult"] | None = Relationship(
+        back_populates="item",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
     key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
 
 
@@ -186,7 +190,15 @@ class Item(ItemBase, table=True):
 class ItemPublic(ItemBase):
     id: uuid.UUID
     owner_id: uuid.UUID
-    study_sites: list["StudySite"] | None
+    study_sites: list["StudySitePublic"] | None
+
+    @field_serializer("study_sites")
+    def serialize_study_sites(self, study_sites: list["StudySite"] | None, _info):
+        """Serialize study sites with location data."""
+        if not study_sites:
+            return None
+        # Pydantic computed fields automatically handle lat/lon from location
+        return [StudySitePublic.model_validate(site) for site in study_sites]
 
 
 class ItemsPublic(SQLModel):
@@ -216,6 +228,10 @@ class Location(LocationBase, table=True):
     )
     study_sites: list["StudySite"] = Relationship(back_populates="location")
 
+
+class LocationPublicSimple(LocationBase):
+    """Location without nested study sites (to avoid circular references)."""
+    id: uuid.UUID
 
 class LocationPublic(LocationBase):
     id: uuid.UUID
@@ -329,6 +345,23 @@ class StudySiteUpdate(StudySiteBase):
 class StudySitePublic(StudySiteBase):
     id: uuid.UUID
     item_id: uuid.UUID
+    location: "LocationPublicSimple"
+
+    model_config = ConfigDict(from_attributes=True)  # pyright: ignore[reportAssignmentType]
+
+    # Computed fields for backward compatibility with frontend
+    # These are automatically included in JSON serialization
+    @computed_field  # type: ignore[misc]
+    @property
+    def latitude(self) -> float | None:
+        """Get latitude from location relationship."""
+        return self.location.latitude if self.location else None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def longitude(self) -> float | None:
+        """Get longitude from location relationship."""
+        return self.location.longitude if self.location else None
 
 
 class StudySiteCreate(StudySiteBase):
@@ -381,6 +414,57 @@ class StudySitesPublic(SQLModel):
     count: int
 
 
+# Extraction Results - store all candidates found during extraction
+class ExtractionResultBase(SQLModel):
+    """Base model for extraction results (all candidates found)."""
+
+    name: str | None = Field(default=None, max_length=512)
+    latitude: float = Field(ge=-90.0, le=90.0)
+    longitude: float = Field(ge=-180.0, le=180.0)
+    context: str | None = Field(default=None, max_length=2048)
+    confidence_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    extraction_method: CoordinateExtractionMethod = Field(
+        sa_column=Column(Enum(CoordinateExtractionMethod)),
+    )
+    source_type: CoordinateSourceType = Field(
+        sa_column=Column(Enum(CoordinateSourceType)),
+    )
+    section: PaperSections = Field(sa_column=Column(Enum(PaperSections)))
+    rank: int = Field(default=0)  # Ranking position (1 = highest)
+    is_saved: bool = Field(default=False)  # Whether it was saved as a StudySite
+
+
+class ExtractionResult(ExtractionResultBase, table=True):
+    """Extraction result - stores all candidates found during extraction.
+
+    This model stores ALL entities found during extraction (not just top 10),
+    allowing users to see what was detected and review lower-ranked results.
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    item_id: uuid.UUID = Field(foreign_key="item.id", index=True)
+    item: "Item" = Relationship(back_populates="extraction_results")
+    created_at: datetime = timestamp_field()
+
+
+class ExtractionResultPublic(ExtractionResultBase):
+    """Public extraction result with computed fields."""
+
+    id: uuid.UUID
+    item_id: uuid.UUID
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExtractionResultsPublic(SQLModel):
+    """Collection of extraction results."""
+
+    data: list[ExtractionResultPublic]
+    count: int
+    top_10_count: int  # How many of the top 10 were saved
+
+
 class TagBase(SQLModel):
     name: str = Field(max_length=64)
 
@@ -427,6 +511,19 @@ class TaskRef(SQLModel):
     )
     # Optional per-task note (e.g., reason when skipped)
     message: str | None = Field(default=None, description="Optional reason")
+
+
+class ExtractStudySitesRequest(SQLModel):
+    """Request body for study site extraction endpoint."""
+
+    item_ids: list[uuid.UUID] | None = Field(
+        default=None,
+        description="Optional list of specific item IDs to process. If None, processes all items.",
+    )
+    force: bool = Field(
+        default=False,
+        description="Force re-extraction even if study sites already exist",
+    )
 
 
 class TasksAccepted(SQLModel):
