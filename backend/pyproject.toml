@@ -30,7 +30,8 @@ dependencies = [
   "celery[redis]>=5.5.3",
   "redis>=5.2.1",
   "flower>=2.0.1",
-  "onnxruntime>=1.23.2",  # needed for RapidOCR in pdf parsing
+  "onnxruntime>=1.23.2", # needed for RapidOCR in pdf parsing
+  "pymupdf>=1.26.6",
 ]
 description = "Add your description here"
 name = "maress"
