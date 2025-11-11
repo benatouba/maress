@@ -30,6 +30,25 @@
               Cancel Pending ({{ taskStore.pendingCount }})
             </v-btn>
             <v-btn
+              color="info"
+              variant="outlined"
+              prepend-icon="mdi-restart"
+              @click="handleRetryAllFailed"
+              :disabled="taskStore.failedCount === 0"
+              :loading="retryingAll"
+            >
+              Retry All Failed ({{ taskStore.failedCount }})
+            </v-btn>
+            <v-btn
+              color="error"
+              variant="outlined"
+              prepend-icon="mdi-delete"
+              @click="handleClearFailed"
+              :disabled="taskStore.failedCount === 0"
+            >
+              Delete All Failed ({{ taskStore.failedCount }})
+            </v-btn>
+            <v-btn
               color="error"
               variant="outlined"
               prepend-icon="mdi-close-circle"
@@ -224,7 +243,27 @@
                   </template>
                 </v-tooltip>
 
-                <v-tooltip text="Remove" location="top">
+                <v-tooltip
+                  v-if="item.ready && item.successful === false && item.item_id"
+                  text="Retry Task"
+                  location="top"
+                >
+                  <template #activator="{ props }">
+                    <v-btn
+                      v-bind="props"
+                      icon
+                      size="x-small"
+                      variant="text"
+                      color="info"
+                      @click="handleRetryTask(item.task_id)"
+                      :loading="retryingTasks.has(item.task_id)"
+                    >
+                      <v-icon>mdi-restart</v-icon>
+                    </v-btn>
+                  </template>
+                </v-tooltip>
+
+                <v-tooltip text="Clear Task" location="top">
                   <template #activator="{ props }">
                     <v-btn
                       v-bind="props"
@@ -351,6 +390,8 @@ import type { Task } from '@/stores/tasks'
 
 const taskStore = useTaskStore()
 const cancelling = ref(false)
+const retryingAll = ref(false)
+const retryingTasks = ref(new Set<string>())
 const detailsDialog = ref(false)
 const selectedTask = ref<Task | null>(null)
 
@@ -413,6 +454,30 @@ const handleClearAll = () => {
   }
 }
 
+const handleClearFailed = () => {
+  if (confirm('Are you sure you want to delete all failed tasks?')) {
+    taskStore.clearFailedTasks()
+  }
+}
+
+const handleRetryAllFailed = async () => {
+  retryingAll.value = true
+  try {
+    await taskStore.retryAllFailed()
+  } finally {
+    retryingAll.value = false
+  }
+}
+
+const handleRetryTask = async (taskId: string) => {
+  retryingTasks.value.add(taskId)
+  try {
+    await taskStore.retryTask(taskId)
+  } finally {
+    retryingTasks.value.delete(taskId)
+  }
+}
+
 const viewTaskDetails = async (task: Task) => {
   selectedTask.value = task
   detailsDialog.value = true
@@ -441,5 +506,9 @@ onUnmounted(() => {
 <style scoped>
 .gap-2 {
   gap: 8px;
+}
+
+.gap-1 {
+  gap: 4px;
 }
 </style>
