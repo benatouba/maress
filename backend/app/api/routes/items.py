@@ -391,6 +391,7 @@ def start_extract_study_site(
         for item_id in request.item_ids:
             item = read_item(session, current_user, item_id)
             items.append(item)
+            logger.info("Queued item %s by %s for study site extraction", item.id, item.owner_id)
     else:
         # No specific items requested - fetch all items
         items.extend(read_db_items(session, current_user, skip, limit)[0])
@@ -402,6 +403,7 @@ def start_extract_study_site(
     # Enqueue tasks
     enqueued: list[TaskRef] = []
     for item in items:
+        logger.info("Enqueuing extraction task for item %s", item.id)
         async_result = extract_study_site_task.delay(
             item_id=str(item.id),
             user_id=str(current_user.id),
