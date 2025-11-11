@@ -183,16 +183,7 @@ export const useTaskStore = defineStore('tasks', () => {
       }
     })
 
-    // Auto-remove completed tasks after 5 seconds
-    const completedTaskIds = Object.entries(tasks)
-      .filter(([_, taskInfo]: [string, any]) => taskInfo.ready)
-      .map(([taskId]) => taskId)
-
-    completedTaskIds.forEach((taskId) => {
-      setTimeout(() => {
-        removeTask(taskId)
-      }, 5000)
-    })
+    // No longer auto-removing completed tasks - user controls cleanup
   }
 
   const handleTaskCompletion = (taskId: string, taskInfo: any) => {
@@ -338,6 +329,88 @@ export const useTaskStore = defineStore('tasks', () => {
     return Array.from(activeTasks.value.values()).sort((a, b) => b.timestamp - a.timestamp)
   })
 
+  const retryTask = async (taskId: string) => {
+    const task = activeTasks.value.get(taskId)
+    if (!task || !task.item_id) {
+      notificationStore.showNotification('Cannot retry task: missing item ID', 'error', 5000)
+      return null
+    }
+
+    try {
+      // Trigger new extraction for the same item
+      const response = await axios.post('/items/study_sites/', {
+        item_ids: [task.item_id],
+        force: true,
+      })
+
+      // Remove old task
+      removeTask(taskId)
+
+      // Add new task(s)
+      if (response.data.data && response.data.data.length > 0) {
+        const newTask = response.data.data[0]
+        if (newTask.task_id) {
+          addTask(newTask.task_id, task.item_id)
+          notificationStore.showNotification('Task restarted successfully', 'success', 3000)
+        }
+      }
+
+      return response.data
+    } catch (error) {
+      console.error('Error retrying task:', error)
+      notificationStore.showNotification('Failed to retry task', 'error', 5000)
+      return null
+    }
+  }
+
+  const clearFailedTasks = () => {
+    const tasks = Array.from(activeTasks.value.entries())
+    const failedTasks = tasks.filter(([_, task]) => task.ready && task.successful === false)
+
+    failedTasks.forEach(([taskId]) => {
+      activeTasks.value.delete(taskId)
+    })
+
+    if (activeTasks.value.size === 0) {
+      stopPolling()
+    }
+
+    notificationStore.showNotification(
+      `Cleared ${failedTasks.length} failed task(s)`,
+      'info',
+      3000,
+    )
+  }
+
+  const retryAllFailed = async () => {
+    const tasks = Array.from(activeTasks.value.entries())
+    const failedTasks = tasks.filter(([_, task]) => task.ready && task.successful === false)
+
+    if (failedTasks.length === 0) {
+      notificationStore.showNotification('No failed tasks to retry', 'info', 3000)
+      return
+    }
+
+    let successCount = 0
+    let failCount = 0
+
+    for (const [taskId, task] of failedTasks) {
+      const result = await retryTask(taskId)
+      if (result) {
+        successCount++
+      } else {
+        failCount++
+      }
+    }
+
+    const message =
+      failCount === 0 ?
+        `Retrying ${successCount} failed task(s)`
+      : `Retried ${successCount} task(s), ${failCount} failed`
+
+    notificationStore.showNotification(message, failCount === 0 ? 'success' : 'warning', 5000)
+  }
+
   return {
     // State
     activeTasks,
@@ -361,6 +434,7 @@ export const useTaskStore = defineStore('tasks', () => {
     removeTask,
     clearCompletedTasks,
     clearAllTasks,
+    clearFailedTasks,
     fetchTaskStatuses,
     getTaskDetails,
     startPolling,
@@ -368,5 +442,7 @@ export const useTaskStore = defineStore('tasks', () => {
     cancelTask,
     cancelAllTasks,
     cancelPendingTasks,
+    retryTask,
+    retryAllFailed,
   }
 })
