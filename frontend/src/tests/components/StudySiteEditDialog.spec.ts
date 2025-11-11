@@ -132,8 +132,8 @@ describe('StudySiteEditDialog', () => {
 
       // Check that form is initialized (internal state)
       expect(wrapper.vm.form.name).toBe(mockStudySite.name)
-      expect(wrapper.vm.form.latitude).toBe(mockStudySite.latitude)
-      expect(wrapper.vm.form.longitude).toBe(mockStudySite.longitude)
+      expect(wrapper.vm.form.latitude).toBe(mockStudySite.location.latitude)
+      expect(wrapper.vm.form.longitude).toBe(mockStudySite.location.longitude)
     })
 
     it('should update form data on input', async () => {
