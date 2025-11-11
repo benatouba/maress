@@ -689,16 +689,16 @@ const handleDelete = async (item: any) => {
 const viewAttachment = (filePath: string) => {
   const baseUrl = import.meta.env.VITE_API_BASE_URL + '/api/v1'
   const fileUrl = baseUrl + '/items/files/' + filePath.split('/').pop()
-  window.open(fileUrl, '_blank', 'noopener')
+  window.open(fileUrl, '_blank', 'noopener,noreferrer')
 }
 
 const openInNewTab = (url: string) => {
-  window.open(url, '_blank', 'noopener')
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 const openDoiLink = (doi: string) => {
   const url = getDoiUrl(doi)
-  window.open(url, '_blank', 'noopener')
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 const getDoiUrl = (doi: string): string => {
