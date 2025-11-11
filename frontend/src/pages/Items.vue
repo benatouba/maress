@@ -271,6 +271,12 @@
                 </template>
                 <v-list-item-title>View on Map</v-list-item-title>
               </v-list-item>
+              <v-list-item @click="viewExtractionResults(item)">
+                <template #prepend>
+                  <v-icon size="small">mdi-format-list-bulleted</v-icon>
+                </template>
+                <v-list-item-title>View Extraction Results</v-list-item-title>
+              </v-list-item>
               <v-divider />
               <v-list-item @click="handleImportFile(item)">
                 <template #prepend>
@@ -382,6 +388,16 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Extraction Results Dialog -->
+    <v-dialog v-model="extractionResultsDialog" max-width="1200">
+      <extraction-results
+        v-if="extractionResultsDialog && selectedItem"
+        :item-id="selectedItem.id"
+        @close="extractionResultsDialog = false"
+        @view-on-map="handleViewResultOnMap"
+      />
+    </v-dialog>
   </v-container>
 </template>
 
@@ -393,6 +409,7 @@ import { useZoteroStore } from '@/stores/zotero'
 import { useNotificationStore } from '@/stores/notification'
 import { useTaskStore } from '@/stores/tasks'
 import { debounce } from 'lodash'
+import ExtractionResults from '@/components/papers/ExtractionResults.vue'
 
 // Stores
 const router = useRouter()
@@ -410,6 +427,7 @@ const itemsPerPage = ref(25)
 const selectedCollectionIndex = ref<number>(-1)
 const sortBy = ref<any[]>([{ key: 'dateModified', order: 'desc' }])
 const detailsDialog = ref(false)
+const extractionResultsDialog = ref(false)
 const selectedItem = ref<any>(null)
 const forceReload = ref(false)
 const selectedItems = ref<any[]>([])
@@ -599,6 +617,26 @@ const viewOnMap = (item: any) => {
   router.push({
     path: '/map',
     query: { itemTitle: item.title }
+  })
+}
+
+const viewExtractionResults = (item: any) => {
+  selectedItem.value = item
+  extractionResultsDialog.value = true
+}
+
+const handleViewResultOnMap = (result: any) => {
+  // Close the extraction results dialog
+  extractionResultsDialog.value = false
+
+  // Navigate to map with the specific coordinates
+  router.push({
+    path: '/map',
+    query: {
+      itemTitle: selectedItem.value?.title,
+      lat: result.latitude,
+      lng: result.longitude
+    }
   })
 }
 
