@@ -192,7 +192,7 @@
 
         <!-- Abstract with truncation -->
         <template #item.abstractNote="{ item }">
-          <div class="truncate-text" :title="item.abstractNote">
+          <div class="truncate-text" style="max-width: 500px;" :title="item.abstractNote">
             {{ item.abstractNote }}
           </div>
         </template>
