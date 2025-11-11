@@ -1,18 +1,18 @@
 <template>
   <div class="study-site-map">
-    <div ref="mapContainer" class="map-container"></div>
+    <div
+      ref="mapContainer"
+      class="map-container"></div>
 
     <!-- Map loading indicator -->
     <v-overlay
       :model-value="loading"
       contained
-      class="align-center justify-center"
-    >
+      class="align-center justify-center">
       <v-progress-circular
         indeterminate
         size="64"
-        color="primary"
-      ></v-progress-circular>
+        color="primary"></v-progress-circular>
     </v-overlay>
 
     <!-- Map controls -->
@@ -23,16 +23,14 @@
             @click="fitToMarkers"
             size="small"
             variant="text"
-            prepend-icon="mdi-fit-to-page-outline"
-          >
+            prepend-icon="mdi-fit-to-page-outline">
             Fit All
           </v-btn>
           <v-btn
             @click="resetView"
             size="small"
             variant="text"
-            prepend-icon="mdi-restore"
-          >
+            prepend-icon="mdi-restore">
             Reset
           </v-btn>
         </v-card-text>
@@ -66,16 +64,14 @@
       v-model="editDialogOpen"
       :study-site="selectedSite"
       @saved="handleSiteSaved"
-      @deleted="handleSiteDeleted"
-    />
+      @deleted="handleSiteDeleted" />
 
     <!-- Create Dialog -->
     <StudySiteCreateDialog
       v-model="createDialogOpen"
       :item-id="createItemId"
       :coordinates="createCoordinates"
-      @created="handleSiteCreated"
-    />
+      @created="handleSiteCreated" />
   </div>
 </template>
 
@@ -91,19 +87,16 @@ import { fromLonLat, toLonLat } from 'ol/proj'
 import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
 import { click } from 'ol/events/condition'
 import { Select } from 'ol/interaction'
-import { useStudySitesStore, type StudySiteWithItem } from '@/stores/studySites'
+import { useStudySitesStore, type StudySiteWithItem } from '../../stores/studySites'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
 import StudySiteCreateDialog from './StudySiteCreateDialog.vue'
 
 const props = defineProps({
   initialCenter: {
     type: Array as () => [number, number],
-    default: () => [0, 20] // [lon, lat]
+    default: () => [0, 20], // [lon, lat]
   },
-  initialZoom: {
-    type: Number,
-    default: 2
-  }
+  initialZoom: { type: Number, default: 2 },
 })
 
 const emit = defineEmits(['site-selected', 'map-ready'])
@@ -127,8 +120,8 @@ const createCoordinates = ref<[number, number] | null>(null)
 
 // Computed
 const totalSites = computed(() => studySites.value.length)
-const manualCount = computed(() => studySites.value.filter(s => s.is_manual).length)
-const automaticCount = computed(() => studySites.value.filter(s => !s.is_manual).length)
+const manualCount = computed(() => studySites.value.filter((s) => s.is_manual).length)
+const automaticCount = computed(() => studySites.value.filter((s) => !s.is_manual).length)
 
 /**
  * Create style for a study site marker
@@ -144,11 +137,8 @@ const createMarkerStyle = (studySite: StudySiteWithItem, selected = false) => {
     image: new Circle({
       radius,
       fill: new Fill({ color }),
-      stroke: new Stroke({
-        color: strokeColor,
-        width: strokeWidth
-      })
-    })
+      stroke: new Stroke({ color: strokeColor, width: strokeWidth }),
+    }),
   })
 }
 
@@ -162,23 +152,13 @@ const initMap = () => {
   vectorSource.value = new VectorSource()
 
   // Create vector layer
-  vectorLayer.value = new VectorLayer({
-    source: vectorSource.value
-  })
+  vectorLayer.value = new VectorLayer({ source: vectorSource.value })
 
   // Create map
   map.value = new Map({
     target: mapContainer.value,
-    layers: [
-      new TileLayer({
-        source: new OSM()
-      }),
-      vectorLayer.value
-    ],
-    view: new View({
-      center: fromLonLat(props.initialCenter),
-      zoom: props.initialZoom
-    })
+    layers: [new TileLayer({ source: new OSM() }), vectorLayer.value],
+    view: new View({ center: fromLonLat(props.initialCenter), zoom: props.initialZoom }),
   })
 
   // Add click interaction for selecting markers
@@ -188,7 +168,7 @@ const initMap = () => {
     style: (feature) => {
       const studySite = feature.get('studySite')
       return createMarkerStyle(studySite, true)
-    }
+    },
   })
 
   selectInteraction.on('select', (event) => {
@@ -235,7 +215,7 @@ const updateMarkers = () => {
 
     const feature = new Feature({
       geometry: new Point(fromLonLat([site.location.longitude, site.location.latitude])),
-      studySite: site
+      studySite: site,
     })
 
     feature.setStyle(createMarkerStyle(site))
@@ -275,11 +255,29 @@ const fitToMarkers = () => {
   if (!map.value || !vectorSource.value) return
 
   const extent = vectorSource.value.getExtent()
-  if (extent && extent.some(v => isFinite(v))) {
-    map.value.getView().fit(extent, {
-      padding: [50, 50, 50, 50],
-      maxZoom: 15
-    })
+  if (extent && extent.some((v) => isFinite(v))) {
+    map.value.getView().fit(extent, { padding: [50, 50, 50, 50], maxZoom: 15 })
+  }
+}
+
+/**
+ * Pan map to specific coordinates with smooth animation
+ */
+const panTo = (lat: number, lon: number, zoom?: number, duration = 1500) => {
+  if (!map.value) {
+    console.warn('Map instance not initialized')
+    return
+  }
+
+  const view = map.value.getView()
+  const center = fromLonLat([lon, lat])
+
+  if (zoom !== undefined) {
+    // Animate both center and zoom
+    view.animate({ center: center, zoom: zoom, duration: duration })
+  } else {
+    // Just animate center, keep current zoom
+    view.animate({ center: center, duration: duration })
   }
 }
 
@@ -321,9 +319,13 @@ const handleSiteCreated = () => {
 }
 
 // Watch for changes in study sites
-watch(studySites, () => {
-  updateMarkers()
-}, { deep: true })
+watch(
+  studySites,
+  () => {
+    updateMarkers()
+  },
+  { deep: true },
+)
 
 // Lifecycle
 onMounted(async () => {
@@ -348,6 +350,8 @@ onUnmounted(() => {
     map.value = null
   }
 })
+
+defineExpose({ panTo, fitToMarkers, resetView, map })
 </script>
 
 <style scoped>
