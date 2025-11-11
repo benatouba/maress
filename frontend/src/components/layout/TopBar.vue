@@ -54,7 +54,7 @@
     </div>
     <div v-else>
       <v-btn text to="/login">Login</v-btn>
-      <v-btn text to="/signup">Sign Up</v-btn>
+      <v-btn text to="/register">Sign Up</v-btn>
     </div>
   </v-app-bar>
 </template>
