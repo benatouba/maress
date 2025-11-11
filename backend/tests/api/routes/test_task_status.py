@@ -6,12 +6,9 @@ import uuid
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
-import pytest
 from celery.result import AsyncResult
 
 from app.core.config import settings
-from app.models import Item
-from app.models import StudySite
 from maress_types import CoordinateExtractionMethod
 from tests.utils.item import create_random_item
 
@@ -277,9 +274,10 @@ class TestExtractionSummaryEndpoint:
     ) -> None:
         """Test retrieving extraction summary statistics."""
         # Create items with study sites
+        from pydantic_extra_types.coordinate import Latitude, Longitude
+
         from app.crud import create_study_site
         from app.models import StudySiteCreate
-        from pydantic_extra_types.coordinate import Latitude, Longitude
 
         # Create 3 items, 2 with study sites
         item1 = create_random_item(db_session)
@@ -382,9 +380,10 @@ class TestExtractionSummaryEndpoint:
         superuser_token_headers: dict[str, str],
     ) -> None:
         """Test that summary breaks down sites by extraction method."""
+        from pydantic_extra_types.coordinate import Latitude, Longitude
+
         from app.crud import create_study_site
         from app.models import StudySiteCreate
-        from pydantic_extra_types.coordinate import Latitude, Longitude
 
         item = create_random_item(db_session)
 
@@ -436,7 +435,6 @@ class TestTaskStatusIntegration:
         tmp_path,
     ) -> None:
         """Test checking task status after triggering extraction."""
-        from pathlib import Path
 
         # Create item with PDF
         item = create_random_item(db_session)
@@ -448,30 +446,31 @@ class TestTaskStatusIntegration:
 
         # Mock the extraction result
         with patch("app.tasks.extract.StudySiteExtractor") as mock_extractor_class:
-            from app.nlp.find_my_home import (
-                CoordinateCandidate,
-                StudySiteResult,
-            )
             from pydantic_extra_types.coordinate import Latitude, Longitude
 
-            mock_site = CoordinateCandidate(
-                latitude=Latitude(-0.5),
-                longitude=Longitude(-78.5),
-                confidence_score=0.9,
-                priority_score=100,
-                source_type="text",
-                context="Test context",
+            from app.nlp.domain_models import ExtractionResult, GeoEntity
+
+            mock_site = GeoEntity(
+                text="Test Site",
+                entity_type="COORDINATE",
+                context="Located in the Andes",
                 section="methods",
-                name="Test Site",
-                extraction_method=CoordinateExtractionMethod.REGEX,
+                confidence=0.95,
+                start_char=10,
+                end_char=20,
+                coordinates=(Latitude(-1.0), Longitude(-77.0)),
             )
 
-            mock_result = StudySiteResult(
-                coordinates=[mock_site],
-                locations=[],
-                validation_score=0.85,
-                primary_study_site=mock_site,
-                cluster_info={"cluster_0": 1},
+            mock_result = ExtractionResult(
+                pdf_path=pdf_path,
+                entities=[mock_site],
+                total_sections_processed=5,
+                extraction_metadata={"sections_extracted": 5},
+                doc=None,
+                title="Test Document",
+                cluster_info={"cluster_1": 1},
+                average_text_quality=0.95,
+                section_quality_scores={},
             )
 
             mock_extractor = mock_extractor_class.return_value
@@ -479,8 +478,9 @@ class TestTaskStatusIntegration:
 
             # Trigger extraction
             response = client.post(
-                f"{settings.API_V1_STR}/items/study_sites/?id={item.id}",
+                f"{settings.API_V1_STR}/items/study_sites/",
                 headers=superuser_token_headers,
+                json={"item_ids": [str(item.id)], "force": False},
             )
 
             assert response.status_code == 202
