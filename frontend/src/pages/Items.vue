@@ -596,10 +596,9 @@ const viewDetails = (item: any) => {
 }
 
 const viewOnMap = (item: any) => {
-  // Navigate to map with item pre-selected
   router.push({
     path: '/map',
-    query: { itemId: item.id }
+    query: { itemTitle: item.title }
   })
 }
 

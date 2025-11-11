@@ -158,6 +158,9 @@ import { storeToRefs } from 'pinia'
 import { useStudySitesStore, type StudySiteWithItem } from '../stores/studySites'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
 
+// Route
+const route = useRoute()
+
 // Store
 const studySitesStore = useStudySitesStore()
 const { studySites, loading } = storeToRefs(studySitesStore)
@@ -255,7 +258,21 @@ const refreshData = async () => {
 // Lifecycle
 onMounted(async () => {
   await studySitesStore.fetchAllStudySites()
+
+  // Read query params for initial item selection
+  if (route.query.itemTitle) {
+    searchQuery.value = route.query.itemTitle as string
+  }
 })
+
+watch(
+  () => route.query.itemTitle,
+  (newVal) => {
+    if (newVal) {
+      searchQuery.value = newVal as string
+    }
+  },
+)
 </script>
 
 <style scoped>
