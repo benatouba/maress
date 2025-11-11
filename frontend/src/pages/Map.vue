@@ -2,7 +2,8 @@
   <v-container
     fluid
     class="pa-0"
-    style="height: calc(100vh - 64px)">
+    style="height: calc(100vh - 64px)"
+    @keydown.esc="selectedSite = null">
     <v-row
       no-gutters
       class="fill-height">
@@ -210,6 +211,10 @@ const filteredSites = computed(() => {
  * Handle site selection from map
  */
 const handleSiteSelected = (site: StudySiteWithItem) => {
+  if (selectedSite.value.id === site.id) {
+    selectedSite.value = null
+    return
+  }
   selectedSite.value = site
 }
 
@@ -217,7 +222,11 @@ const handleSiteSelected = (site: StudySiteWithItem) => {
  * Handle site click from list - Pan map to location
  */
 const handleSiteClick = (site: StudySiteWithItem) => {
-  selectedSite.value = site
+  if (selectedSite.value.id === site.id) {
+    selectedSite.value = null
+  } else {
+    selectedSite.value = site
+  }
 
   // Check if map component is ready
   if (!mapComponent.value) {
