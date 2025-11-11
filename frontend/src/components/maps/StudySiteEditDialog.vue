@@ -12,9 +12,17 @@
       </v-card-title>
 
       <v-card-subtitle class="mt-2">
-        <div class="text-body-2">
-          <strong>Paper:</strong> {{ studySite.item_title || 'Unknown' }}
-        </div>
+        <v-row class="text-body-2">
+          <v-col cols="9" class="mb-1" style="font-weight: 500;">
+             <p class="text-wrap">{{ studySite.item_title || 'Unknown' }}</p>
+          </v-col>
+          <v-col cols="3" class="text-right">
+            <v-btn small text @click="viewPaper()" target="_blank">
+              View Paper
+              <v-icon size="16" class="ml-1">mdi-open-in-new</v-icon>
+            </v-btn>
+          </v-col>
+        </v-row>
       </v-card-subtitle>
 
       <v-card-text>
@@ -158,7 +166,8 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useStudySitesStore, type StudySiteWithItem, type StudySiteUpdate } from '@/stores/studySites'
+import { useStudySitesStore, type StudySiteWithItem, type StudySiteUpdate } from '../../stores/studySites'
+import { useNotificationStore } from '../../stores/notification';
 
 interface Props {
   modelValue: boolean
@@ -170,6 +179,7 @@ const emit = defineEmits(['update:modelValue', 'saved', 'deleted'])
 
 // Store
 const studySitesStore = useStudySitesStore()
+const notificationStore = useNotificationStore()
 
 // Form state
 const formRef = ref()
@@ -207,6 +217,25 @@ const initializeForm = () => {
     context: props.studySite.context || '',
     confidence_score: props.studySite.confidence_score || 1.0,
     validation_score: props.studySite.validation_score || 1.0
+  }
+}
+
+/**
+ * View attachment in new tab
+ */
+const viewPaper = () => {
+  if (!props.studySite?.item_id) {
+    // give notification from notification store
+    notificationStore.showNotification('No associated item to view.', 'error')
+    return
+  }
+
+  if (props.studySite.item.attachment) {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
+    const fileName = props.studySite.item.attachment.split('/').pop()
+    const fileUrl = `${baseUrl}/api/v1/items/files/${fileName}`
+    window.open(fileUrl, '_blank', 'noopener,noreferrer')
+    return
   }
 }
 
