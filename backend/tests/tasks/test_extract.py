@@ -72,6 +72,9 @@ def mock_single_site_result(mock_pdf_path: Path) -> ExtractionResult:
         },
         doc=None,
         title="Test Study in Ecuador",
+        cluster_info={"cluster_1": 1},
+        average_text_quality=0.95,
+        section_quality_scores={},
     )
 
 
@@ -139,6 +142,9 @@ def mock_multi_site_result(mock_pdf_path: Path) -> ExtractionResult:
         },
         doc=None,
         title="Test Study in Multiple Countries",
+        cluster_info={"cluster_1": 2, "cluster_2": 1, "cluster_3": 1},
+        average_text_quality=0.92,
+        section_quality_scores={},
     )
 
 
@@ -376,6 +382,9 @@ class TestExtractStudySiteTask:
             },
             doc=None,
             title="Test Study with No Sites",
+            cluster_info={},
+            average_text_quality=0.85,
+            section_quality_scores={},
         )
 
         with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
@@ -451,6 +460,9 @@ class TestExtractStudySiteTask:
             },
             doc=None,
             title="Test Deduplication",
+            cluster_info={"cluster_1": 2},
+            average_text_quality=0.90,
+            section_quality_scores={},
         )
 
         with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
