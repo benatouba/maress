@@ -78,7 +78,12 @@ def _extract_study_site_impl(
     pipeline = PipelineFactory.create_pipeline_for_api()
 
     logger.info("Extracting study sites from %s", path.name)
-    result = pipeline.extract_from_pdf(path, title=item.title or None)
+    try:
+        result = pipeline.extract_from_pdf(path, title=item.title or None)
+    except RuntimeError as e:
+        msg = f"Extraction failed for item {item.id}: {e}"
+        logger.exception(msg)
+        raise RuntimeError(msg) from e
 
     logger.info("Converting extraction results to database models")
     study_sites = StudySiteResultAdapter.to_study_sites(
