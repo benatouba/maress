@@ -1,14 +1,34 @@
 import { vi } from 'vitest'
 
 /**
+ * Mock location data
+ */
+export const mockLocation = {
+  id: 'loc-1',
+  latitude: 45.5,
+  longitude: -122.3,
+  cluster_label: null,
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z'
+}
+
+export const mockLocation2 = {
+  id: 'loc-2',
+  latitude: 40.7,
+  longitude: -74.0,
+  cluster_label: null,
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z'
+}
+
+/**
  * Mock study site data
  */
 export const mockStudySite = {
   id: 'site-1',
   item_id: 'item-1',
   name: 'Test Site 1',
-  latitude: 45.5,
-  longitude: -122.3,
+  location: mockLocation,
   location_id: 'loc-1',
   confidence_score: 0.85,
   validation_score: 0.9,
@@ -25,6 +45,8 @@ export const mockStudySiteAuto = {
   ...mockStudySite,
   id: 'site-2',
   name: 'Auto Site',
+  location: mockLocation2,
+  location_id: 'loc-2',
   is_manual: false,
   extraction_method: 'regex',
   confidence_score: 0.75
