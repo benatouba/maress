@@ -64,7 +64,8 @@
       v-model="editDialogOpen"
       :study-site="selectedSite"
       @saved="handleSiteSaved"
-      @deleted="handleSiteDeleted" />
+      @deleted="handleSiteDeleted"
+      />
 
     <!-- Create Dialog -->
     <StudySiteCreateDialog
@@ -110,6 +111,7 @@ const mapContainer = ref<HTMLDivElement | null>(null)
 const map = ref<Map | null>(null)
 const vectorSource = ref<VectorSource | null>(null)
 const vectorLayer = ref<VectorLayer<VectorSource> | null>(null)
+const selectInteraction = ref<Select | null>(null)
 
 // Dialog state
 const editDialogOpen = ref(false)
@@ -162,7 +164,7 @@ const initMap = () => {
   })
 
   // Add click interaction for selecting markers
-  const selectInteraction = new Select({
+  selectInteraction.value = new Select({
     condition: click,
     layers: [vectorLayer.value],
     style: (feature) => {
@@ -171,7 +173,7 @@ const initMap = () => {
     },
   })
 
-  selectInteraction.on('select', (event) => {
+  selectInteraction.value.on('select', (event) => {
     if (event.selected.length > 0) {
       const feature = event.selected[0]
       const studySite = feature.get('studySite') as StudySiteWithItem
@@ -179,7 +181,7 @@ const initMap = () => {
     }
   })
 
-  map.value.addInteraction(selectInteraction)
+  map.value.addInteraction(selectInteraction.value)
 
   // Add click interaction for creating new sites
   map.value.on('click', (event) => {
@@ -228,9 +230,24 @@ const updateMarkers = () => {
 }
 
 /**
+ * Clear map selection
+ */
+const clearSelection = () => {
+  selectedSite.value = null
+  editDialogOpen.value = false
+  if (selectInteraction.value) {
+    selectInteraction.value.getFeatures().clear()
+  }
+}
+
+/**
  * Handle marker click - open edit dialog
  */
 const handleMarkerClick = (studySite: StudySiteWithItem) => {
+  if (selectedSite.value?.id === studySite.id) {
+    clearSelection()
+    return
+  }
   selectedSite.value = studySite
   editDialogOpen.value = true
   emit('site-selected', studySite)
@@ -294,8 +311,7 @@ const resetView = () => {
  * Handle site saved from edit dialog
  */
 const handleSiteSaved = () => {
-  editDialogOpen.value = false
-  selectedSite.value = null
+  clearSelection()
   updateMarkers()
 }
 
@@ -303,8 +319,7 @@ const handleSiteSaved = () => {
  * Handle site deleted from edit dialog
  */
 const handleSiteDeleted = () => {
-  editDialogOpen.value = false
-  selectedSite.value = null
+  clearSelection()
   updateMarkers()
 }
 
@@ -326,6 +341,11 @@ watch(
   },
   { deep: true },
 )
+watch(editDialogOpen, (isOpen) => {
+  if (!isOpen) {
+    clearSelection()
+  }
+})
 
 // Lifecycle
 onMounted(async () => {
