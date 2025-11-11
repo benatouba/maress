@@ -53,9 +53,12 @@ class StudySiteResultAdapter:
 
         if not high_confidence:
             logger.warning(
-                f"No high-confidence entities found (threshold: {min_confidence})",
+                f"No high-confidence entities found (threshold: {min_confidence}). Adding only best entity.",
             )
-            return []
+            # If none meet threshold, add the highest confidence one
+            if entities_with_coords:
+                best_entity = max(entities_with_coords, key=lambda e: e.confidence)
+                high_confidence.append(best_entity)
 
         # Convert each entity to StudySiteCreate
         for entity in high_confidence:

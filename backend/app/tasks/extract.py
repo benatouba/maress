@@ -89,7 +89,7 @@ def _extract_study_site_impl(
     study_sites = StudySiteResultAdapter.to_study_sites(
         result=result,
         item_id=item.id,
-        min_confidence=0.7,  # Minimum confidence threshold
+        min_confidence=0.6,  # Minimum confidence threshold
     )
 
     if not study_sites:
