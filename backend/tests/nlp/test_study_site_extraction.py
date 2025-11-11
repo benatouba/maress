@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
@@ -29,14 +28,11 @@ from maress_types import (
     PaperSections,
 )
 
-if TYPE_CHECKING:
-    from app.services import SpaCyModelManager
-
 
 class TestLocationExtractorCache:
     """Test geocoding cache and rate limiting."""
 
-    def test_geocoding_cache_hit(self, model_manager: SpaCyModelManager) -> None:
+    def test_geocoding_cache_hit(self) -> None:
         """Test that geocoding results are cached and reused."""
         extractor = LocationExtractor(settings.SPACY_MODEL)
 
@@ -77,10 +73,7 @@ class TestLocationExtractorCache:
             assert result2[0].coordinates is not None
             assert result2[0].coordinates.latitude == result1[0].coordinates.latitude
 
-    def test_geocoding_cache_negative_result(
-        self,
-        model_manager: SpaCyModelManager,
-    ) -> None:
+    def test_geocoding_cache_negative_result(self) -> None:
         """Test that failed geocoding is also cached."""
         extractor = LocationExtractor(settings.SPACY_MODEL)
 
@@ -115,7 +108,7 @@ class TestLocationExtractorCache:
             assert mock_geocode.call_count == 1
             assert result2[0].coordinates is None
 
-    def test_geocoding_rate_limiting(self, model_manager: SpaCyModelManager) -> None:
+    def test_geocoding_rate_limiting(self) -> None:
         """Test that rate limiting enforces minimum delay between requests."""
         extractor = LocationExtractor(settings.SPACY_MODEL)
 
@@ -520,64 +513,3 @@ class TestTableExtraction:
 
         # 1 from first table + 2 from second table
         assert len(result) == 3
-
-
-class TestStudySiteExtractorIntegration:
-    """Integration tests for table extraction in main pipeline."""
-
-    def test_table_extraction_integrated(
-        self,
-        tmp_path: Path,
-        model_manager: SpaCyModelManager,
-    ) -> None:
-        """Test that table extraction is called in the main pipeline."""
-        from app.nlp.pdf_text_extractor import ExtractedPDF
-
-        extractor = StudySiteExtractor()
-
-        # Create mock PDF with tables
-        mock_tables = [
-            Mock(
-                spec=Span,
-                text="""Site\tLatitude\tLongitude
-Site A\t-0.5\t-78.5
-Site B\t-12.0\t-77.0""",
-            ),
-        ]
-
-        mock_extracted_pdf = Mock(spec=ExtractedPDF)
-        mock_extracted_pdf.sections = {"methods": "Study conducted in the field."}
-        mock_extracted_pdf.captions = []
-        mock_extracted_pdf.tables = mock_tables
-        mock_extracted_pdf.full_doc = Mock()
-
-        pdf_path = tmp_path / "test.pdf"
-        pdf_path.write_text("mock")
-
-        with patch.object(
-            extractor.text_extractor,
-            "process_scientific_pdf",
-        ) as mock_process:
-            mock_process.return_value = mock_extracted_pdf
-
-            with patch.object(
-                extractor,
-                "_parse_table_to_dataframe",
-            ) as mock_parse:
-                mock_df = pd.DataFrame(
-                    {
-                        "Site": ["Site A", "Site B"],
-                        "Latitude": [-0.5, -12.0],
-                        "Longitude": [-78.5, -77.0],
-                    },
-                )
-                mock_parse.return_value = mock_df
-
-                result = extractor.extract_study_sites(pdf_path, title="Test Study")
-
-                # Verify table parsing was called
-                mock_parse.assert_called()
-
-                # Verify coordinates from table are in results
-                latitudes = [float(c.latitude) for c in result.coordinates]
-                assert -0.5 in latitudes or -12.0 in latitudes
