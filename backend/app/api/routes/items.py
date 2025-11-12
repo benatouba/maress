@@ -15,6 +15,7 @@ from app import crud
 from app.api.deps import CurrentUser, SessionDep
 from app.celery_app import celery
 from app.models import (
+    Creator,
     ExtractionResult,
     ExtractionResultPublic,
     ExtractionResultsPublic,
@@ -47,7 +48,7 @@ def read_db_items(
     limit: int = 500,
 ) -> tuple[Sequence[Item], int]:
     """Helper function to retrieve items with pagination."""
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy.orm import joinedload, selectinload
 
     if current_user.is_superuser:
         count_statement = select(func.count()).select_from(Item)
@@ -56,7 +57,11 @@ def read_db_items(
             select(Item)
             .offset(skip)
             .limit(limit)
-            .options(joinedload(Item.study_sites).joinedload(StudySite.location))
+            .options(
+                joinedload(Item.study_sites).joinedload(StudySite.location),
+                selectinload(Item.creators),
+                selectinload(Item.tags),
+            )
         )
         items = session.exec(statement).unique().all()
     else:
@@ -69,7 +74,11 @@ def read_db_items(
             .where(Item.owner_id == current_user.id)
             .offset(skip)
             .limit(limit)
-            .options(joinedload(Item.study_sites).joinedload(StudySite.location))
+            .options(
+                joinedload(Item.study_sites).joinedload(StudySite.location),
+                selectinload(Item.creators),
+                selectinload(Item.tags),
+            )
         )
         items = session.exec(statement).unique().all()
 
@@ -91,7 +100,18 @@ def read_items(
 @router.get("/{id}", response_model=ItemPublic)
 def read_item(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Item:
     """Get item by ID."""
-    item = session.get(Item, id)
+    from sqlalchemy.orm import joinedload, selectinload
+
+    statement = (
+        select(Item)
+        .where(Item.id == id)
+        .options(
+            joinedload(Item.study_sites).joinedload(StudySite.location),
+            selectinload(Item.creators),
+            selectinload(Item.tags),
+        )
+    )
+    item = session.exec(statement).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     if not current_user.is_superuser and (item.owner_id != current_user.id):
@@ -224,14 +244,31 @@ def import_zotero_items(
         [delete_item(session, current_user, id=item.id) for item in local_items]
         local_items = []
     local_keys = [item.key for item in local_items]
-    new_items = [
-        Item.model_validate(item, update={"owner_id": current_user.id})
-        for item in zot_items_data
-        if item["key"] not in local_keys and item["itemType"] not in ["note", "attachment"]
-    ]
-    # if not new_items:
-    #     return Message(message="No new items to import from Zotero")
-    session.add_all(new_items)
+    new_items = []
+    for item_data in zot_items_data:
+        if item_data["key"] in local_keys or item_data["itemType"] in ["note", "attachment"]:
+            continue
+
+        # Extract creators before validating the item
+        creators_data = item_data.pop("creators", [])
+
+        # Create the item (without creators in the data)
+        item = Item.model_validate(item_data, update={"owner_id": current_user.id})
+        session.add(item)
+        session.flush()  # Flush to get item.id
+
+        # Create creator records
+        for creator_data in creators_data:
+            creator = Creator(
+                item_id=item.id,
+                creatorType=creator_data.get("creatorType", "author"),
+                firstName=creator_data.get("firstName", ""),
+                lastName=creator_data.get("lastName", ""),
+            )
+            session.add(creator)
+
+        new_items.append(item)
+
     session.commit()
     for item in new_items:
         session.refresh(item)
@@ -303,31 +340,38 @@ def import_file_from_zotero(
     return item
 
 
-@router.get("/import_file_zotero/", response_model=ItemsPublic)
+@router.post("/import_file_zotero/", response_model=TasksAccepted)
 def import_files_from_zotero(
     session: SessionDep,
     current_user: CurrentUser,
     skip: int = 0,
-    limit: int = 10,
+    limit: int = 10000,
 ) -> Any:
-    items, _ = read_db_items(session, current_user, skip, limit)
-    for item in items:
-        if item.attachment:
-            continue
-        if Path(item.attachment or "").is_file():
-            continue
-        db_item = import_file_from_zotero(
-            session=session,
-            current_user=current_user,
-            id=item.id,
-        )
-        if not db_item:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Item {item.id} not found in Zotero",
+    """Start background task to download attachments from Zotero.
+
+    Returns immediately with task ID. Use /tasks/{task_id} to check status.
+    """
+    from app.tasks.download import download_attachments_task
+
+    # Start background task
+    task = download_attachments_task.delay(
+        user_id=str(current_user.id),
+        is_superuser=current_user.is_superuser,
+        skip=skip,
+        limit=limit,
+    )
+    # NOTE: random uuid for item_id since this is a batch task
+    return TasksAccepted(
+        data=[
+            TaskRef(
+                task_id=task.id,
+                item_id=uuid.uuid4(),
+                status="queued",
+                message="Attachment download task queued",
             )
-    items, count = read_db_items(session, current_user, skip, limit)
-    return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
+        ],
+        count=1,
+    )
 
 
 @router.get("/files/{filename}")
@@ -487,13 +531,14 @@ def get_task_status(
 
     response: dict[str, Any] = {
         "task_id": task_id,
-        "status": result.status,
+        "state": result.state,  # Changed from 'status' to 'state' for frontend compatibility
+        "status": result.status,  # Keep for backward compatibility
         "ready": result.ready(),
         "successful": result.successful() if result.ready() else None,
         "failed": result.failed() if result.ready() else None,
     }
 
-    # Add result data if task is complete
+    # Add result data if task is complete or in progress
     if result.ready():
         if result.successful():
             response["result"] = result.result
@@ -507,6 +552,10 @@ def get_task_status(
                     "message": str(error_info),
                     "type": type(error_info).__name__,
                 }
+    else:
+        # Task is still running - check for progress info
+        if hasattr(result, "info") and isinstance(result.info, dict):
+            response["result"] = result.info  # Progress metadata
 
     # Add task metadata if available
     if hasattr(result, "info") and isinstance(result.info, dict):
