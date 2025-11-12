@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, HTTPException, status
 
 from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_tag, delete_tag, get_tag, get_tags, update_tag
-from app.models import TagCreate, TagPublic, TagsPublic
+from app.models import Item, TagCreate, TagPublic, TagsPublic
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -70,7 +72,7 @@ def update_tag_endpoint(  # noqa: D103
 
 
 @router.delete("/{tag_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_tag_endpoint(  # noqa: ANN201, D103
+def delete_tag_endpoint(  # noqa: D103
     *,
     tag_id: int,
     session: SessionDep,
@@ -85,7 +87,7 @@ def delete_tag_endpoint(  # noqa: ANN201, D103
 
 
 @router.post("/{tag_id}/items/{item_id}", response_model=TagPublic)
-def add_item_to_tag(  # noqa: D103
+def add_item_to_tag(
     *,
     tag_id: int,
     item_id: str,
@@ -93,9 +95,6 @@ def add_item_to_tag(  # noqa: D103
     current_user: CurrentUser,
 ) -> TagPublic:
     """Add an item to a tag."""
-    from uuid import UUID
-    from app.crud import get_item
-
     tag = get_tag(session, tag_id)
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
@@ -108,7 +107,7 @@ def add_item_to_tag(  # noqa: D103
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid item ID format")
 
-    item = get_item(session, item_uuid)
+    item = session.get(Item, item_uuid)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     if not current_user.is_superuser and item.owner_id != current_user.id:
@@ -125,7 +124,7 @@ def add_item_to_tag(  # noqa: D103
 
 
 @router.delete("/{tag_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_item_from_tag(  # noqa: ANN201, D103
+def remove_item_from_tag(
     *,
     tag_id: int,
     item_id: str,
@@ -134,6 +133,7 @@ def remove_item_from_tag(  # noqa: ANN201, D103
 ):
     """Remove an item from a tag."""
     from uuid import UUID
+
     from app.crud import get_item
 
     tag = get_tag(session, tag_id)
@@ -157,5 +157,3 @@ def remove_item_from_tag(  # noqa: ANN201, D103
         tag.items.remove(item)
         session.add(tag)
         session.commit()
-
-    return None
