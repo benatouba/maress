@@ -161,24 +161,72 @@
 
           <!-- Tags -->
           <div class="mb-3">
-            <div class="text-caption text-grey mb-1">Tags</div>
+            <div class="text-caption text-grey mb-1">Tags ({{ itemTags.length }})</div>
             <v-chip-group>
               <v-chip
-                v-for="tag in nodeData.tags"
-                :key="tag"
+                v-for="tag in itemTags"
+                :key="tag.id"
                 size="small"
                 color="success"
-                variant="outlined">
-                {{ getTagName(tag) }}
+                variant="outlined"
+                :closable="isEditing"
+                @click:close="removeTagFromItem(tag.id)">
+                {{ tag.name }}
               </v-chip>
               <v-chip
-                v-if="!nodeData.tags || nodeData.tags.length === 0"
+                v-if="!itemTags || itemTags.length === 0"
                 size="small"
                 variant="outlined"
                 disabled>
                 No tags
               </v-chip>
             </v-chip-group>
+
+            <!-- Add Existing Tag (when editing) -->
+            <v-autocomplete
+              v-if="isEditing"
+              v-model="selectedTagToAdd"
+              :items="availableTags"
+              item-title="name"
+              item-value="id"
+              label="Add Existing Tag"
+              variant="outlined"
+              density="comfortable"
+              class="mt-3"
+              clearable
+              @update:model-value="addTagToItem">
+              <template #prepend-inner>
+                <v-icon icon="mdi-tag-outline" />
+              </template>
+            </v-autocomplete>
+
+            <!-- Create New Tag (when editing) -->
+            <div
+              v-if="isEditing"
+              class="mt-3">
+              <v-text-field
+                v-model="newTagName"
+                label="Create New Tag"
+                variant="outlined"
+                density="comfortable"
+                placeholder="Enter tag name..."
+                :error-messages="newTagError"
+                @keyup.enter="createAndAddTag">
+                <template #prepend-inner>
+                  <v-icon icon="mdi-tag-plus-outline" />
+                </template>
+                <template #append>
+                  <v-btn
+                    color="primary"
+                    variant="text"
+                    size="small"
+                    :disabled="!newTagName.trim()"
+                    @click="createAndAddTag">
+                    Create & Add
+                  </v-btn>
+                </template>
+              </v-text-field>
+            </div>
           </div>
 
           <!-- Study Sites -->
@@ -285,6 +333,9 @@ const isTag = computed(() => props.nodeType === 'tag')
 const isEditing = ref(false)
 const editedName = ref('')
 const selectedItemToAdd = ref<string | null>(null)
+const selectedTagToAdd = ref<number | null>(null)
+const newTagName = ref('')
+const newTagError = ref('')
 
 const connectedItems = computed(() => {
   if (!isTag.value || !props.nodeData) return []
@@ -295,6 +346,20 @@ const availableItems = computed(() => {
   if (!isTag.value) return []
   const connectedIds = new Set(connectedItems.value.map((item: any) => item.id))
   return props.allItems.filter(item => !connectedIds.has(item.id))
+})
+
+// Get tags for the current item (with full tag objects)
+const itemTags = computed(() => {
+  if (isTag.value || !props.nodeData) return []
+  const tagIds = props.nodeData.tags || []
+  return props.allTags.filter(tag => tagIds.includes(tag.id))
+})
+
+// Get available tags (not already on the item)
+const availableTags = computed(() => {
+  if (isTag.value) return []
+  const itemTagIds = new Set(itemTags.value.map(tag => tag.id))
+  return props.allTags.filter(tag => !itemTagIds.has(tag.id))
 })
 
 const hasStudySites = computed(() => {
@@ -312,9 +377,22 @@ watch(() => props.nodeData, (newData) => {
   }
 }, { immediate: true })
 
+watch(() => newTagName.value, () => {
+  // Clear error when user types
+  if (newTagError.value) {
+    newTagError.value = ''
+  }
+})
+
 const startEditing = () => {
   if (isTag.value && props.nodeData) {
     editedName.value = props.nodeData.name
+  }
+  // Reset tag-related fields for items
+  if (!isTag.value) {
+    selectedTagToAdd.value = null
+    newTagName.value = ''
+    newTagError.value = ''
   }
   isEditing.value = true
 }
@@ -324,6 +402,10 @@ const cancelEditing = () => {
   if (isTag.value && props.nodeData) {
     editedName.value = props.nodeData.name
   }
+  // Reset tag-related fields
+  selectedTagToAdd.value = null
+  newTagName.value = ''
+  newTagError.value = ''
 }
 
 const saveChanges = async () => {
@@ -353,6 +435,54 @@ const removeItemFromTag = async (itemId: string) => {
 
   const success = await tagStore.removeItemFromTag(props.nodeData.id, itemId)
   if (success) {
+    emit('updated')
+  }
+}
+
+// Add existing tag to item
+const addTagToItem = async (tagId: number | null) => {
+  if (!tagId || !props.nodeData) return
+
+  const success = await tagStore.addItemToTag(tagId, props.nodeData.id)
+  if (success) {
+    selectedTagToAdd.value = null
+    emit('updated')
+  }
+}
+
+// Remove tag from item
+const removeTagFromItem = async (tagId: number) => {
+  if (!props.nodeData) return
+
+  const success = await tagStore.removeItemFromTag(tagId, props.nodeData.id)
+  if (success) {
+    emit('updated')
+  }
+}
+
+// Create new tag and add to item
+const createAndAddTag = async () => {
+  if (!newTagName.value.trim() || !props.nodeData) return
+
+  // Check if tag already exists
+  const existingTag = props.allTags.find(
+    tag => tag.name.toLowerCase() === newTagName.value.trim().toLowerCase()
+  )
+
+  if (existingTag) {
+    newTagError.value = 'Tag already exists. Please select it from the dropdown instead.'
+    return
+  }
+
+  // Create new tag with current item
+  const newTag = await tagStore.createTag({
+    name: newTagName.value.trim(),
+    item_ids: [props.nodeData.id]
+  })
+
+  if (newTag) {
+    newTagName.value = ''
+    newTagError.value = ''
     emit('updated')
   }
 }

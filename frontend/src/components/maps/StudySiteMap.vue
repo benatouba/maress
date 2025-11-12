@@ -248,6 +248,10 @@ const handleMarkerClick = (studySite: StudySiteWithItem) => {
     clearSelection()
     return
   }
+  if (!studySite) {
+    console.warn('Invalid study site clicked')
+    return
+  }
   selectedSite.value = studySite
   editDialogOpen.value = true
   emit('site-selected', studySite)

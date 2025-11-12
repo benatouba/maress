@@ -359,34 +359,65 @@ const getStylesheet = () => [
     },
   },
 
-  // Hover/highlight states
+  // Hover/highlight states - Hovered node (primary focus)
   {
-    selector: 'node.highlighted',
+    selector: 'node.hovered',
     style: {
-      'border-width': '3px',
+      'border-width': '4px',
       'border-color': '#E74C3C',
-      'z-index': 10,
-      'font-size': '14px',
+      'z-index': 999,
+      'font-size': '16px',
       'font-weight': 'bold',
       'text-outline-width': 2,
+      'box-shadow': '0 0 20px rgba(231, 76, 60, 0.6)',
     },
   },
 
+  // Connected nodes (secondary focus)
+  {
+    selector: 'node.connected',
+    style: {
+      'border-width': '3px',
+      'border-color': '#F39C12',
+      'z-index': 100,
+      'font-size': '14px',
+      'font-weight': 'bold',
+      'text-outline-width': 2,
+      'box-shadow': '0 0 15px rgba(243, 156, 18, 0.4)',
+    },
+  },
+
+  // Highlighted edges (connections between hovered and connected)
   {
     selector: 'edge.highlighted',
     style: {
       'line-color': '#E74C3C',
       'target-arrow-color': '#E74C3C',
-      width: 4,
+      width: 5,
       opacity: 1,
-      'z-index': 10,
+      'z-index': 50,
+      'line-style': 'solid',
     },
   },
 
-  // Dimmed states for search
-  { selector: 'node.dimmed', style: { opacity: 0.3 } },
+  // Dimmed states for unrelated nodes/edges
+  {
+    selector: 'node.dimmed',
+    style: {
+      opacity: 0.15,
+      'border-opacity': 0.15,
+      'text-opacity': 0.15,
+    },
+  },
 
-  { selector: 'edge.dimmed', style: { opacity: 0.1 } },
+  {
+    selector: 'edge.dimmed',
+    style: {
+      opacity: 0.05,
+      'line-opacity': 0.05,
+      'target-arrow-opacity': 0.05,
+    },
+  },
 ]
 
 // Initialize cytoscape with all optimizations
@@ -459,13 +490,29 @@ const setupEventHandlers = () => {
 
   cy.on('mouseover', 'node', (evt) => {
     const node = evt.target
-    const connectedElements = node.connectedEdges().union(node.connectedEdges().connectedNodes())
+    const connectedEdges = node.connectedEdges()
+    const connectedNodes = connectedEdges.connectedNodes().difference(node)
 
     // Performance optimization: batch style changes
     cy.startBatch()
-    cy.elements().removeClass('highlighted')
-    connectedElements.addClass('highlighted')
-    node.addClass('highlighted')
+
+    // Remove all previous highlight classes
+    cy.elements().removeClass('hovered connected highlighted dimmed')
+
+    // Highlight the hovered node with primary style
+    node.addClass('hovered')
+
+    // Highlight connected edges
+    connectedEdges.addClass('highlighted')
+
+    // Highlight connected nodes with secondary style
+    connectedNodes.addClass('connected')
+
+    // Dim all other nodes and edges
+    cy.elements()
+      .difference(node.union(connectedEdges).union(connectedNodes))
+      .addClass('dimmed')
+
     cy.endBatch()
 
     // Update cursor
@@ -473,7 +520,11 @@ const setupEventHandlers = () => {
   })
 
   cy.on('mouseout', 'node', () => {
-    cy.elements().removeClass('highlighted')
+    // Remove all highlight and dim classes
+    cy.startBatch()
+    cy.elements().removeClass('hovered connected highlighted dimmed')
+    cy.endBatch()
+
     cytoscapeContainer.value.style.cursor = 'default'
   })
 
@@ -542,6 +593,27 @@ const setupZoomOptimization = () => {
         .style('opacity', 0.8)
         .update()
     }, 100) // 100ms delay after zoom stops
+  })
+}
+
+// Viewport culling for very large graphs
+const implementViewportCulling = () => {
+  if (!cy) return
+
+  // Only render elements in viewport for performance
+  cy.on('render', () => {
+    const extent = cy.extent()
+    cy.elements().forEach((ele) => {
+      const bb = ele.boundingBox()
+      const inViewport =
+        bb.x2 >= extent.x1 && bb.x1 <= extent.x2 && bb.y2 >= extent.y1 && bb.y1 <= extent.y2
+
+      if (!inViewport) {
+        ele.style('display', 'none')
+      } else {
+        ele.style('display', 'element')
+      }
+    })
   })
 }
 
