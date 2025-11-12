@@ -30,11 +30,26 @@
           elevation="4">
           <v-card-title class="d-flex align-center justify-space-between">
             <span>Study Sites</span>
-            <v-chip
-              :color="selectedSite ? 'primary' : 'default'"
-              size="small">
-              {{ totalSites }} sites
-            </v-chip>
+            <div class="d-flex align-center gap-2">
+              <v-btn
+                icon
+                size="small"
+                variant="text"
+                :loading="loading"
+                @click="refreshSites">
+                <v-icon>mdi-refresh</v-icon>
+                <v-tooltip
+                  activator="parent"
+                  location="bottom">
+                  Refresh study sites
+                </v-tooltip>
+              </v-btn>
+              <v-chip
+                :color="selectedSite ? 'primary' : 'default'"
+                size="small">
+                {{ totalSites }} sites
+              </v-chip>
+            </div>
           </v-card-title>
 
           <v-divider />
@@ -62,6 +77,18 @@
           </v-card-text>
 
           <v-divider />
+
+          <!-- Info Banner -->
+          <v-alert
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="ma-3 mb-2">
+            <div class="text-caption">
+              <v-icon size="small" class="mr-1">mdi-information</v-icon>
+              Study sites appear after extraction tasks complete. Click refresh to see new sites.
+            </div>
+          </v-alert>
 
           <!-- Sites List -->
           <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
@@ -222,10 +249,21 @@ const handleSiteSelected = (site: StudySiteWithItem) => {
  * Handle site click from list - Pan map to location
  */
 const handleSiteClick = (site: StudySiteWithItem) => {
-  if (selectedSite.value.id === site.id) {
+  if (!site) {
+    console.warn('Invalid site clicked')
+    return
+  }
+
+  // Toggle selection
+  if (selectedSite.value?.id === site.id) {
     selectedSite.value = null
   } else {
     selectedSite.value = site
+  }
+
+  if (!site.location) {
+    console.warn(`Site "${site.name}" has no location object`)
+    return
   }
 
   // Check if map component is ready
@@ -263,6 +301,11 @@ const handleMapReady = (map: any) => {
 const refreshData = async () => {
   await studySitesStore.fetchAllStudySites()
 }
+
+/**
+ * Refresh sites (alias for refreshData)
+ */
+const refreshSites = refreshData
 
 // Lifecycle
 onMounted(async () => {

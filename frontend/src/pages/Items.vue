@@ -16,12 +16,14 @@
           hide-details
           class="mr-4"
           label="Force Reload"
+          :disabled="isProcessing"
         />
         <v-btn
           color="primary"
           prepend-icon="mdi-sync"
           @click="handleSync"
-          :loading="syncing"
+          :loading="syncing || isProcessing"
+          :disabled="isProcessing && !syncing"
           class="mr-2"
         >
           {{ syncButtonText }}
@@ -30,10 +32,11 @@
           color="secondary"
           prepend-icon="mdi-download"
           @click="handleDownloadAttachments"
-          :loading="loading"
+          :loading="downloading || isProcessing"
+          :disabled="isProcessing && !downloading"
           class="mr-2"
         >
-          Download Files
+          {{ downloading ? 'Downloading...' : 'Download Files' }}
         </v-btn>
         <v-btn
           v-if="hasSelectedItems"
@@ -41,6 +44,7 @@
           prepend-icon="mdi-close"
           @click="clearSelection"
           variant="outlined"
+          :disabled="isProcessing"
           class="mr-2"
         >
           Clear ({{ selectedItems.length }})
@@ -49,7 +53,8 @@
           :color="hasSelectedItems ? 'success' : 'accent'"
           prepend-icon="mdi-map-marker-plus"
           @click="handleExtractAll"
-          :loading="loading"
+          :loading="isProcessing"
+          :disabled="isProcessing"
           class="mr-2"
         >
           {{ hasSelectedItems ? `Extract ${selectedItems.length} Selected` : 'Extract All Sites' }}
@@ -58,7 +63,8 @@
           color="secondary"
           prepend-icon="mdi-refresh"
           @click="handleRefresh"
-          :loading="loading"
+          :loading="isProcessing"
+          :disabled="isProcessing"
         >
           Refresh
         </v-btn>
@@ -154,6 +160,46 @@
       </v-card-text>
     </v-card>
 
+    <!-- Download Progress Banner -->
+    <v-alert
+      v-if="downloading"
+      type="info"
+      variant="tonal"
+      class="mb-4"
+      prominent
+      border="start"
+    >
+      <template #prepend>
+        <v-progress-circular
+          v-if="downloadProgress && downloadProgress.total > 0"
+          :model-value="(downloadProgress.current / downloadProgress.total) * 100"
+          size="24"
+          width="3"
+        />
+        <v-progress-circular
+          v-else
+          indeterminate
+          size="24"
+          width="3"
+        />
+      </template>
+      <v-alert-title>Downloading Attachments</v-alert-title>
+      <div v-if="downloadProgress && downloadProgress.total > 0">
+        Processing item {{ downloadProgress.current }} of {{ downloadProgress.total }}
+        <br />
+        <span class="text-caption">
+          Downloaded: {{ downloadProgress.downloaded }} | Skipped: {{ downloadProgress.skipped }} | Failed: {{ downloadProgress.failed }}
+        </span>
+        <br />
+        <span class="text-caption text-medium-emphasis">
+          The table will update automatically as attachments are found.
+        </span>
+      </div>
+      <div v-else>
+        Starting download... The table will update automatically as attachments are found.
+      </div>
+    </v-alert>
+
     <!-- Data Table -->
     <v-card elevation="2">
       <v-data-table
@@ -163,7 +209,7 @@
         v-model="selectedItems"
         :headers="headers"
         :items="filteredItems"
-        :loading="loading"
+        :loading="loading && !downloading"
         :items-length="totalItems"
         :search="search"
         item-value="id"
@@ -416,7 +462,7 @@ const router = useRouter()
 const zoteroStore = useZoteroStore()
 const notificationStore = useNotificationStore()
 const taskStore = useTaskStore()
-const { items, loading, syncing, zoteroCollections } = storeToRefs(zoteroStore)
+const { items, loading, syncing, downloading, downloadProgress, zoteroCollections } = storeToRefs(zoteroStore)
 
 // State
 const search = ref('')
@@ -489,6 +535,11 @@ const hasSelectedItems = computed(() => {
   return selectedItems.value.length > 0
 })
 
+// Computed property for when any operation is in progress
+const isProcessing = computed(() => {
+  return loading.value || downloading.value || syncing.value
+})
+
 const selectedCollection = computed(() => {
   if (selectedCollectionIndex.value === -1 || selectedCollectionIndex.value === undefined) {
     return null
@@ -537,11 +588,8 @@ const handleSync = async () => {
 
 const handleDownloadAttachments = async () => {
   try {
-    const downloaded = await zoteroStore.downloadAttachments()
-    if (downloaded) {
-      await zoteroStore.fetchItems()
-      notificationStore.showNotification('Files downloaded successfully', 'success')
-    }
+    await zoteroStore.downloadAttachments()
+    // Note: The store already handles fetching items and showing notifications
   } catch (error) {
     console.error('Download error:', error)
   }
