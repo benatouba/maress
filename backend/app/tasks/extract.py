@@ -172,6 +172,10 @@ def _extract_study_site_impl(
             )
 
     total_created = len(study_site_ids)
+
+    # IMPORTANT: Commit all changes to database
+    session.commit()
+
     logger.info(
         "Completed extraction for item %s: %d total study sites created",
         item_id,
