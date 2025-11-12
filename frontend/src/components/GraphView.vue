@@ -31,11 +31,12 @@
         <select
           v-model="selectedLayout"
           class="layout-select">
-          <option value="random">Random</option>
+          <option value="cose">CoSE (Clustered)</option>
           <option value="fcose">fCoSE (Force-directed)</option>
           <option value="dagre">Dagre (Hierarchical)</option>
           <option value="grid">Grid</option>
           <option value="circle">Circle</option>
+          <option value="random">Random</option>
         </select>
 
         <button
@@ -99,7 +100,7 @@ const emit = defineEmits(['nodeSelected', 'graphUpdated'])
 const props = defineProps({
   items: { type: Array, default: () => [] },
   tags: { type: Array, default: () => [] },
-  layoutType: { type: String, default: 'random' },
+  layoutType: { type: String, default: 'cose' },
   showControls: { type: Boolean, default: true },
   showMinimap: { type: Boolean, default: false },
   enableClustering: { type: Boolean, default: false },
@@ -188,11 +189,16 @@ const buildGraphData = computed(() => {
   // Add item nodes with enhanced styling
   filteredItems.forEach((item) => {
     const importance = nodeImportance.items[item.id] || 0
+    // Use journal abbreviation, fallback to publication title, then item title
+    const label = item.journalAbbreviation ||
+                  item.publicationTitle?.substring(0, 20) ||
+                  item.title?.substring(0, 20) ||
+                  '?'
     nodes.push({
       group: 'nodes',
       data: {
         id: `item_${item.id}`,
-        label: getInitials(item.authors),
+        label: label,
         type: 'item',
         importance,
         originalData: item,
@@ -224,8 +230,8 @@ const buildGraphData = computed(() => {
 const getLayoutConfig = (layoutName = selectedLayout.value) => {
   const nodeCount = buildGraphData.value.nodes.length
 
-  // Auto-select layout based on size [web:8]
-  if (nodeCount > 1000 && layoutName === 'fcose') {
+  // Auto-select layout based on size for performance
+  if (nodeCount > 1000 && (layoutName === 'fcose' || layoutName === 'cose')) {
     layoutName = 'grid' // Grid is much faster for large datasets
   }
 
@@ -244,6 +250,27 @@ const getLayoutConfig = (layoutName = selectedLayout.value) => {
       // Set explicit boundaries to prevent clustering
       avoidOverlap: true,
       avoidOverlapPadding: 10,
+    },
+    cose: {
+      name: 'cose',
+      // Ideal for clustering connected components without hierarchy
+      idealEdgeLength: 100,
+      nodeOverlap: 20,
+      refresh: 20,
+      fit: true,
+      padding: 30,
+      randomize: false,
+      componentSpacing: 100, // Space between disconnected components
+      nodeRepulsion: 400000, // Strength of repulsion between nodes
+      edgeElasticity: 100, // Divisor for edge forces
+      nestingFactor: 5, // Nesting factor for compound nodes
+      gravity: 80, // Gravity force (constant)
+      numIter: 1000, // Maximum number of iterations
+      initialTemp: 200, // Initial temperature
+      coolingFactor: 0.95, // Cooling factor per iteration
+      minTemp: 1.0, // Lower temperature threshold
+      animate: nodeCount < 200 ? 'end' : false, // Animation only for smaller graphs
+      animationDuration: 500,
     },
     fcose: {
       name: 'fcose',
@@ -270,9 +297,34 @@ const getLayoutConfig = (layoutName = selectedLayout.value) => {
       animate: false, // No animation for grid
       spacingFactor: 1.2,
     },
+    dagre: {
+      name: 'dagre',
+      // Hierarchical layout (top-down)
+      fit: true,
+      padding: 30,
+      rankDir: 'TB', // Top to bottom (LR for left-right)
+      ranker: 'network-simplex', // Type of algorithm
+      nodeSep: 50, // Separation between nodes at same rank
+      edgeSep: 10, // Separation between edges
+      rankSep: 75, // Separation between ranks
+      animate: nodeCount < 200 ? 'end' : false,
+      animationDuration: 500,
+    },
+    circle: {
+      name: 'circle',
+      fit: true,
+      padding: 30,
+      avoidOverlap: true,
+      spacingFactor: 1.5, // Radius spacing
+      startAngle: (3 / 2) * Math.PI, // Start at top
+      sweep: 2 * Math.PI, // Full circle
+      clockwise: true,
+      animate: nodeCount < 200 ? 'end' : false,
+      animationDuration: 500,
+    },
   }
 
-  return configs[layoutName] || configs.grid
+  return configs[layoutName] || configs.cose
 }
 
 // Enhanced styling with dynamic colors and sizes

@@ -21,9 +21,11 @@ export interface ZoteroStore {
   itemsCount: Ref<number>
   loading: Ref<boolean>
   syncing: Ref<boolean>
+  downloading: Ref<boolean>
+  downloadProgress: Ref<{ current: number; total: number; downloaded: number; skipped: number; failed: number } | null>
   fetchCollections: () => Promise<void>
   fetchZoteroCollections: (libraryType?: 'user' | 'group') => Promise<void>
-  fetchItems: (limit?: number) => Promise<void>
+  fetchItems: (limit?: number, silent?: boolean) => Promise<void>
   syncLibrary: (reload?: boolean, collectionId?: string | null) => Promise<boolean>
   downloadAttachments: () => Promise<any | null>
   importItem: (itemId: string) => Promise<any | null>
@@ -41,6 +43,10 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   const loading = ref(false)
   const syncing = ref(false)
   const downloading = ref(false)
+  const downloadProgress = ref<{ current: number; total: number; downloaded: number; skipped: number; failed: number } | null>(null)
+
+  // Add polling interval reference
+  let pollingInterval: ReturnType<typeof setInterval> | null = null
 
   // Fetch collections (legacy - database collections)
   const fetchCollections = async () => {
@@ -82,21 +88,24 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   }
 
   // Fetch items
-  const fetchItems = async (limit = 500) => {
-    loading.value = true
+  const fetchItems = async (limit = 500, silent = false) => {
+    // Don't set loading if it's a silent refresh (polling during download)
+    if (!silent && !downloading.value) {
+      loading.value = true
+    }
     try {
       const params = { limit }
 
       const response = await axios.get('/items', { params })
-      console.log('Fetched items:', response.data)
       items.value = response.data
       itemsCount.value = response.data.length
-      console.log('Updated items:', items.value)
       return items.value
     } catch (error) {
       console.error('Error fetching items:', error)
     } finally {
-      loading.value = false
+      if (!silent && !downloading.value) {
+        loading.value = false
+      }
     }
   }
 
@@ -133,20 +142,118 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   const downloadAttachments = async () => {
     const notificationStore = useNotificationStore()
     downloading.value = true
+    loading.value = true
+    downloadProgress.value = null // Reset progress
+
+    // Start polling to refresh items every 2 seconds during download
+    pollingInterval = setInterval(async () => {
+      try {
+        await fetchItems(500, true) // silent = true to avoid interfering with loading state
+      } catch (error) {
+        console.error('Error polling items during download:', error)
+      }
+    }, 2000)
 
     try {
-      const response = await axios.get('/items/import_file_zotero/')
-      notificationStore.showNotification('Attachment download started!', 'info')
-      return response.data
+      notificationStore.showNotification('Starting background download...', 'info')
+
+      // Start background task - POST now returns task IDs
+      const response = await axios.post('/items/import_file_zotero/', null, {
+        params: { skip: 0, limit: 10000 }
+      })
+
+      // Get task ID from response
+      const tasks = response.data.data
+      if (!tasks || tasks.length === 0) {
+        throw new Error('No task ID returned from server')
+      }
+
+      const taskId = tasks[0].task_id
+      notificationStore.showNotification('Download running in background...', 'info')
+
+      // Poll task status
+      const taskResult = await pollTaskStatus(taskId)
+
+      // Stop polling items
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+        pollingInterval = null
+      }
+
+      // Final refresh to ensure we have the latest data
+      await fetchItems()
+
+      // Show completion message with statistics
+      if (taskResult && taskResult.downloaded !== undefined) {
+        const msg = `Downloaded: ${taskResult.downloaded}, Skipped: ${taskResult.skipped}, Failed: ${taskResult.failed}`
+        notificationStore.showNotification(msg, 'success')
+      } else {
+        notificationStore.showNotification('Attachments downloaded successfully!', 'success')
+      }
+
+      return taskResult
     } catch (error) {
+      // Stop polling on error
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+        pollingInterval = null
+      }
+
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to download attachments',
+        error.response?.data?.detail || error.message || 'Failed to download attachments',
         'error',
       )
       return null
     } finally {
       downloading.value = false
+      loading.value = false
     }
+  }
+
+  // Poll task status until completion
+  const pollTaskStatus = async (taskId: string): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const taskPollingInterval = setInterval(async () => {
+        try {
+          const response = await axios.get(`/items/tasks/${taskId}`)
+          const taskData = response.data
+
+          // Check task state
+          if (taskData.state === 'SUCCESS') {
+            clearInterval(taskPollingInterval)
+            downloadProgress.value = null // Clear progress on completion
+            resolve(taskData.result)
+          } else if (taskData.state === 'FAILURE') {
+            clearInterval(taskPollingInterval)
+            downloadProgress.value = null // Clear progress on failure
+            reject(new Error(taskData.result || 'Task failed'))
+          } else if (taskData.state === 'PROGRESS') {
+            // Update progress information
+            const meta = taskData.result
+            downloadProgress.value = {
+              current: meta?.current || 0,
+              total: meta?.total || 0,
+              downloaded: meta?.downloaded || 0,
+              skipped: meta?.skipped || 0,
+              failed: meta?.failed || 0,
+            }
+            console.log(`Download progress: ${meta?.current || 0}/${meta?.total || 0}`)
+          }
+          // PENDING state - keep polling
+        } catch (error) {
+          clearInterval(taskPollingInterval)
+          downloadProgress.value = null // Clear progress on error
+          reject(error)
+        }
+      }, 1000) // Poll every second
+
+      // Add timeout after 30 minutes
+      setTimeout(() => {
+        clearInterval(taskPollingInterval)
+        downloadProgress.value = null // Clear progress on timeout
+        reject(new Error('Task polling timeout'))
+      }, 30 * 60 * 1000)
+    })
   }
 
   const getLocations = async () => {
@@ -281,6 +388,8 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     itemsCount,
     loading,
     syncing,
+    downloading,
+    downloadProgress,
     fetchCollections,
     fetchZoteroCollections,
     fetchItems,
