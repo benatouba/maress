@@ -230,28 +230,38 @@ class SpacyLayoutPDFParser(PDFParser):
         if self.enable_ocr_fallback:
             for backend in self.FALLBACK_CHAIN:
                 result = self._try_spacy_layout(pdf_path, backend)
-                if result.success and result.doc:
+                # Check if result has actual content (not just empty doc)
+                if result.success and result.doc and result.doc.text.strip():
                     logger.info(f"Parsed {pdf_path.name} using {result.backend_used}")
                     return result.doc
 
-                logger.warning(f"Retrying with next OCR backend...")
+                # Log reason for trying next backend
+                if result.success and result.doc and not result.doc.text.strip():
+                    logger.warning(f"{backend.value} returned empty content, retrying with next OCR backend...")
+                else:
+                    logger.warning(f"Retrying with next OCR backend...")
         else:
             # Try only once with first backend
             result = self._try_spacy_layout(pdf_path, self.FALLBACK_CHAIN[0])
-            if result.success and result.doc:
+            # Check if result has actual content (not just empty doc)
+            if result.success and result.doc and result.doc.text.strip():
                 logger.info(f"Parsed {pdf_path.name} using {result.backend_used}")
                 return result.doc
 
         # PyMuPDF fallback if enabled
         if self.enable_pymupdf_fallback:
-            logger.info("All OCR methods failed, trying PyMuPDF fallback")
+            logger.info("All OCR methods failed or returned empty content, trying PyMuPDF fallback")
             result = self._try_pymupdf(pdf_path)
-            if result.success and result.doc:
+            # Check if result has actual content (not just empty doc)
+            if result.success and result.doc and result.doc.text.strip():
                 logger.info(f"Parsed {pdf_path.name} using {result.backend_used}")
                 return result.doc
 
+            if result.success and result.doc and not result.doc.text.strip():
+                logger.warning("PyMuPDF also returned empty content")
+
         # All methods failed
-        error_msg = f"All parsing methods failed for {pdf_path.name}"
+        error_msg = f"All parsing methods failed or returned empty content for {pdf_path.name}"
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
