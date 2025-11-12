@@ -16,6 +16,14 @@ celery.conf.update(
     enable_utc=True,
 )
 celery.conf.update(
-    imports=("app.tasks.extract",),  # explicit imports
+    imports=(
+        "app.tasks.extract",
+        "app.tasks.download",
+    ),
 )
+
+# Import tasks to ensure they are registered with Celery
+# This must happen after celery configuration
+from app.tasks.extract import extract_study_site_task  # noqa: E402, F401
+from app.tasks.download import download_attachments_task  # noqa: E402, F401
 
