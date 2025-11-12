@@ -166,7 +166,7 @@ class Item(ItemBase, table=True):
         ondelete="CASCADE",
     )
     owner: "User" = Relationship(back_populates="items")
-    tags: list["Tag"] = Relationship(back_populates="items", link_model=ItemTagLink)
+    tags: list["Tag"] = Relationship(back_populates="items", link_model=ItemTagLink, sa_relationship_kwargs={"lazy": "selectin"})
     # authors: list["Author"] = Relationship(
     #     back_populates="items",
     #     link_model=ItemAuthorLink,
@@ -190,7 +190,9 @@ class Item(ItemBase, table=True):
 class ItemPublic(ItemBase):
     id: uuid.UUID
     owner_id: uuid.UUID
-    study_sites: list["StudySitePublic"] | None
+    creators: list["CreatorPublic"] | None = None
+    study_sites: list["StudySitePublic"] | None = None
+    tags: list["Tag"] | None = None  # List of tag IDs
 
     @field_serializer("study_sites")
     def serialize_study_sites(self, study_sites: list["StudySite"] | None, _info):
@@ -200,6 +202,20 @@ class ItemPublic(ItemBase):
         # Pydantic computed fields automatically handle lat/lon from location
         return [StudySitePublic.model_validate(site) for site in study_sites]
 
+    @field_serializer("creators")
+    def serialize_creators(self, creators: list["Creator"] | None, _info):
+        """Serialize creators."""
+        if not creators:
+            return None
+        return [CreatorPublic.model_validate(creator) for creator in creators]
+
+    @field_serializer("tags")
+    def serialize_tags(self, tags: list["Tag"] | None, _info):
+        """Serialize tags as list of IDs."""
+        if not tags:
+            return None
+        return [tag.id for tag in tags]
+
 
 class ItemsPublic(SQLModel):
     data: list[ItemPublic]
@@ -208,7 +224,7 @@ class ItemsPublic(SQLModel):
 
 class ItemSummary(SQLModel):
     id: uuid.UUID
-    name: str  # or whatever fields you want to expose
+    title: str | None = None
 
 
 class LocationBase(SQLModel):
@@ -472,7 +488,7 @@ class TagBase(SQLModel):
 class Tag(TagBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, max_length=64)
-    items: list["Item"] = Relationship(back_populates="tags", link_model=ItemTagLink)
+    items: list["Item"] = Relationship(back_populates="tags", link_model=ItemTagLink, sa_relationship_kwargs={"lazy": "selectin"})
     owner_id: uuid.UUID = Field(foreign_key="user.id")
     owner: "User" = Relationship(back_populates="tags")
     created_at: datetime = timestamp_field()
@@ -487,6 +503,13 @@ class TagPublic(TagBase):
     id: int
     owner_id: uuid.UUID
     items: list["ItemSummary"] | None = None
+
+    @field_serializer("items")
+    def serialize_items(self, items: list["Item"] | None, _info):
+        """Serialize Item objects to ItemSummary."""
+        if not items:
+            return None
+        return [ItemSummary(id=item.id, title=item.title) for item in items]
 
 
 class TagsPublic(SQLModel):
