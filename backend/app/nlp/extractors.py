@@ -12,7 +12,6 @@ import spacy
 from spacy.tokens import Doc
 
 from app.nlp.domain_models import GeoEntity
-from app.nlp.model_config import model_settings
 from app.nlp.text_processing import (
     CoordinateParser,
     PDFTextCleaner,
@@ -42,11 +41,31 @@ class BaseEntityExtractor(ABC):
     def __init__(self, config: ModelConfig) -> None:
         """Initialize extractor with configuration."""
         self.config: ModelConfig = config
-        self.nlp: Language = spacy.load(model_settings.SPACY_MODEL)
+        # Lazy load spaCy model - will be loaded on first access or injected via set_nlp()
+        self._nlp: Language | None = None
+
+    @property
+    def nlp(self) -> Language:
+        """Lazy-load spaCy model only if needed.
+
+        Returns shared instance if injected via set_nlp(), otherwise loads model.
+        """
+        if self._nlp is None:
+            # Load with NER and parser (needed for entity recognition and sentence boundaries)
+            # Only disable tagger and lemmatizer for performance
+            self._nlp = spacy.load(
+                self.config.SPACY_MODEL,
+                disable=["tagger", "lemmatizer", "textcat"]
+            )
+        return self._nlp
 
     def set_nlp(self, nlp: Language) -> None:
-        """Inject spaCy model for sentence detection."""
-        self.nlp = nlp
+        """Inject shared spaCy model instance.
+
+        This allows the factory to provide a single shared model to all extractors,
+        reducing memory usage and initialization time.
+        """
+        self._nlp = nlp
 
     @abstractmethod
     def extract(self, text: str, section: str) -> list[GeoEntity]:
@@ -115,6 +134,10 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
     detects both well-formed and malformed coordinates directly in the NLP pipeline.
     It's more efficient and handles PDF extraction artifacts better than
     external regex matching.
+
+    IMPORTANT: All detected coordinates are transformed to decimal format and
+    should ALWAYS be saved as StudySite entities, regardless of context or section.
+    Coordinates have the highest priority in the extraction pipeline.
     """
 
     def __init__(self, config: ModelConfig) -> None:
@@ -145,7 +168,12 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
             List of GeoEntity objects with parsed coordinates
         """
         # Process text through spaCy pipeline (includes coordinate_matcher)
-        doc = self.nlp(text)
+        try:
+            doc = self.nlp(text)
+        except Exception as e:
+            from app.nlp.nlp_logger import logger
+            logger.error(f"Failed to process text with spaCy: {e}")
+            return []
 
         entities: list[GeoEntity] = []
 
@@ -156,7 +184,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
 
             # Get coordinate format and confidence from custom attributes
             format_type = ent._.coordinate_format if hasattr(ent._, "coordinate_format") else "unknown"
-            confidence = ent._.coordinate_confidence if hasattr(ent._, "coordinate_confidence") else 0.7
+            confidence = ent._.coordinate_confidence if hasattr(ent._, "coordinate_confidence") else self.config.DEFAULT_COORDINATE_CONFIDENCE
 
             # Parse the coordinate string to decimal
             coord_str = ent.text
@@ -231,7 +259,7 @@ class SpatialRelationEntityExtractor(BaseEntityExtractor):
                     entity_type="SPATIAL_RELATION",
                     context=context,
                     section=section,
-                    confidence=0.9,
+                    confidence=self.config.DEFAULT_SPATIAL_RELATION_CONFIDENCE,
                     start_char=start,
                     end_char=end,
                 ),
@@ -360,6 +388,27 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         self.cleaner: PDFTextCleaner = PDFTextCleaner()
         # Track seen entities to avoid duplicates
         self._seen_spans: set[tuple[int, int]] = set()
+        # Flag to track if NER has been configured
+        self._ner_configured = False
+
+    def _configure_ner_for_multiword(self) -> None:
+        """Configure NER to favor longer, multi-word entities.
+
+        Increases beam width and density for better multi-word entity recognition.
+        This is called lazily the first time nlp is accessed.
+        """
+        if self._ner_configured:
+            return
+
+        # Configure NER to favor longer, multi-word entities
+        # Increase beam width for better multi-word entity recognition
+        if "ner" in self.nlp.pipe_names:
+            ner = self.nlp.get_pipe("ner")
+            # Increase beam width to explore more entity combinations
+            ner.cfg["beam_width"] = 32  # Default is 16
+            # Increase beam density for better long-span detection
+            ner.cfg["beam_density"] = 0.01  # More permissive beam search
+            self._ner_configured = True
 
     @override
     def extract(self, text: str, section: str) -> list[GeoEntity]:
@@ -372,6 +421,9 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         Returns:
             List of unique GeoEntity objects
         """
+        # Configure NER for multi-word entities (happens once, lazily)
+        self._configure_ner_for_multiword()
+
         # Reset seen spans for each new extraction
         self._seen_spans.clear()
 
@@ -409,7 +461,7 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
                     entity_type=ent.label_,
                     context=context,
                     section=section,
-                    confidence=0.95,  # High confidence for NER
+                    confidence=self.config.DEFAULT_NER_CONFIDENCE,
                     start_char=ent.start_char,
                     end_char=ent.end_char,
                 ),
@@ -450,7 +502,7 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
                         entity_type="SPATIAL_RELATION",
                         context=sent.text,
                         section=section,
-                        confidence=0.85,
+                        confidence=self.config.DEFAULT_SPATIAL_RELATION_CONFIDENCE,
                         start_char=span.start_char,
                         end_char=span.end_char,
                     ),
@@ -491,7 +543,7 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
                         entity_type="CONTEXTUAL_LOCATION",
                         context=sent.text,
                         section=section,
-                        confidence=0.75,
+                        confidence=self.config.DEFAULT_CONTEXTUAL_LOCATION_CONFIDENCE,
                         start_char=span.start_char,
                         end_char=span.end_char,
                     ),

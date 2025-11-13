@@ -121,8 +121,7 @@ class SpacyLayoutPDFParser(PDFParser):
         Returns:
             ParseResult with success status
         """
-        try:
-            logger.info(f"Attempting PDF parsing with {backend.value}")
+        def parse(pdf_path: Path, backend: OCRBackend) -> ParseResult:
             layout = self._init_layout()
 
             # Note: spacy-layout uses docling which will use available OCR
@@ -133,13 +132,20 @@ class SpacyLayoutPDFParser(PDFParser):
             # Ensure NLP pipeline is applied
             if not doc.has_annotation("DEP"):
                 doc = self.nlp(doc.text) if doc.text else self.nlp("")
-
-            logger.info(f"Successfully parsed with spacy-layout+{backend.value}")
+            # Check if doc actually has content
+            if not doc.text.strip():
+                msg = f"spacy-layout parsing with {backend.value} resulted in empty text"
+                raise ValueError(msg)
+            logger.debug(f"Extracted text length: {len(doc.text)} characters")
+            logger.debug(f"Extracted text preview: {doc.text[:200]!r}...")
             return ParseResult(
                 doc=doc,
                 backend_used=f"spacy-layout+{backend.value}",
                 success=True,
             )
+        try:
+            logger.info(f"Attempting PDF parsing with {backend.value}")
+            return parse(pdf_path, backend)
 
         except Exception as e:
             logger.warning(
@@ -162,7 +168,7 @@ class SpacyLayoutPDFParser(PDFParser):
         Returns:
             ParseResult with success status
         """
-        try:
+        def parse(pdf_path: Path) -> ParseResult:
             logger.info("Attempting PDF parsing with PyMuPDF fallback")
             pdf_doc = pymupdf.open(pdf_path)
 
@@ -184,12 +190,18 @@ class SpacyLayoutPDFParser(PDFParser):
             if "layout" not in doc.spans:
                 doc.spans["layout"] = []
 
+            if not doc.text.strip():
+                msg = "PyMuPDF parsing resulted in empty text"
+                raise ValueError(msg)
             logger.info("Successfully parsed with PyMuPDF")
             return ParseResult(
                 doc=doc,
                 backend_used="pymupdf",
                 success=True,
             )
+
+        try:
+            return parse(pdf_path)
 
         except Exception as e:
             logger.error(f"PyMuPDF parsing failed: {e!s}", exc_info=True)

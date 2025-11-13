@@ -25,8 +25,9 @@ class ModelConfig(BaseSettings):
     SPACY_MODEL: str = Field(default="en_core_web_lg", description="spaCy model name")
 
     # Extraction settings
+    # Increased context window for better entity ranking and study site detection
     CONTEXT_WINDOW: int = Field(
-        default=100,
+        default=250,
         ge=20,
         le=500,
         description="Characters of context around entities",
@@ -37,6 +38,30 @@ class ModelConfig(BaseSettings):
         le=1.0,
         description="Minimum confidence threshold",
     )
+    DEFAULT_COORDINATE_CONFIDENCE: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description="Default confidence for coordinate entities without scores",
+    )
+    DEFAULT_NER_CONFIDENCE: float = Field(
+        default=0.95,
+        ge=0.0,
+        le=1.0,
+        description="Default confidence for NER entities without scores",
+    )
+    DEFAULT_SPATIAL_RELATION_CONFIDENCE: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description="Default confidence for spatial relation entities without scores",
+    )
+    DEFAULT_CONTEXTUAL_LOCATION_CONFIDENCE: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Default confidence for contextual location entities without scores",
+    )
 
     # Section priorities
     PRIORITY_SECTIONS: list[str] = Field(
@@ -44,4 +69,4 @@ class ModelConfig(BaseSettings):
         description="Sections to prioritise for extraction",
     )
 
-model_settings = ModelConfig()
+model_config = ModelConfig()

@@ -1,3 +1,10 @@
+"""Legacy PDF text processing utilities.
+
+DEPRECATED: This module is legacy code and is no longer used in the current pipeline.
+The current pipeline uses SpacyLayoutPDFParser in pdf_parser.py instead.
+This file is kept for reference but should not be imported.
+"""
+
 from collections import defaultdict
 from pathlib import Path
 import spacy
@@ -6,9 +13,11 @@ from spacy_layout import spaCyLayout
 import warnings
 import os
 warnings.filterwarnings("ignore", category=UserWarning)
-os.environ['OMP_NUM_THREADS'] = str(os.cpu_count())
-os.environ['MKL_NUM_THREADS'] = str(os.cpu_count())
+ncpu = int(os.cpu_count() or None)
+os.environ['OMP_NUM_THREADS'] = str(min([3, ncpu]))
+os.environ['MKL_NUM_THREADS'] = str(min([3, ncpu]))
 
+# DEPRECATED: This global load is legacy code
 nlp = spacy.load("en_core_web_lg")
 layout = spaCyLayout( nlp, headings=["section_header", "title", "page_header"],separator="\n\n")
 

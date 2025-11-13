@@ -68,14 +68,23 @@ class PipelineFactory:
         if config is None:
             config = ModelConfig()
 
-        nlp = spacy.blank(config.SPACY_LANGUAGE)
-        nlp.add_pipe("sentencizer")
+        # Create lightweight blank model for PDF parsing (sentencizer only)
+        pdf_nlp = spacy.blank(config.SPACY_LANGUAGE)
+        pdf_nlp.add_pipe("sentencizer")
 
         # Phase 2: Improve sentence boundaries for scientific text
         if enable_improved_sentences:
-            nlp = improve_sentence_boundaries(nlp)
+            pdf_nlp = improve_sentence_boundaries(pdf_nlp)
 
-        pdf_parser = SpacyLayoutPDFParser(nlp)
+        pdf_parser = SpacyLayoutPDFParser(pdf_nlp)
+
+        # Load full spaCy model for entity extraction (shared across all extractors)
+        # Keep NER and parser (needed for entity recognition and sentence boundaries)
+        # Only disable tagger and lemmatizer for performance
+        shared_nlp = spacy.load(
+            config.SPACY_MODEL,
+            disable=["tagger", "lemmatizer", "textcat"]
+        )
 
         # Initialize transformer pipeline (optional - can be disabled for speed)
         # ner_pipeline = pipeline(
@@ -99,6 +108,11 @@ class PipelineFactory:
                 SpaCyGeoExtractor(config),
             ]
 
+        # Inject shared spaCy instance into all extractors to reduce memory usage
+        # This prevents each extractor from loading its own copy of the model
+        for extractor in extractors:
+            extractor.set_nlp(shared_nlp)
+
         return StudySiteExtractionPipeline(
             config=config,
             pdf_parser=pdf_parser,
@@ -112,8 +126,8 @@ class PipelineFactory:
 
     @staticmethod
     def create_pipeline_for_api(
-        config: ModelConfig | None = None,
-        use_spacy_coordinate_matcher: bool = True,  # Phase 3: Enabled by default
+        config: ModelConfig,  # Required - no default
+        use_spacy_coordinate_matcher: bool = True,
     ) -> StudySiteExtractionPipeline:
         """Create pipeline optimized for API use.
 
@@ -125,19 +139,14 @@ class PipelineFactory:
         - Optimized for production use
 
         Args:
-            config: Model configuration
+            config: Model configuration (required, must be provided by caller)
             use_spacy_coordinate_matcher: Use spaCy-integrated coordinate matching
 
         Returns:
             API-optimized pipeline
         """
-        if config is None:
-            config = ModelConfig()
-            # Override some settings for API
-            config.MIN_CONFIDENCE = 0.6  # Higher threshold for API
-            config.CONTEXT_WINDOW = 100
 
-        # Phase 3: Choose coordinate extractor
+        # Choose coordinate extractor
         if use_spacy_coordinate_matcher:
             coord_extractor = SpaCyCoordinateExtractor(config)
         else:
@@ -153,8 +162,8 @@ class PipelineFactory:
         return PipelineFactory.create_pipeline(
             config=config,
             extractors=extractors,
-            enable_geocoding=True,  # Phase 1
-            enable_clustering=True,  # Phase 1
-            enable_table_extraction=True,  # Phase 1
-            use_spacy_coordinate_matcher=use_spacy_coordinate_matcher,  # Phase 3
+            enable_geocoding=True,
+            enable_clustering=True,
+            enable_table_extraction=True,
+            use_spacy_coordinate_matcher=use_spacy_coordinate_matcher,
         )

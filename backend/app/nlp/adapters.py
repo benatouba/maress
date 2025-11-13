@@ -31,7 +31,7 @@ class StudySiteResultAdapter:
     def to_study_sites(
         result: ExtractionResult,
         item_id: uuid.UUID,
-        min_confidence: float = 0.5,
+        min_confidence: float,
     ) -> list[StudySiteCreate]:
         """Convert ExtractionResult to list of StudySiteCreate.
 
@@ -48,17 +48,30 @@ class StudySiteResultAdapter:
         # Get entities with coordinates
         entities_with_coords = result.get_entities_with_coordinates()
 
-        # Filter by confidence
-        high_confidence = [e for e in entities_with_coords if e.confidence >= min_confidence]
+        # COORDINATES always create StudySites (bypass confidence threshold)
+        coordinate_entities = [e for e in entities_with_coords if e.entity_type == "COORDINATE"]
 
-        if not high_confidence:
+        # Other entities must pass confidence threshold
+        other_entities = [
+            e for e in entities_with_coords
+            if e.entity_type != "COORDINATE" and e.confidence >= min_confidence
+        ]
+
+        # Combine: all coordinates + high-confidence others
+        high_confidence = coordinate_entities + other_entities
+
+        logger.info(
+            f"Found {len(coordinate_entities)} coordinate entities (always included), "
+            f"{len(other_entities)} other high-confidence entities (threshold: {min_confidence})"
+        )
+
+        if not high_confidence and entities_with_coords:
             logger.warning(
-                f"No high-confidence entities found (threshold: {min_confidence}). Adding only best entity.",
+                f"No high-confidence entities found. Adding best entity as fallback.",
             )
-            # If none meet threshold, add the highest confidence one
-            if entities_with_coords:
-                best_entity = max(entities_with_coords, key=lambda e: e.confidence)
-                high_confidence.append(best_entity)
+            # If none meet criteria, add the highest confidence one
+            best_entity = max(entities_with_coords, key=lambda e: e.confidence)
+            high_confidence.append(best_entity)
 
         # Convert each entity to StudySiteCreate
         for entity in high_confidence:
