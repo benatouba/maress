@@ -382,48 +382,33 @@ class CoordinateParser:
     # Phase 2: Expanded patterns - prioritizing most common formats first
     PATTERNS: ClassVar[list[str]] = [
         # === HIGH PRIORITY: Most common in scientific papers ===
-
         # Simple decimal pairs (most common): 45.123, -122.456 or -45.123, -122.456
         r"(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})",
-
         # With labels: Lat: 45.123, Lon: -122.456 or Latitude: 45.123, Longitude: -122.456
         r"(?:Lat|Latitude|lat|latitude)[:\s]*(-?\d+\.\d+)[,\s]*(?:Lon|Longitude|long|longitude)[:\s]*(-?\d+\.\d+)",
         r"(?:Lon|Longitude|long|longitude)[:\s]*(-?\d+\.\d+)[,\s]*(?:Lat|Latitude|lat|latitude)[:\s]*(-?\d+\.\d+)",
-
         # In parentheses: (45.123, -122.456) or ( 45.123 , -122.456 )
         r"\(\s*(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})\s*\)",
-
         # In brackets: [45.123, -122.456]
         r"\[\s*(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})\s*\]",
-
         # === MEDIUM PRIORITY: Traditional formats with symbols ===
-
         # Decimal degrees with degree symbol: -45.123°, 122.456° or 45.123° N, 122.456° W
         r"(-?\d+\.\d+)\s*°\s*([NS])?\s*,?\s*(-?\d+\.\d+)\s*°\s*([EW])?",
-
         # Degrees minutes seconds: 45°12'30"N, 122°30'15"W (with flexible spacing)
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([EW])",
-
         # Degrees minutes: 45°12'N, 122°30'W
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
-
         # Decimal minutes: 45°12.5'N, 122°30.8'W
         r"(\d+)\s*[°]\s*(\d+\.?\d*)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+\.?\d*)\s*[\'′]\s*([EW])",
-
         # === LOW PRIORITY: Alternative formats ===
-
         # Without symbols (requires direction): 45.5 N, 122.3 W
         r"(\d+\.\d+)\s+([NS])\s*,?\s*(\d+\.\d+)\s+([EW])",
-
         # With explicit signs: +45.123, -122.456
         r"([+-]\d+\.\d{2,})\s*,\s*([+-]\d+\.\d{2,})",
-
         # Compact format: 00°01'.72N, 77°59'.13E
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([EW])",
-
         # With spaces before direction: 00°01'.72 N (corrupted format)
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([EW])",
-
         # Range format (extract midpoint): 45.1-45.2°N, 122.3-122.5°W
         r"(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([NS])\s*,?\s*(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([EW])",
     ]
@@ -503,31 +488,28 @@ class CoordinateParser:
         lat, lon = coords
 
         # Check for DMS format (most precise)
-        if '"' in coord_str or '″' in coord_str:
+        if '"' in coord_str or "″" in coord_str:
             return 1.0
 
         # Check decimal precision
-        lat_decimals = len(str(lat).split('.')[-1]) if '.' in str(lat) else 0
-        lon_decimals = len(str(lon).split('.')[-1]) if '.' in str(lon) else 0
+        lat_decimals = len(str(lat).split(".")[-1]) if "." in str(lat) else 0
+        lon_decimals = len(str(lon).split(".")[-1]) if "." in str(lon) else 0
         avg_decimals = (lat_decimals + lon_decimals) / 2
 
         if avg_decimals >= 4:
             return 0.95  # Very high precision
-        elif avg_decimals >= 3:
+        if avg_decimals >= 3:
             return 0.90  # High precision
-        elif avg_decimals >= 2:
+        if avg_decimals >= 2:
             return 0.80  # Medium precision
-        elif avg_decimals >= 1:
+        if avg_decimals >= 1:
             return 0.70  # Low precision
-        else:
-            return 0.50  # Integer degrees only
 
         # Check for DM format with decimal minutes
-        if "'" in coord_str or '′' in coord_str:
-            if '.' in coord_str:
+        if "'" in coord_str or "′" in coord_str:
+            if "." in coord_str:
                 return 0.90  # Decimal minutes
-            return 0.75  # Integer minutes only
-
+            return 0.80
         return 0.80  # Default for valid coordinates
 
     def parse_to_decimal(self, coord_str: str) -> tuple[float, float] | None:
@@ -546,7 +528,6 @@ class CoordinateParser:
             # Phase 3: Try each pattern - including malformed variations
             patterns = [
                 # === MALFORMED COORDINATE PATTERNS (Priority 1 - Most common corruptions) ===
-
                 # Degree as "7" with proper minute/second symbols: 45 7 12'N, 122 7 30'W
                 (
                     r"(\d+)\s+7\s+(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s+7\s+(\d+)\s*[\'′]\s*([EW])",
@@ -557,7 +538,6 @@ class CoordinateParser:
                         m.group(6),
                     ),
                 ),
-
                 # Degree as "7", minute as "b": 45 7 12 b N, 122 7 30 b W
                 (
                     r"(\d+)\s+7\s+(\d+)\s+b\s+([NS])\s*,?\s*(\d+)\s+7\s+(\d+)\s+b\s+([EW])",
@@ -568,7 +548,6 @@ class CoordinateParser:
                         m.group(6),
                     ),
                 ),
-
                 # Degree as "7", minute as "b" with DMS: 45 7 12 b 30"N
                 (
                     r"(\d+)\s+7\s+(\d+)\s+b\s+(\d+\.?\d*)\s*[\"″c]\s*([NS])\s*,?\s*(\d+)\s+7\s+(\d+)\s+b\s+(\d+\.?\d*)\s*[\"″c]\s*([EW])",
@@ -579,7 +558,6 @@ class CoordinateParser:
                         m.group(8),
                     ),
                 ),
-
                 # Compact format with decimal minute: 00°01'.72N or 00 7 01 b .72N
                 (
                     r"(\d+)\s*[°7o]\s*(\d+)\s*[\'′b]\s*\.(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°7o]\s*(\d+)\s*[\'′b]\s*\.(\d+)\s*([EW])",
@@ -590,7 +568,6 @@ class CoordinateParser:
                         m.group(8),
                     ),
                 ),
-
                 # Degree as "o" or "O": 45o12'N, 122o30'W
                 (
                     r"(\d+)\s*[oO]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[oO]\s*(\d+)\s*[\'′]\s*([EW])",
@@ -601,7 +578,6 @@ class CoordinateParser:
                         m.group(6),
                     ),
                 ),
-
                 # Minute as backtick or acute: 45°12`N or 45°12´N
                 (
                     r"(\d+)\s*[°]\s*(\d+)\s*[`´]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[`´]\s*([EW])",
@@ -612,9 +588,7 @@ class CoordinateParser:
                         m.group(6),
                     ),
                 ),
-
                 # === WELL-FORMED PATTERNS (Priority 2) ===
-
                 # Simple decimal pairs: 45.123, -122.456
                 (
                     r"^(-?\d+\.\d{2,})\s*,\s*(-?\d+\.\d{2,})$",
@@ -675,9 +649,9 @@ class CoordinateParser:
                     r"(-?\d+\.\d+)\s*°\s*([NS])?\s*,?\s*(-?\d+\.\d+)\s*°\s*([EW])?",
                     lambda m: self._calc_decimal(
                         [float(m.group(1))],
-                        m.group(2) or 'N' if float(m.group(1)) >= 0 else 'S',
+                        m.group(2) or "N" if float(m.group(1)) >= 0 else "S",
                         [float(m.group(3))],
-                        m.group(4) or 'E' if float(m.group(3)) >= 0 else 'W',
+                        m.group(4) or "E" if float(m.group(3)) >= 0 else "W",
                     ),
                 ),
                 # Without symbols (requires direction): 45.5 N, 122.3 W

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from rich import print as rprint
 
 from app.nlp.factories import PipelineFactory
+from app.nlp.model_config import ModelConfig
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -20,15 +21,9 @@ if TYPE_CHECKING:
 
 def main() -> None:
     """Example usage of the extraction pipeline."""
-    pipeline = PipelineFactory.create_pipeline()
-
-    # Option 2: Custom configuration
-    # config = ModelConfig(
-    #     min_confidence=0.7,
-    #     context_window=150,
-    #     priority_sections=["methods", "study area", "field sites"],
-    # )
-    # pipeline = PipelineFactory.create_pipeline(config)
+    # Create config from model_config.py
+    config = ModelConfig()
+    pipeline = PipelineFactory.create_pipeline(config=config)
 
     # Process a PDF
     pdf_path = next(iter((Path.cwd() / "zotero_files").glob("*.pdf")))
@@ -44,7 +39,7 @@ def main() -> None:
     print(f"Metadata: {result.extraction_metadata}")
 
     # High confidence entities
-    high_conf = result.get_high_confidence_entities(threshold=0.85)
+    high_conf = result.get_high_confidence_entities(threshold=config.MIN_CONFIDENCE)
     print(f"\nHigh confidence entities: {len(high_conf)}")
 
     # Explicit coordinates

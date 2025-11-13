@@ -10,9 +10,10 @@ from sqlmodel import Session
 from app.celery_app import celery
 from app.core.db import SessionLocal
 from app.crud import create_study_site
-from app.models import Item
+from app.models import ExtractionResult, Item
 from app.nlp.adapters import StudySiteResultAdapter, get_primary_study_site
 from app.nlp.factories import PipelineFactory
+from app.nlp.model_config import ModelConfig
 
 if TYPE_CHECKING:
     from celery import Task
@@ -75,7 +76,9 @@ def _extract_study_site_impl(
     path = Path(item.attachment).resolve(strict=True)
 
     logger.info("Initializing extraction pipeline for item %s", item_id)
-    pipeline = PipelineFactory.create_pipeline_for_api()
+    # Create config from model_config.py (reads from .env and environment)
+    config = ModelConfig()
+    pipeline = PipelineFactory.create_pipeline_for_api(config=config)
 
     logger.info("Extracting study sites from %s", path.name)
     try:
@@ -89,7 +92,7 @@ def _extract_study_site_impl(
     study_sites = StudySiteResultAdapter.to_study_sites(
         result=result,
         item_id=item.id,
-        min_confidence=0.6,  # Minimum confidence threshold
+        min_confidence=config.MIN_CONFIDENCE,
     )
 
     if not study_sites:
@@ -103,7 +106,6 @@ def _extract_study_site_impl(
         }
 
     # Phase 4: Save ALL extraction candidates to extraction_result table
-    from app.models import ExtractionResult
 
     logger.info("Saving all %d extraction candidates to database", len(study_sites))
     extraction_result_ids = []

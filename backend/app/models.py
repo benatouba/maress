@@ -2,7 +2,13 @@ import uuid
 from datetime import datetime
 from typing import Optional, Self
 
-from pydantic import ConfigDict, EmailStr, computed_field, field_serializer, field_validator  # noqa: TC002
+from pydantic import (  # noqa: TC002
+    ConfigDict,
+    EmailStr,
+    computed_field,
+    field_serializer,
+    field_validator,
+)
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
@@ -54,9 +60,9 @@ class CollectionsPublic(SQLModel):
 
 
 class CreatorBase(SQLModel):
-    creatorType: str = Field(max_length=32)
-    firstName: str = Field(max_length=64)
-    lastName: str = Field(max_length=64)
+    creatorType: str 
+    firstName: str | None = None
+    lastName: str
 
 
 class Creator(CreatorBase, table=True):
@@ -166,14 +172,19 @@ class Item(ItemBase, table=True):
         ondelete="CASCADE",
     )
     owner: "User" = Relationship(back_populates="items")
-    tags: list["Tag"] = Relationship(back_populates="items", link_model=ItemTagLink, sa_relationship_kwargs={"lazy": "selectin"})
+    tags: list["Tag"] = Relationship(
+        back_populates="items", link_model=ItemTagLink, sa_relationship_kwargs={"lazy": "selectin"}
+    )
     # authors: list["Author"] = Relationship(
     #     back_populates="items",
     #     link_model=ItemAuthorLink,
     # )
     collections: list["Collection"] = Relationship(back_populates="item")
     accessDate: str | None = Field(default=None, max_length=32)  # ISO-format
-    creators: list["Creator"] = Relationship(back_populates="item")
+    creators: list["Creator"] = Relationship(
+        back_populates="item",
+        sa_relationship_kwargs={"cascade": "all, delete-orphan"},
+    )
     relations: list["Relation"] = Relationship(back_populates="item")
     study_sites: list["StudySite"] | None = Relationship(
         back_populates="item",
@@ -247,7 +258,9 @@ class Location(LocationBase, table=True):
 
 class LocationPublicSimple(LocationBase):
     """Location without nested study sites (to avoid circular references)."""
+
     id: uuid.UUID
+
 
 class LocationPublic(LocationBase):
     id: uuid.UUID
@@ -488,7 +501,9 @@ class TagBase(SQLModel):
 class Tag(TagBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True, max_length=64)
-    items: list["Item"] = Relationship(back_populates="tags", link_model=ItemTagLink, sa_relationship_kwargs={"lazy": "selectin"})
+    items: list["Item"] = Relationship(
+        back_populates="tags", link_model=ItemTagLink, sa_relationship_kwargs={"lazy": "selectin"}
+    )
     owner_id: uuid.UUID = Field(foreign_key="user.id")
     owner: "User" = Relationship(back_populates="tags")
     created_at: datetime = timestamp_field()

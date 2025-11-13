@@ -23,7 +23,7 @@ from app.core.config import ConfigError, settings
 if TYPE_CHECKING:
     from sqlmodel import SQLModel
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

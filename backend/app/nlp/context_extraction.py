@@ -118,12 +118,14 @@ class ContextExtractor:
         re.compile(r"\b(Appendix\s+[A-Z]\d*)\b", re.IGNORECASE),
     ]
 
-    def __init__(self, context_window: int = 50, max_paragraph_chars: int = 500):
+    def __init__(self, context_window: int = 150, max_paragraph_chars: int = 1000):
         """Initialize context extractor.
 
         Args:
             context_window: Number of tokens to look at before/after entity
+                (increased from 50 to 150 for better study site detection)
             max_paragraph_chars: Maximum paragraph context length
+                (increased from 500 to 1000 for richer context)
         """
         self.context_window = context_window
         self.max_paragraph_chars = max_paragraph_chars
