@@ -245,14 +245,14 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
           downloadProgress.value = null // Clear progress on error
           reject(error)
         }
-      }, 1000) // Poll every second
+      }, 10 * 1000) // Poll every 10 seconds
 
-      // Add timeout after 30 minutes
+      // Add timeout after 24 hours
       setTimeout(() => {
         clearInterval(taskPollingInterval)
         downloadProgress.value = null // Clear progress on timeout
         reject(new Error('Task polling timeout'))
-      }, 30 * 60 * 1000)
+      }, 24 * 60 * 60 * 1000) // 24 hours
     })
   }
 

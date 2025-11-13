@@ -23,7 +23,7 @@
           prepend-icon="mdi-sync"
           @click="handleSync"
           :loading="syncing || isProcessing"
-          :disabled="isProcessing && !syncing"
+          :disabled="isProcessing && !syncing || selectedCollectionIndex === -1"
           class="mr-2"
         >
           {{ syncButtonText }}
