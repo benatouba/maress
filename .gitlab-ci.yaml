@@ -1,0 +1,24 @@
+image: python:3.8-buster
+
+validate-nfdi4earth-metadata:
+  stage: test
+  script: |-
+    # validate the CITATION.cff file if one exists
+    # NOTE: it is possible to provide the url to a remotly hosted .cff file
+    # however we only validate the locally hosted one. The KH harvesting code
+    # should take care of error handling if a remote .cff file is not valid
+
+    if test -f CITATION.cff; then
+        python3 -m pip install --user cffconvert
+        export PATH="$PATH:$HOME/.local/bin/"
+        cffconvert --validate -i CITATION.cff
+    fi
+
+    # install the required packages used for harvesting into the NFDI4Earth Knowledge Hub
+    # NOTE: change checkout dev branch to default branch when this is merged
+    git clone -b dev https://git.rwth-aachen.de/nfdi4earth/knowledgehub/kh-populator.git &&
+    pip install -e kh-populator &&
+    pip install --extra-index-url https://git.rwth-aachen.de/api/v4/projects/85620/packages/pypi/simple nfdi4earth-kh-schema &&
+    python -c "
+    from kh_populator.pipelines.harvest_incub_and_pilots import harvest_individual_research_project
+    harvest_individual_research_project($CI_PROJECT_ID, 'temp', 'temp')"

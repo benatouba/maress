@@ -1,10 +1,14 @@
 cff-version: 1.2.0
 title: "NFDI4Earth"
 authors:
-  - family-names: YourLastName
-    given-names: YourFirstName
-    affiliation: YourAffiliation
-    orcid: "https://orcid.org/0000-0002-5607-9040"
+  - family-names: Schmidt
+    given-names: Benjamin Rasmus Leander
+    affiliation: "Technische Universität Berlin"
+    orcid: "https://orcid.org/0000-0002-9669-3360"
+  - family-names: Otto
+    given-names: Marco
+    affiliation: "Technische Universität Berlin"
+    orcid: "https://orcid.org/0000-0003-4464-2673"
 message: "Custome message like: If you use this software, please cite it using these metadata."
 abstract: This software implements methods to do things.
 license:
