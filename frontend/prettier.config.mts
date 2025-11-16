@@ -22,6 +22,7 @@ const config: Config = {
   tabs: false,
   trailingComma: 'all',
   vueIndentScriptAndStyle: false,
+  plugins: [ "@prettier/plugin-oxc"],
   overrides: [
     {
       files: ['*.js', '*.ts', '*.vue'],
