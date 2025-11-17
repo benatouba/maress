@@ -133,15 +133,14 @@ def _extract_study_site_impl(
     session.flush()  # Ensure IDs are generated
     logger.info("Saved %d extraction candidates", len(extraction_result_ids))
 
-    # Phase 4: Limit to top 10 study sites for StudySite table
-    MAX_STUDY_SITES = 10
-    top_study_sites = study_sites[:MAX_STUDY_SITES]
+    # Limit to top 10 study sites for StudySite table
+    top_study_sites = study_sites[:config.MAX_STUDY_SITES]
 
-    if len(study_sites) > MAX_STUDY_SITES:
+    if len(study_sites) > config.MAX_STUDY_SITES:
         logger.info(
             "Limiting study sites from %d to top %d results",
             len(study_sites),
-            MAX_STUDY_SITES,
+            config.MAX_STUDY_SITES,
         )
 
     # Get primary study site (highest confidence from top results)

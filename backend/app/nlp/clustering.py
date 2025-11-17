@@ -41,23 +41,44 @@ class CoordinateClusterer:
         self,
         entities: list[GeoEntity],
     ) -> tuple[list[GeoEntity], dict[str, int]]:
-        """Cluster entities with coordinates and filter noise points.
+        """Cluster entities with coordinates.
+
+        IMPORTANT:
+        - ALL COORDINATE entities are always kept (never filtered)
+        - Named entities (LOC, GPE) and SPATIAL_RELATION entities: keep only largest cluster
+        - This ensures coordinates are always used as StudySites
 
         Args:
             entities: List of GeoEntity objects with coordinates
 
         Returns:
-            Tuple of (entities from all clusters, cluster size info)
+            Tuple of (filtered entities, cluster size info)
         """
-        # Filter entities with coordinates
-        entities_with_coords = [e for e in entities if e.coordinates is not None]
+        # Separate coordinate entities from other entities
+        coordinate_entities = [e for e in entities if e.entity_type == "COORDINATE" and e.coordinates is not None]
+        other_entities_with_coords = [
+            e for e in entities
+            if e.entity_type != "COORDINATE" and e.coordinates is not None
+        ]
+        entities_without_coords = [e for e in entities if e.coordinates is None]
 
-        if len(entities_with_coords) <= 1:
-            # No clustering needed
-            return entities, {}
+        logger.info(
+            f"Entity breakdown: {len(coordinate_entities)} coordinates, "
+            f"{len(other_entities_with_coords)} other entities with coords, "
+            f"{len(entities_without_coords)} without coords"
+        )
 
-        # Extract coordinates for clustering
-        coords = [e.coordinates for e in entities_with_coords]
+        # ALL coordinates are always kept
+        result_entities = coordinate_entities.copy()
+
+        # If no other entities to cluster, return coordinates only
+        if len(other_entities_with_coords) <= 1:
+            result_entities.extend(other_entities_with_coords)
+            result_entities.extend(entities_without_coords)
+            return result_entities, {}
+
+        # Extract coordinates for clustering other entities
+        coords = [e.coordinates for e in other_entities_with_coords]
         X = np.radians(np.array(coords))
 
         # Adaptive eps based on data distribution
@@ -67,7 +88,7 @@ class CoordinateClusterer:
         earth_radius_km = 6371.0088
         eps_rad = self.eps_km / earth_radius_km
 
-        # Perform clustering
+        # Perform clustering on non-coordinate entities
         clustering = DBSCAN(
             eps=eps_rad,
             min_samples=self.min_samples,
@@ -76,9 +97,9 @@ class CoordinateClusterer:
 
         labels = clustering.labels_
 
-        # Group by cluster and assign labels
+        # Group by cluster
         clustered: dict[int, list[tuple[GeoEntity, int]]] = {}
-        for entity, label in zip(entities_with_coords, labels, strict=False):
+        for entity, label in zip(other_entities_with_coords, labels, strict=False):
             if label not in clustered:
                 clustered[label] = []
             clustered[label].append((entity, label))
@@ -99,35 +120,38 @@ class CoordinateClusterer:
             cluster_info[f"cluster_{cluster_label}"] = len(cluster)
             logger.info(f"Cluster {cluster_label}: {len(cluster)} entities")
 
-        # Keep all clusters, filter only noise points (label=-1)
+        # Keep ONLY the largest cluster (excluding noise)
         if sorted_cluster_labels:
-            # Filter out noise points (label=-1) but keep all clusters
             non_noise_labels = [label for label in sorted_cluster_labels if label != -1]
 
-            # Count noise points for logging
-            noise_count = len(clustered.get(-1, [])) if -1 in clustered else 0
+            if non_noise_labels:
+                # Get the largest cluster
+                largest_cluster_label = non_noise_labels[0]
+                largest_cluster = clustered[largest_cluster_label]
 
-            logger.info(
-                f"Keeping all {len(non_noise_labels)} clusters "
-                f"({len(entities_with_coords) - noise_count} entities), "
-                f"filtering {noise_count} noise points"
-            )
+                logger.info(
+                    f"Keeping largest cluster (label={largest_cluster_label}) "
+                    f"with {len(largest_cluster)} entities"
+                )
 
-            # Extract entities from all non-noise clusters
-            clustered_entities = []
-            for cluster_label in non_noise_labels:
-                cluster = clustered[cluster_label]
-                clustered_entities.extend([entity for entity, label in cluster])
+                # Extract entities from largest cluster only
+                result_entities.extend([entity for entity, label in largest_cluster])
+            else:
+                logger.warning("No valid clusters found (all noise), keeping only coordinates")
 
-            # Add entities without coordinates (they should still be considered)
-            entities_without_coords = [e for e in entities if e.coordinates is None]
-            result_entities = clustered_entities + entities_without_coords
+            # Add entities without coordinates from largest cluster's region
+            result_entities.extend(entities_without_coords)
+
+            cluster_info["largest_cluster_size"] = len(largest_cluster) if non_noise_labels else 0
+            cluster_info["total_clusters"] = len(non_noise_labels)
+            cluster_info["coordinates_always_included"] = len(coordinate_entities)
 
             return result_entities, cluster_info
         else:
-            # No clusters found, return all entities
-            logger.warning("No clusters found, returning all entities")
-            return entities, cluster_info
+            # No clusters found, return coordinates + entities without coords
+            logger.warning("No clusters found, returning coordinates and entities without coords")
+            result_entities.extend(entities_without_coords)
+            return result_entities, {}
 
     def _estimate_optimal_eps(self, coordinates: list[tuple[float, float]]) -> float:
         """Estimate optimal eps using k-distance plot heuristic.

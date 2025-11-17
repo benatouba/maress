@@ -380,7 +380,7 @@ class ContextExtractor:
 if __name__ == "__main__":
     import spacy
 
-    nlp = spacy.load("en_core_web_sm")
+    nlp = spacy.load("en_core_web_lg")
     extractor = ContextExtractor()
 
     # Test text

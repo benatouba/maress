@@ -24,6 +24,7 @@ class ModelConfig(BaseSettings):
     SPACY_LANGUAGE: str = Field(default="en", description="spaCy language model")
     SPACY_MODEL: str = Field(default="en_core_web_lg", description="spaCy model name")
 
+    MAX_STUDY_SITES: int = Field(default=10, ge=1)
     # Extraction settings
     # Increased context window for better entity ranking and study site detection
     CONTEXT_WINDOW: int = Field(
@@ -68,5 +69,6 @@ class ModelConfig(BaseSettings):
         default=["methods", "study_area", "data", "materials", "study site"],
         description="Sections to prioritise for extraction",
     )
+
 
 model_config = ModelConfig()

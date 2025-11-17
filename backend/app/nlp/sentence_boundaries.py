@@ -197,7 +197,7 @@ if __name__ == "__main__":
     import spacy
 
     # Load model and improve sentence boundaries
-    nlp = spacy.load("en_core_web_sm")
+    nlp = spacy.load("en_core_web_lm")
     nlp = improve_sentence_boundaries(nlp)
 
     # Test cases

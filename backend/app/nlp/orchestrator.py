@@ -101,6 +101,7 @@ class StudySiteExtractionPipeline:
 
         # Parse PDF
         doc = self.pdf_parser.parse(pdf_path)
+        logger.debug(f"Parsed PDF doc spans: {doc.spans}")
 
         # Extract from sections
         all_entities: list[GeoEntity] = []
@@ -144,6 +145,8 @@ class StudySiteExtractionPipeline:
             sections_processed += 1
 
             # Run all extractors on text
+            logger.debug(f"Extracting entities from section '{section_name}'")
+            logger.debug(f"Section text preview: {section_text[:50]!r}...")
             for extractor in self.extractors:
                 extractor_name = extractor.__class__.__name__
                 entities = extractor.extract(text=section_text, section=section_name)
@@ -154,6 +157,7 @@ class StudySiteExtractionPipeline:
                 all_entities.extend(entities)
 
         logger.info(f"Extracted {len(all_entities)} entities from {sections_processed} sections")
+        logger.debug(f"First extracted entities: {all_entities[:5]}")
 
         # Extract from tables
         if self.enable_table_extraction:

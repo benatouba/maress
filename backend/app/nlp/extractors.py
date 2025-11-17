@@ -327,48 +327,11 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
     """Extract geospatial entities using spaCy NER (Geospacy-inspired).
 
     Extracts standard NER entities (LOC, GPE, FAC, NORP) and identifies
-    spatial relation phrases using linguistic patterns.
+    spatial relation phrases using the spatial_relation_matcher component.
     """
 
     # Geospatial entity labels from spaCy NER
     GEO_LABELS: ClassVar[set[str]] = {"LOC", "GPE", "FAC", "NORP"}
-
-    # Spatial relation patterns inspired by Geospacy
-    # These capture directional and proximity relations
-    SPATIAL_PREPOSITIONS: ClassVar[set[str]] = {
-        "near",
-        "close to",
-        "adjacent to",
-        "next to",
-        "beside",
-        "north of",
-        "south of",
-        "east of",
-        "west of",
-        "northeast of",
-        "northwest of",
-        "southeast of",
-        "southwest of",
-        "within",
-        "inside",
-        "outside",
-        "around",
-        "surrounding",
-        "upstream of",
-        "downstream of",
-        "offshore from",
-    }
-
-    DISTANCE_INDICATORS: ClassVar[set[str]] = {
-        "km",
-        "kilometers",
-        "miles",
-        "meters",
-        "m",
-        "away from",
-        "from",
-        "distant from",
-    }
 
     LOCATION_INDICATORS: ClassVar[set[str]] = {
         "located",
@@ -390,6 +353,8 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         self._seen_spans: set[tuple[int, int]] = set()
         # Flag to track if NER has been configured
         self._ner_configured = False
+        # Flag to track if spatial_relation_matcher has been added
+        self._spatial_matcher_added = False
 
     def _configure_ner_for_multiword(self) -> None:
         """Configure NER to favor longer, multi-word entities.
@@ -410,9 +375,32 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
             ner.cfg["beam_density"] = 0.01  # More permissive beam search
             self._ner_configured = True
 
+    def _ensure_spatial_matcher(self) -> None:
+        """Ensure spatial_relation_matcher is in the pipeline.
+
+        Adds the matcher component if not already present.
+        """
+        if self._spatial_matcher_added:
+            return
+
+        if "spatial_relation_matcher" not in self.nlp.pipe_names:
+            # Import and add the spatial relation matcher
+            from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher
+
+            # Add after NER if it exists, otherwise add last
+            if "ner" in self.nlp.pipe_names:
+                self.nlp.add_pipe("spatial_relation_matcher", after="ner")
+            else:
+                self.nlp.add_pipe("spatial_relation_matcher", last=True)
+
+        self._spatial_matcher_added = True
+
     @override
     def extract(self, text: str, section: str) -> list[GeoEntity]:
         """Extract geospatial entities from text without duplicates.
+
+        Uses spaCy's NER for location entities and spatial_relation_matcher
+        for spatial relations (following spaCy best practices).
 
         Args:
             text: Text to process
@@ -424,6 +412,9 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         # Configure NER for multi-word entities (happens once, lazily)
         self._configure_ner_for_multiword()
 
+        # Ensure spatial_relation_matcher is in pipeline
+        self._ensure_spatial_matcher()
+
         # Reset seen spans for each new extraction
         self._seen_spans.clear()
 
@@ -432,7 +423,7 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
 
         entities: list[GeoEntity] = []
         entities.extend(self._extract_ner_entities(doc, section))
-        entities.extend(self._extract_spatial_relations(doc, section))
+        entities.extend(self._extract_spatial_relations_from_matcher(doc, section))
         entities.extend(self._extract_contextual_locations(doc, section))
 
         return entities
@@ -469,44 +460,47 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
 
         return entities
 
-    def _extract_spatial_relations(self, doc: Doc, section: str) -> list[GeoEntity]:
-        """Extract spatial relation phrases (e.g., '10 km north of Paris').
+    def _extract_spatial_relations_from_matcher(self, doc: Doc, section: str) -> list[GeoEntity]:
+        """Extract spatial relation phrases using spaCy's Matcher.
 
-        This implements Geospacy's approach to identifying spatial
-        expressions.
+        Uses the spatial_relation_matcher component added to the pipeline.
+        This follows spaCy best practices for pattern matching.
+
+        Args:
+            doc: Processed spaCy Doc
+            section: Document section name
+
+        Returns:
+            List of GeoEntity objects for spatial relations
         """
         entities: list[GeoEntity] = []
 
-        for sent in doc.sents:
-            sent_text_lower = sent.text.lower()
+        # Extract SPATIAL_RELATION entities added by the matcher
+        for ent in doc.ents:
+            if ent.label_ != "SPATIAL_RELATION":
+                continue
 
-            # Check for spatial prepositions
-            for prep in self.SPATIAL_PREPOSITIONS:
-                if prep not in sent_text_lower:
-                    continue
+            # Check for duplicates
+            span_key = (ent.start_char, ent.end_char)
+            if span_key in self._seen_spans:
+                continue
 
-                # Find the span containing the spatial relation
-                span = self._find_spatial_relation_span(sent, prep)
-                if not span:
-                    continue
+            self._seen_spans.add(span_key)
 
-                span_key = (span.start_char, span.end_char)
-                if span_key in self._seen_spans:
-                    continue
+            # Get sentence context
+            context = ent.sent.text if ent.sent else ent.text
 
-                self._seen_spans.add(span_key)
-
-                entities.append(
-                    GeoEntity(
-                        text=span.text,
-                        entity_type="SPATIAL_RELATION",
-                        context=sent.text,
-                        section=section,
-                        confidence=self.config.DEFAULT_SPATIAL_RELATION_CONFIDENCE,
-                        start_char=span.start_char,
-                        end_char=span.end_char,
-                    ),
-                )
+            entities.append(
+                GeoEntity(
+                    text=ent.text,
+                    entity_type="SPATIAL_RELATION",
+                    context=context,
+                    section=section,
+                    confidence=self.config.DEFAULT_SPATIAL_RELATION_CONFIDENCE,
+                    start_char=ent.start_char,
+                    end_char=ent.end_char,
+                ),
+            )
 
         return entities
 

@@ -13,7 +13,7 @@ from app.nlp.extractors import (
 )
 from app.nlp.model_config import ModelConfig
 from app.nlp.orchestrator import StudySiteExtractionPipeline
-from app.nlp.pdf_parser import SpacyLayoutPDFParser
+from app.nlp.pdf_parser import DoclingPDFParser
 from app.nlp.quality_assessment import TextQualityAssessor
 from app.nlp.sentence_boundaries import improve_sentence_boundaries
 
@@ -76,7 +76,7 @@ class PipelineFactory:
         if enable_improved_sentences:
             pdf_nlp = improve_sentence_boundaries(pdf_nlp)
 
-        pdf_parser = SpacyLayoutPDFParser(pdf_nlp)
+        pdf_parser = DoclingPDFParser(pdf_nlp)
 
         # Load full spaCy model for entity extraction (shared across all extractors)
         # Keep NER and parser (needed for entity recognition and sentence boundaries)
