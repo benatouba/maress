@@ -98,13 +98,20 @@ const props = defineProps({
     default: () => [0, 20], // [lon, lat]
   },
   initialZoom: { type: Number, default: 2 },
+  sites: {
+    type: Array as () => StudySiteWithItem[],
+    default: null,
+  },
 })
 
 const emit = defineEmits(['site-selected', 'map-ready'])
 
 // Store
 const studySitesStore = useStudySitesStore()
-const { studySites, loading } = storeToRefs(studySitesStore)
+const { studySites: allStudySites, loading } = storeToRefs(studySitesStore)
+
+// Use filtered sites if provided, otherwise use all sites from store
+const studySites = computed(() => props.sites || allStudySites.value)
 
 // Map refs
 const mapContainer = ref<HTMLDivElement | null>(null)
@@ -339,12 +346,22 @@ const handleSiteCreated = () => {
 
 // Watch for changes in study sites
 watch(
-  studySites,
+  () => studySites.value,
   () => {
     updateMarkers()
   },
   { deep: true },
 )
+
+// Watch for changes in the sites prop
+watch(
+  () => props.sites,
+  () => {
+    updateMarkers()
+  },
+  { deep: true },
+)
+
 watch(editDialogOpen, (isOpen) => {
   if (!isOpen) {
     clearSelection()
