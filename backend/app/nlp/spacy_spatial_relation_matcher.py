@@ -4,16 +4,9 @@ This component uses spaCy's Matcher with token-based patterns to detect
 spatial relations, following spaCy best practices instead of regex.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from spacy.language import Language
 from spacy.matcher import Matcher
-from spacy.tokens import Span
-
-if TYPE_CHECKING:
-    from spacy.tokens import Doc
+from spacy.tokens import Doc, Span
 
 
 class SpatialRelationMatcher:
@@ -71,12 +64,12 @@ class SpatialRelationMatcher:
                 [
                     {"LOWER": {"IN": ["near", "nearby", "close", "adjacent", "next", "beside"]}},
                     {"LOWER": "to", "OP": "?"},  # Optional "to"
-                    {"POS": "DET", "OP": "?"},  # Optional article
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},  # Location
                 ],
                 [
                     {"LOWER": {"IN": ["within", "inside", "outside", "around", "surrounding"]}},
-                    {"POS": "DET", "OP": "?"},
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
                 ],
             ],
@@ -91,7 +84,7 @@ class SpatialRelationMatcher:
                 [
                     {"LOWER": {"IN": ["north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest", "upstream", "downstream", "offshore"]}},
                     {"LOWER": "of"},
-                    {"POS": "DET", "OP": "?"},
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
                 ]
             ],
@@ -106,14 +99,14 @@ class SpatialRelationMatcher:
                 [
                     {"LOWER": {"IN": ["located", "situated", "positioned", "found", "established"]}},
                     {"LOWER": {"IN": ["in", "at", "near", "on", "along"]}},
-                    {"POS": "DET", "OP": "?"},
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
                 ],
                 [
                     {"LOWER": {"IN": ["located", "situated", "positioned", "found", "established"]}},
                     {"LOWER": {"IN": ["in", "at", "near", "on", "along"]}},
-                    {"POS": "DET", "OP": "?"},
-                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},  # Location (may not be recognized as entity)
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},  # Location name (proper noun or noun)
                 ],
             ],
             greedy="LONGEST",

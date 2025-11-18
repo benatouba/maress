@@ -6,17 +6,10 @@ This component follows spaCy best practices:
 - Integrates seamlessly with spaCy's entity system
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 from spacy.language import Language
 from spacy.matcher import Matcher
 from spacy.pipeline import EntityRuler
-from spacy.tokens import Span
-
-if TYPE_CHECKING:
-    from spacy.tokens import Doc
+from spacy.tokens import Doc, Span
 
 
 class CoordinateMatcher:
@@ -36,8 +29,7 @@ class CoordinateMatcher:
         self.name = name
         self.nlp = nlp
 
-        # Initialize Matcher with LONGEST greedy matching
-        self.matcher = Matcher(nlp.vocab, validate=True)
+        self.matcher = Matcher(nlp.vocab)
 
         # Add token-based patterns (these align with token boundaries)
         self._add_token_patterns()

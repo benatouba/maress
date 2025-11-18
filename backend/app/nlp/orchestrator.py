@@ -194,18 +194,23 @@ class StudySiteExtractionPipeline:
         logger.info(f"Entity types found: {entity_type_counts}")
 
         # Filter by minimum confidence threshold
-        # NOTE: Coordinates will bypass this later in adapters.py
+        # IMPORTANT: COORDINATE entities always pass through regardless of confidence
+        # Other entities must meet the confidence threshold
         confident_entities = [
-            e for e in unique_entities if e.confidence >= self.config.MIN_CONFIDENCE
+            e for e in unique_entities
+            if e.entity_type == "COORDINATE" or e.confidence >= self.config.MIN_CONFIDENCE
         ]
 
-        if len(confident_entities) < len(unique_entities):
-            filtered_count = len(unique_entities) - len(confident_entities)
-            logger.info(
-                f"Filtered out {filtered_count} entities with confidence < {self.config.MIN_CONFIDENCE}",
-            )
-        else:
-            logger.info(f"All {len(unique_entities)} entities meet confidence threshold")
+        # Log filtering results
+        coordinate_count = sum(1 for e in confident_entities if e.entity_type == "COORDINATE")
+        other_count = len(confident_entities) - coordinate_count
+        filtered_count = len(unique_entities) - len(confident_entities)
+
+        logger.info(
+            f"Confidence filtering: {coordinate_count} coordinates (always included), "
+            f"{other_count} other entities passed threshold, "
+            f"{filtered_count} filtered out"
+        )
 
         ranked_entities = self._rank_entities(confident_entities)
 

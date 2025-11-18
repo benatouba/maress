@@ -79,11 +79,12 @@ class PipelineFactory:
         pdf_parser = DoclingPDFParser(pdf_nlp)
 
         # Load full spaCy model for entity extraction (shared across all extractors)
-        # Keep NER and parser (needed for entity recognition and sentence boundaries)
-        # Only disable tagger and lemmatizer for performance
+        # Keep NER, parser, and tagger (needed for entity recognition, dependencies, and POS)
+        # Only disable lemmatizer and textcat for performance
+        # NOTE: Tagger is required for custom matchers using POS/TAG attributes
         shared_nlp = spacy.load(
             config.SPACY_MODEL,
-            disable=["tagger", "lemmatizer", "textcat"]
+            disable=["lemmatizer", "textcat"]
         )
 
         # Initialize transformer pipeline (optional - can be disabled for speed)

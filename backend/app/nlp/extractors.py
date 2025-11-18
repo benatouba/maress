@@ -48,22 +48,18 @@ class BaseEntityExtractor(ABC):
     def nlp(self) -> Language:
         """Lazy-load spaCy model only if needed.
 
-        Returns shared instance if injected via set_nlp(), otherwise loads model.
+        Returns shared instance if injected via set_nlp(), otherwise
+        loads model.
         """
         if self._nlp is None:
-            # Load with NER and parser (needed for entity recognition and sentence boundaries)
-            # Only disable tagger and lemmatizer for performance
-            self._nlp = spacy.load(
-                self.config.SPACY_MODEL,
-                disable=["tagger", "lemmatizer", "textcat"]
-            )
+            self._nlp = spacy.load(self.config.SPACY_MODEL)
         return self._nlp
 
     def set_nlp(self, nlp: Language) -> None:
         """Inject shared spaCy model instance.
 
-        This allows the factory to provide a single shared model to all extractors,
-        reducing memory usage and initialization time.
+        This allows the factory to provide a single shared model to all
+        extractors, reducing memory usage and initialization time.
         """
         self._nlp = nlp
 
@@ -128,7 +124,8 @@ class CoordinateExtractor(BaseEntityExtractor):
 
 
 class SpaCyCoordinateExtractor(BaseEntityExtractor):
-    """Extracts coordinates using spaCy pipeline with integrated regex patterns.
+    """Extracts coordinates using spaCy pipeline with integrated regex
+    patterns.
 
     This extractor uses a custom spaCy component (coordinate_matcher) that
     detects both well-formed and malformed coordinates directly in the NLP pipeline.
@@ -148,8 +145,6 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
         # Ensure the coordinate_matcher component is in the pipeline
         # Add it BEFORE the NER component to avoid conflicts
         if "coordinate_matcher" not in self.nlp.pipe_names:
-            from app.nlp.spacy_coordinate_matcher import CoordinateMatcher
-
             # Add before NER if it exists, otherwise add last
             if "ner" in self.nlp.pipe_names:
                 self.nlp.add_pipe("coordinate_matcher", before="ner")
@@ -172,6 +167,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
             doc = self.nlp(text)
         except Exception as e:
             from app.nlp.nlp_logger import logger
+
             logger.error(f"Failed to process text with spaCy: {e}")
             return []
 
@@ -183,8 +179,14 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
                 continue
 
             # Get coordinate format and confidence from custom attributes
-            format_type = ent._.coordinate_format if hasattr(ent._, "coordinate_format") else "unknown"
-            confidence = ent._.coordinate_confidence if hasattr(ent._, "coordinate_confidence") else self.config.DEFAULT_COORDINATE_CONFIDENCE
+            format_type = (
+                ent._.coordinate_format if hasattr(ent._, "coordinate_format") else "unknown"
+            )
+            confidence = (
+                ent._.coordinate_confidence
+                if hasattr(ent._, "coordinate_confidence")
+                else self.config.DEFAULT_COORDINATE_CONFIDENCE
+            )
 
             # Parse the coordinate string to decimal
             coord_str = ent.text
@@ -327,7 +329,8 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
     """Extract geospatial entities using spaCy NER (Geospacy-inspired).
 
     Extracts standard NER entities (LOC, GPE, FAC, NORP) and identifies
-    spatial relation phrases using the spatial_relation_matcher component.
+    spatial relation phrases using the spatial_relation_matcher
+    component.
     """
 
     # Geospatial entity labels from spaCy NER
@@ -355,12 +358,17 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         self._ner_configured = False
         # Flag to track if spatial_relation_matcher has been added
         self._spatial_matcher_added = False
+        # Flag to track if study_site_dependency_matcher has been added
+        self._dependency_matcher_added = False
+        # Flag to track if multiword_location_matcher has been added
+        self._multiword_matcher_added = False
 
     def _configure_ner_for_multiword(self) -> None:
         """Configure NER to favor longer, multi-word entities.
 
-        Increases beam width and density for better multi-word entity recognition.
-        This is called lazily the first time nlp is accessed.
+        Increases beam width and density for better multi-word entity
+        recognition. This is called lazily the first time nlp is
+        accessed.
         """
         if self._ner_configured:
             return
@@ -384,8 +392,8 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
             return
 
         if "spatial_relation_matcher" not in self.nlp.pipe_names:
-            # Import and add the spatial relation matcher
-            from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher
+            # Import to register the factory
+            from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher  # noqa: F401
 
             # Add after NER if it exists, otherwise add last
             if "ner" in self.nlp.pipe_names:
@@ -395,25 +403,71 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
 
         self._spatial_matcher_added = True
 
+    def _ensure_dependency_matcher(self) -> None:
+        """Ensure study_site_dependency_matcher is in the pipeline.
+
+        Adds the matcher component if not already present.
+        """
+        if self._dependency_matcher_added:
+            return
+
+        if "study_site_dependency_matcher" not in self.nlp.pipe_names:
+            # Import to register the factory
+            from app.nlp.spacy_study_site_dependency_matcher import StudySiteDependencyMatcher  # noqa: F401
+
+            # Add after NER to use its entities
+            if "ner" in self.nlp.pipe_names:
+                self.nlp.add_pipe("study_site_dependency_matcher", after="ner")
+            else:
+                self.nlp.add_pipe("study_site_dependency_matcher", last=True)
+
+        self._dependency_matcher_added = True
+
+    def _ensure_multiword_matcher(self) -> None:
+        """Ensure multiword_location_matcher is in the pipeline.
+
+        Adds the matcher component if not already present.
+        """
+        if self._multiword_matcher_added:
+            return
+
+        if "multiword_location_matcher" not in self.nlp.pipe_names:
+            # Import to register the factory
+            from app.nlp.spacy_multiword_location_matcher import MultiWordLocationMatcher  # noqa: F401
+
+            # Add before NER to catch multi-word locations before NER splits them
+            if "ner" in self.nlp.pipe_names:
+                self.nlp.add_pipe("multiword_location_matcher", before="ner")
+            else:
+                self.nlp.add_pipe("multiword_location_matcher", first=True)
+
+        self._multiword_matcher_added = True
+
     @override
     def extract(self, text: str, section: str) -> list[GeoEntity]:
         """Extract geospatial entities from text without duplicates.
 
-        Uses spaCy's NER for location entities and spatial_relation_matcher
-        for spatial relations (following spaCy best practices).
+        Uses multiple spaCy components (Phase 1 improvements):
+        1. MultiWordLocationMatcher - for complex location names
+        2. NER - for standard location entities
+        3. SpatialRelationMatcher - for spatial relations
+        4. StudySiteDependencyMatcher - for study site patterns
+        5. Enhanced confidence scoring
 
         Args:
             text: Text to process
             section: Document section name
 
         Returns:
-            List of unique GeoEntity objects
+            List of unique GeoEntity objects with enhanced confidence scores
         """
         # Configure NER for multi-word entities (happens once, lazily)
         self._configure_ner_for_multiword()
 
-        # Ensure spatial_relation_matcher is in pipeline
+        # Ensure all matchers are in pipeline (Phase 1)
+        self._ensure_multiword_matcher()
         self._ensure_spatial_matcher()
+        self._ensure_dependency_matcher()
 
         # Reset seen spans for each new extraction
         self._seen_spans.clear()
@@ -424,7 +478,14 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         entities: list[GeoEntity] = []
         entities.extend(self._extract_ner_entities(doc, section))
         entities.extend(self._extract_spatial_relations_from_matcher(doc, section))
+        entities.extend(self._extract_study_sites_from_matcher(doc, section))
+        entities.extend(self._extract_multiword_locations(doc, section))
         entities.extend(self._extract_contextual_locations(doc, section))
+
+        # Apply enhanced confidence scoring (Phase 1)
+        from app.nlp.confidence_scorer import apply_enhanced_scoring
+
+        entities = apply_enhanced_scoring(entities, doc)
 
         return entities
 
@@ -497,6 +558,97 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
                     context=context,
                     section=section,
                     confidence=self.config.DEFAULT_SPATIAL_RELATION_CONFIDENCE,
+                    start_char=ent.start_char,
+                    end_char=ent.end_char,
+                ),
+            )
+
+        return entities
+
+    def _extract_study_sites_from_matcher(self, doc: Doc, section: str) -> list[GeoEntity]:
+        """Extract study sites using dependency patterns.
+
+        Uses the study_site_dependency_matcher component (Phase 1 improvement).
+
+        Args:
+            doc: Processed spaCy Doc
+            section: Document section name
+
+        Returns:
+            List of GeoEntity objects for study sites
+        """
+        entities: list[GeoEntity] = []
+
+        # Extract STUDY_SITE entities added by the dependency matcher
+        for ent in doc.ents:
+            if ent.label_ != "STUDY_SITE":
+                continue
+
+            # Check for duplicates
+            span_key = (ent.start_char, ent.end_char)
+            if span_key in self._seen_spans:
+                continue
+
+            self._seen_spans.add(span_key)
+
+            # Get sentence context
+            context = ent.sent.text if ent.sent else ent.text
+
+            # Get confidence from custom attribute if available
+            confidence = (
+                ent._.study_site_confidence if hasattr(ent._, "study_site_confidence") else 0.90
+            )
+
+            entities.append(
+                GeoEntity(
+                    text=ent.text,
+                    entity_type="STUDY_SITE",
+                    context=context,
+                    section=section,
+                    confidence=confidence,
+                    start_char=ent.start_char,
+                    end_char=ent.end_char,
+                ),
+            )
+
+        return entities
+
+    def _extract_multiword_locations(self, doc: Doc, section: str) -> list[GeoEntity]:
+        """Extract multi-word locations using PhraseMatcher.
+
+        Uses the multiword_location_matcher component (Phase 1 improvement).
+
+        Args:
+            doc: Processed spaCy Doc
+            section: Document section name
+
+        Returns:
+            List of GeoEntity objects for multi-word locations
+        """
+        entities: list[GeoEntity] = []
+
+        # Extract MULTIWORD_LOCATION entities added by the phrase matcher
+        for ent in doc.ents:
+            if ent.label_ != "MULTIWORD_LOCATION":
+                continue
+
+            # Check for duplicates
+            span_key = (ent.start_char, ent.end_char)
+            if span_key in self._seen_spans:
+                continue
+
+            self._seen_spans.add(span_key)
+
+            # Get sentence context
+            context = ent.sent.text if ent.sent else ent.text
+
+            entities.append(
+                GeoEntity(
+                    text=ent.text,
+                    entity_type="MULTIWORD_LOCATION",
+                    context=context,
+                    section=section,
+                    confidence=0.85,  # High confidence for known locations
                     start_char=ent.start_char,
                     end_char=ent.end_char,
                 ),
