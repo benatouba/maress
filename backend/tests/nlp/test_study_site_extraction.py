@@ -3,25 +3,16 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
-import numpy as np
 import pandas as pd
-import pytest
 from geopy.location import Location as GeopyLocation
 from pydantic_extra_types.coordinate import Latitude, Longitude
-from spacy.tokens import Span
 
 from app.core.config import settings
-from app.nlp.find_my_home import (
-    CoordinateCandidate,
-    CoordinateClusterer,
-    CoordinateExtractor,
-    LocationCandidate,
-    LocationExtractor,
-    StudySiteExtractor,
-)
+from app.models import StudySite
+from app.nlp.clustering import CoordinateClusterer
+from app.nlp.extractors import CoordinateExtractor
 from maress_types import (
     CoordinateExtractionMethod,
     CoordinateSourceType,
@@ -36,7 +27,7 @@ class TestLocationExtractorCache:
         """Test that geocoding results are cached and reused."""
         extractor = LocationExtractor(settings.SPACY_MODEL)
 
-        location = LocationCandidate(
+        location = StudySite(
             name="Quito",
             confidence_score=0.8,
             priority_score=80,
@@ -59,7 +50,7 @@ class TestLocationExtractorCache:
             assert result1[0].coordinates is not None
 
             # Second call with same location - should use cache
-            location2 = LocationCandidate(
+            location2 = StudySite(
                 name="Quito",
                 confidence_score=0.7,
                 priority_score=70,
@@ -77,7 +68,7 @@ class TestLocationExtractorCache:
         """Test that failed geocoding is also cached."""
         extractor = LocationExtractor(settings.SPACY_MODEL)
 
-        location = LocationCandidate(
+        location = StudySite(
             name="NonexistentPlace12345",
             confidence_score=0.5,
             priority_score=40,
@@ -95,7 +86,7 @@ class TestLocationExtractorCache:
             assert result1[0].coordinates is None
 
             # Second call - should use cached negative result
-            location2 = LocationCandidate(
+            location2 = StudySite(
                 name="NonexistentPlace12345",
                 confidence_score=0.5,
                 priority_score=40,
@@ -113,7 +104,7 @@ class TestLocationExtractorCache:
         extractor = LocationExtractor(settings.SPACY_MODEL)
 
         locations = [
-            LocationCandidate(
+            StudySite(
                 name=f"Place{i}",
                 confidence_score=0.8,
                 priority_score=80,
@@ -189,7 +180,8 @@ class TestCoordinateClusterer:
     def test_multiple_clusters_largest_only(self) -> None:
         """Test that only the largest cluster is returned.
 
-        When multiple geographic regions are detected, we keep only the largest cluster.
+        When multiple geographic regions are detected, we keep only the
+        largest cluster.
         """
         clusterer = CoordinateClusterer(eps_km=50.0)
 
@@ -386,7 +378,8 @@ class TestTableExtraction:
     """Test table coordinate extraction."""
 
     def test_extract_coordinates_from_table(self) -> None:
-        """Test extraction of coordinates from DataFrame with lat/lon columns."""
+        """Test extraction of coordinates from DataFrame with lat/lon
+        columns."""
         extractor = CoordinateExtractor()
 
         # Create mock table

@@ -105,7 +105,8 @@ class TestTextQualityAssessment:
         bad_text = "S t u d y"
 
         should_process_good, score_good = assessor.should_process_text(
-            good_text, min_quality=0.5
+            good_text,
+            min_quality=0.5,
         )
         should_process_bad, score_bad = assessor.should_process_text(bad_text, min_quality=0.5)
 
@@ -122,7 +123,7 @@ class TestSentenceBoundaryImprovements:
     @pytest.fixture
     def nlp(self):
         """Create spaCy model with improved sentence boundaries."""
-        nlp = spacy.load("en_core_web_sm")
+        nlp = spacy.load("en_core_web_lg")
         return improve_sentence_boundaries(nlp)
 
     def test_et_al_not_split(self, nlp):
@@ -205,7 +206,7 @@ class TestEnrichedContextExtraction:
     @pytest.fixture
     def nlp(self):
         """Create spaCy model."""
-        return spacy.load("en_core_web_sm")
+        return spacy.load("en_core_web_lg")
 
     @pytest.fixture
     def extractor(self):
@@ -262,7 +263,23 @@ class TestEnrichedContextExtraction:
             # Should find geographic keywords
             assert len(context.geographic_keywords) > 0
             # Should find terms like "sites", "sampling", "locations", "area", etc.
-            assert any(kw in ["site", "sites", "sampling", "location", "locations", "area", "field", "station", "stations", "plot", "plots"] for kw in context.geographic_keywords)
+            assert any(
+                kw
+                in [
+                    "site",
+                    "sites",
+                    "sampling",
+                    "location",
+                    "locations",
+                    "area",
+                    "field",
+                    "station",
+                    "stations",
+                    "plot",
+                    "plots",
+                ]
+                for kw in context.geographic_keywords
+            )
 
     def test_extract_nearby_entities(self, nlp, extractor):
         """Test extraction of nearby entities."""
@@ -331,7 +348,7 @@ class TestIntegration:
 
     def test_quality_and_sentences_together(self):
         """Test that quality assessment works with improved sentences."""
-        nlp = spacy.load("en_core_web_sm")
+        nlp = spacy.load("en_core_web_lg")
         nlp = improve_sentence_boundaries(nlp)
 
         assessor = TextQualityAssessor()

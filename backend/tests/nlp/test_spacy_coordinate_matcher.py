@@ -326,5 +326,180 @@ class TestContextExtraction:
         assert "summer" in context
 
 
+class TestMatcherPatterns:
+    """Test Matcher-based token patterns with greedy LONGEST matching."""
+
+    def test_matcher_labeled_latlon(self, nlp):
+        """Test Matcher pattern for 'Lat: X, Lon: Y'."""
+        text = "Study location: Lat: 45.123, Lon: -122.456"
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        assert len(coord_ents) > 0
+        # Should match the full labeled format
+        assert "Lat" in coord_ents[0].text or "lat" in coord_ents[0].text.lower()
+        assert "Lon" in coord_ents[0].text or "lon" in coord_ents[0].text.lower()
+
+    def test_matcher_longitude_latitude_reversed(self, nlp):
+        """Test Matcher pattern for reversed order 'Lon: X, Lat: Y'."""
+        text = "Position: Lon: -122.456, Lat: 45.123"
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        assert len(coord_ents) > 0
+
+    def test_matcher_coordinates_prefix(self, nlp):
+        """Test Matcher pattern for 'Coordinates: X, Y'."""
+        text = "Coordinates: 45.123, -122.456"
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        assert len(coord_ents) > 0
+
+    def test_greedy_longest_prefers_labeled_over_decimal(self, nlp):
+        """Test that greedy LONGEST prefers labeled format over bare decimals."""
+        text = "Lat: 45.123, Lon: -122.456"
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        # Should match once with the full labeled pattern, not the decimal pair
+        assert len(coord_ents) == 1
+        # Should include the labels
+        text_lower = coord_ents[0].text.lower()
+        assert "lat" in text_lower or "lon" in text_lower
+
+
+class TestEntityRulerPatterns:
+    """Test EntityRuler regex patterns."""
+
+    def test_ruler_dms_format(self, nlp):
+        """Test EntityRuler DMS pattern."""
+        text = "Site at 45°12'30\"N, 122°30'15\"W"
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        assert len(coord_ents) > 0
+        assert "°" in coord_ents[0].text
+
+    def test_ruler_dm_format(self, nlp):
+        """Test EntityRuler DM pattern."""
+        text = "Location: 45°12'N, 122°30'W"
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        assert len(coord_ents) > 0
+
+    def test_ruler_malformed_degree_as_7(self, nlp):
+        """Test EntityRuler pattern for degree corrupted as '7'."""
+        text = "Coordinates: 45 7 12'N, 122 7 30'W"
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        assert len(coord_ents) > 0
+        assert "7" in coord_ents[0].text
+
+    def test_ruler_decimal_pair(self, nlp):
+        """Test EntityRuler decimal pair pattern."""
+        text = "Located at 45.123, -122.456 in the region."
+        doc = nlp(text)
+
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        assert len(coord_ents) > 0
+
+
+class TestPDFFile:
+    """Test coordinate extraction from actual PDF file."""
+
+    def test_extract_from_test_pdf(self):
+        """Test extracting coordinates from tests/data/35J9RCQ8.pdf."""
+        from pathlib import Path
+
+        pdf_path = Path("tests/data/35J9RCQ8.pdf")
+        if not pdf_path.exists():
+            pytest.skip(f"Test PDF not found at {pdf_path}")
+
+        try:
+            import spacy
+            from app.nlp.pdf_parser import DoclingPDFParser
+
+            # Create NLP pipeline with coordinate matcher
+            nlp = spacy.load("en_core_web_sm")
+            if "coordinate_matcher" not in nlp.pipe_names:
+                nlp.add_pipe("coordinate_matcher", before="ner")
+
+            # Parse PDF
+            parser = DoclingPDFParser(nlp)
+            parsed = parser.parse_pdf(str(pdf_path))
+
+            # Get text content
+            text = parsed.get("markdown", "")
+            if not text:
+                pytest.skip("Could not extract text from PDF")
+
+            # Process through NLP pipeline
+            doc = nlp(text)
+
+            # Extract coordinate entities
+            coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+
+            # Verify we found coordinates
+            assert len(coord_ents) > 0, "Expected to find coordinates in test PDF"
+
+            # Verify attributes are set
+            for ent in coord_ents:
+                assert hasattr(ent._, "coordinate_format")
+                assert hasattr(ent._, "coordinate_confidence")
+
+            # Print found coordinates for manual verification
+            print(f"\nFound {len(coord_ents)} coordinates in PDF:")
+            for i, ent in enumerate(coord_ents[:5]):  # Print first 5
+                print(f"{i+1}. {ent.text} (format: {ent._.coordinate_format})")
+
+        except ImportError as e:
+            pytest.skip(f"Required dependencies not available: {e}")
+
+    def test_pdf_with_extractor(self):
+        """Test PDF extraction using SpaCyCoordinateExtractor."""
+        from pathlib import Path
+
+        pdf_path = Path("tests/data/35J9RCQ8.pdf")
+        if not pdf_path.exists():
+            pytest.skip(f"Test PDF not found at {pdf_path}")
+
+        try:
+            from app.nlp.extractors import SpaCyCoordinateExtractor
+            from app.nlp.model_config import ModelConfig
+            from app.nlp.pdf_parser import DoclingPDFParser
+            import spacy
+
+            # Setup
+            config = ModelConfig()
+            extractor = SpaCyCoordinateExtractor(config)
+            nlp = spacy.load("en_core_web_sm")
+            parser = DoclingPDFParser(nlp)
+
+            # Parse PDF
+            parsed = parser.parse_pdf(str(pdf_path))
+            text = parsed.get("markdown", "")
+            if not text:
+                pytest.skip("Could not extract text from PDF")
+
+            # Extract coordinates
+            entities = extractor.extract(text, "document")
+
+            # Verify we found valid coordinates
+            valid_coords = [e for e in entities if e.coordinates is not None]
+            assert len(valid_coords) > 0, "Expected to find valid parsed coordinates"
+
+            # Print for manual verification
+            print(f"\nExtracted {len(valid_coords)} valid coordinates:")
+            for i, ent in enumerate(valid_coords[:5]):
+                lat, lon = ent.coordinates
+                print(f"{i+1}. {ent.text} -> ({lat:.4f}, {lon:.4f})")
+
+        except ImportError as e:
+            pytest.skip(f"Required dependencies not available: {e}")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
