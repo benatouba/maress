@@ -598,9 +598,12 @@ const handleDownloadAttachments = async () => {
 const handleExtractAll = async () => {
   try {
     if (hasSelectedItems.value) {
-      // Extract for selected items only - map to IDs
-      const itemIds = selectedItems.value.map(item => item.id)
+      // Extract for selected items only
+      // Note: selectedItems contains IDs directly (not objects) due to item-value="id"
+      const itemIds = selectedItems.value
       const totalSelected = itemIds.length
+
+      console.log('Selected item IDs:', itemIds)
 
       try {
         const result = await zoteroStore.extractStudySites(itemIds, forceReload.value)

@@ -55,7 +55,11 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const response = await axios.get('/zotero')
       collections.value = response.data.collections
     } catch (error) {
-      console.error('Error fetching collections:', error)
+      const notificationStore = useNotificationStore()
+      notificationStore.showNotification(
+        'Failed to fetch collections, with error:' + (error.response?.data?.detail || error.message),
+        'error'
+      )
     } finally {
       loading.value = false
     }
@@ -74,12 +78,10 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
         version: col.version,
         data: col.data
       }))
-      console.log('Fetched Zotero collections:', zoteroCollections.value)
     } catch (error) {
-      console.error('Error fetching Zotero collections:', error)
       const notificationStore = useNotificationStore()
       notificationStore.showNotification(
-        'Failed to fetch Zotero collections',
+        'Failed to fetch Zotero collections, with error:' + (error.response?.data?.detail || error.message),
         'error'
       )
     } finally {
@@ -101,7 +103,11 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       itemsCount.value = response.data.length
       return items.value
     } catch (error) {
-      console.error('Error fetching items:', error)
+      const notificationStore = useNotificationStore()
+      notificationStore.showNotification(
+        'Failed to fetch items, with error:' + (error.response?.data?.detail || error.message),
+        'error'
+      )
     } finally {
       if (!silent && !downloading.value) {
         loading.value = false
@@ -150,7 +156,11 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       try {
         await fetchItems(500, true) // silent = true to avoid interfering with loading state
       } catch (error) {
-        console.error('Error polling items during download:', error)
+        const notificationStore = useNotificationStore()
+        notificationStore.showNotification(
+          'Error refreshing items during download: ' + (error.response?.data?.detail || error.message),
+          'error'
+        )
       }
     }, 2000)
 
@@ -261,7 +271,11 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const response = await axios.post('/items/study_sites/')
       return response.data
     } catch (error) {
-      console.error('Error fetching locations:', error)
+      const notificationStore = useNotificationStore()
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to extract study sites',
+        'error',
+      )
       return []
     }
   }
@@ -293,7 +307,10 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const response = await axios.patch(`/study_sites/${studySiteId}`, updateData)
       return response.data
     } catch (error) {
-      console.error('Error updating study site:', error)
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to update study site',
+        'error',
+      )
       throw error
     }
   }
@@ -327,7 +344,6 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const response = await axios.get(`/items/${itemId}/extraction-results`)
       return response.data
     } catch (error) {
-      console.error('Error fetching extraction results:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch extraction results',
         'error',
@@ -346,11 +362,14 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
 
     try {
       // Build request body
-      const requestBody: { item_ids?: string[]; force: boolean } = { force }
+      const requestBody: { item_ids?: string[] | null; force: boolean } = { force }
 
       if (itemIds) {
         // Ensure itemIds is always an array
         requestBody.item_ids = Array.isArray(itemIds) ? itemIds : [itemIds]
+      } else {
+        // Explicitly set to null when no items are specified
+        requestBody.item_ids = null
       }
 
       const response = await axios.post('/items/study_sites/', requestBody)
@@ -369,10 +388,17 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
         tasks: taskData
       }
     } catch (error) {
-      notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to start extraction',
-        'error',
-      )
+      const errorDetail = error.response?.data?.detail
+
+      // Format validation errors if present
+      let errorMessage = 'Failed to start extraction'
+      if (Array.isArray(errorDetail)) {
+        errorMessage = errorDetail.map(err => `${err.loc.join('.')}: ${err.msg}`).join(', ')
+      } else if (typeof errorDetail === 'string') {
+        errorMessage = errorDetail
+      }
+
+      notificationStore.showNotification(errorMessage, 'error')
       return null
     } finally {
       loading.value = false
