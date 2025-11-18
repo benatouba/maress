@@ -1,7 +1,3 @@
-## References
-
-Checkout the [GitLab repositories](https://git.rwth-aachen.de/nfdi4earth/pilotsincubatorlab) and [LHB articles](https://nfdi4earth.pages.rwth-aachen.de/livinghandbook/livinghandbook/) of other (already completed) NFDI4Earth projects to get a sense of how to design your the README and article. Utilize the feature to evaluate repositories that serve as sources of inspiration.
-
 # MaRESS - Mapping Research in Earth System Sciences
 
 A modern web application for mapping research papers geographically using Vue.js 3, FastAPI, and PostgreSQL with PostGIS. This tool integrates with Zotero for paper management and uses advanced NLP to extract geographic information from academic papers.
