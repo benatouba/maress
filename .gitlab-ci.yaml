@@ -22,3 +22,5 @@ validate-nfdi4earth-metadata:
     python -c "
     from kh_populator.pipelines.harvest_incub_and_pilots import harvest_individual_research_project
     harvest_individual_research_project($CI_PROJECT_ID, 'temp', 'temp')"
+  only:
+    - nfdi4earth
