@@ -243,7 +243,7 @@ class TestCoordinateMatcher:
         doc = nlp(text)
 
         # Find coordinate entities
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
 
         assert len(coord_ents) > 0, "Matcher should add COORDINATE entities"
         assert coord_ents[0].text == "45.5°N, 122.3°W"
@@ -253,7 +253,7 @@ class TestCoordinateMatcher:
         text = "Coordinates: 45°12'30\"N, 122°30'15\"W"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
 
         assert len(coord_ents) > 0
         # Check custom attributes
@@ -268,7 +268,7 @@ class TestCoordinateMatcher:
         text = "Latitude: 45.5, Longitude: -122.3 (45.5, -122.3)"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
 
         # Check that no entities overlap
         for i, ent1 in enumerate(coord_ents):
@@ -334,7 +334,7 @@ class TestMatcherPatterns:
         text = "Study location: Lat: 45.123, Lon: -122.456"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         assert len(coord_ents) > 0
         # Should match the full labeled format
         assert "Lat" in coord_ents[0].text or "lat" in coord_ents[0].text.lower()
@@ -345,7 +345,7 @@ class TestMatcherPatterns:
         text = "Position: Lon: -122.456, Lat: 45.123"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         assert len(coord_ents) > 0
 
     def test_matcher_coordinates_prefix(self, nlp):
@@ -353,7 +353,7 @@ class TestMatcherPatterns:
         text = "Coordinates: 45.123, -122.456"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         assert len(coord_ents) > 0
 
     def test_greedy_longest_prefers_labeled_over_decimal(self, nlp):
@@ -361,7 +361,7 @@ class TestMatcherPatterns:
         text = "Lat: 45.123, Lon: -122.456"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         # Should match once with the full labeled pattern, not the decimal pair
         assert len(coord_ents) == 1
         # Should include the labels
@@ -377,7 +377,7 @@ class TestEntityRulerPatterns:
         text = "Site at 45°12'30\"N, 122°30'15\"W"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         assert len(coord_ents) > 0
         assert "°" in coord_ents[0].text
 
@@ -386,7 +386,7 @@ class TestEntityRulerPatterns:
         text = "Location: 45°12'N, 122°30'W"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         assert len(coord_ents) > 0
 
     def test_ruler_malformed_degree_as_7(self, nlp):
@@ -394,7 +394,7 @@ class TestEntityRulerPatterns:
         text = "Coordinates: 45 7 12'N, 122 7 30'W"
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         assert len(coord_ents) > 0
         assert "7" in coord_ents[0].text
 
@@ -403,7 +403,7 @@ class TestEntityRulerPatterns:
         text = "Located at 45.123, -122.456 in the region."
         doc = nlp(text)
 
-        coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+        coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
         assert len(coord_ents) > 0
 
 
@@ -440,7 +440,7 @@ class TestPDFFile:
             doc = nlp(text)
 
             # Extract coordinate entities
-            coord_ents = [ent for ent in doc.ents if ent.label_ == "COORDINATE"]
+            coord_ents = [ent for ent in doc.ents if ent.label_ == "MARESS_COORDINATE"]
 
             # Verify we found coordinates
             assert len(coord_ents) > 0, "Expected to find coordinates in test PDF"

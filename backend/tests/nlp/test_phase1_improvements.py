@@ -38,7 +38,7 @@ class TestDependencyPatterns:
         text = "Research was conducted at San Francisco."
         doc = nlp(text)
 
-        study_sites = [ent for ent in doc.ents if ent.label_ == "STUDY_SITE"]
+        study_sites = [ent for ent in doc.ents if ent.label_ == "MARESS_STUDY_SITE"]
         assert len(study_sites) > 0
         assert "San Francisco" in study_sites[0].text
 
@@ -47,7 +47,7 @@ class TestDependencyPatterns:
         text = "Study sites were established in California."
         doc = nlp(text)
 
-        study_sites = [ent for ent in doc.ents if ent.label_ == "STUDY_SITE"]
+        study_sites = [ent for ent in doc.ents if ent.label_ == "MARESS_STUDY_SITE"]
         assert len(study_sites) > 0
 
     def test_samples_collected_from(self, nlp: Language) -> None:
@@ -55,7 +55,7 @@ class TestDependencyPatterns:
         text = "Samples were collected from the Amazon River."
         doc = nlp(text)
 
-        study_sites = [ent for ent in doc.ents if ent.label_ == "STUDY_SITE"]
+        study_sites = [ent for ent in doc.ents if ent.label_ == "MARESS_STUDY_SITE"]
         assert len(study_sites) > 0
 
     def test_fieldwork_performed_near(self, nlp: Language) -> None:
@@ -63,7 +63,7 @@ class TestDependencyPatterns:
         text = "Fieldwork was performed near Berlin."
         doc = nlp(text)
 
-        study_sites = [ent for ent in doc.ents if ent.label_ == "STUDY_SITE"]
+        study_sites = [ent for ent in doc.ents if ent.label_ == "MARESS_STUDY_SITE"]
         assert len(study_sites) > 0
 
     def test_located_in_pattern(self, nlp: Language) -> None:
@@ -71,7 +71,7 @@ class TestDependencyPatterns:
         text = "The sites were located in Oregon."
         doc = nlp(text)
 
-        study_sites = [ent for ent in doc.ents if ent.label_ == "STUDY_SITE"]
+        study_sites = [ent for ent in doc.ents if ent.label_ == "MARESS_STUDY_SITE"]
         assert len(study_sites) > 0
 
     def test_methods_section_example(self, nlp: Language) -> None:
@@ -83,7 +83,7 @@ class TestDependencyPatterns:
         """
         doc = nlp(text)
 
-        study_sites = [ent for ent in doc.ents if ent.label_ == "STUDY_SITE"]
+        study_sites = [ent for ent in doc.ents if ent.label_ == "MARESS_STUDY_SITE"]
         assert len(study_sites) >= 3
 
     def test_no_false_positives_from_citations(self, nlp: Language) -> None:
@@ -92,7 +92,7 @@ class TestDependencyPatterns:
         doc = nlp(text)
 
         # Should still match the pattern, but confidence scoring will penalize it
-        study_sites = [ent for ent in doc.ents if ent.label_ == "STUDY_SITE"]
+        study_sites = [ent for ent in doc.ents if ent.label_ == "MARESS_STUDY_SITE"]
         # Pattern will match, but confidence scorer should penalize
 
 
@@ -112,7 +112,7 @@ class TestMultiWordLocations:
         text = "The study was conducted in the San Francisco Bay Area."
         doc = nlp(text)
 
-        multiword = [ent for ent in doc.ents if ent.label_ == "MULTIWORD_LOCATION"]
+        multiword = [ent for ent in doc.ents if ent.label_ == "MARESS_MULTIWORD_LOC"]
         assert len(multiword) > 0
         assert "San Francisco Bay Area" in [ent.text for ent in multiword]
 
@@ -121,7 +121,7 @@ class TestMultiWordLocations:
         text = "Sampling occurred in Mount Hood National Forest."
         doc = nlp(text)
 
-        multiword = [ent for ent in doc.ents if ent.label_ == "MULTIWORD_LOCATION"]
+        multiword = [ent for ent in doc.ents if ent.label_ == "MARESS_MULTIWORD_LOC"]
         assert len(multiword) > 0
 
     def test_pacific_northwest(self, nlp: Language) -> None:
@@ -129,7 +129,7 @@ class TestMultiWordLocations:
         text = "Sites located in the Pacific Northwest."
         doc = nlp(text)
 
-        multiword = [ent for ent in doc.ents if ent.label_ == "MULTIWORD_LOCATION"]
+        multiword = [ent for ent in doc.ents if ent.label_ == "MARESS_MULTIWORD_LOC"]
         assert len(multiword) > 0
 
     def test_amazon_river_basin(self, nlp: Language) -> None:
@@ -137,7 +137,7 @@ class TestMultiWordLocations:
         text = "Research in the Amazon River Basin revealed..."
         doc = nlp(text)
 
-        multiword = [ent for ent in doc.ents if ent.label_ == "MULTIWORD_LOCATION"]
+        multiword = [ent for ent in doc.ents if ent.label_ == "MARESS_MULTIWORD_LOC"]
         assert len(multiword) > 0
 
     def test_yellowstone_national_park(self, nlp: Language) -> None:
@@ -145,7 +145,7 @@ class TestMultiWordLocations:
         text = "Data collected at Yellowstone National Park."
         doc = nlp(text)
 
-        multiword = [ent for ent in doc.ents if ent.label_ == "MULTIWORD_LOCATION"]
+        multiword = [ent for ent in doc.ents if ent.label_ == "MARESS_MULTIWORD_LOC"]
         assert len(multiword) > 0
 
     def test_prefers_longer_match(self, nlp: Language) -> None:
@@ -154,7 +154,7 @@ class TestMultiWordLocations:
         doc = nlp(text)
 
         # Should match "San Francisco Bay Area" not just "San Francisco"
-        multiword = [ent for ent in doc.ents if ent.label_ == "MULTIWORD_LOCATION"]
+        multiword = [ent for ent in doc.ents if ent.label_ == "MARESS_MULTIWORD_LOC"]
         assert any("Bay Area" in ent.text for ent in multiword)
 
 

@@ -27,7 +27,7 @@ class TestDistanceDirectionPatterns:
         text = "The site is located 10 km north of Paris."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
         assert "km" in relations[0].text.lower()
         assert "north" in relations[0].text.lower()
@@ -42,7 +42,7 @@ class TestDistanceDirectionPatterns:
 
         for text in test_cases:
             doc = nlp(text)
-            relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+            relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
             assert len(relations) > 0, f"Failed to match: {text}"
 
     def test_all_directions(self, nlp: Language) -> None:
@@ -52,7 +52,7 @@ class TestDistanceDirectionPatterns:
         for direction in directions:
             text = f"Located 5 km {direction} of Berlin."
             doc = nlp(text)
-            relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+            relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
             assert len(relations) > 0, f"Failed to match direction: {direction}"
 
 
@@ -64,7 +64,7 @@ class TestSpatialPrepositionPatterns:
         text = "The study site is near San Francisco."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
         assert "near" in relations[0].text.lower()
 
@@ -73,7 +73,7 @@ class TestSpatialPrepositionPatterns:
         text = "The facility is adjacent to the Amazon River."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_close_to_pattern(self, nlp: Language) -> None:
@@ -81,7 +81,7 @@ class TestSpatialPrepositionPatterns:
         text = "Sites were close to Berlin."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_prepositions_with_article(self, nlp: Language) -> None:
@@ -89,7 +89,7 @@ class TestSpatialPrepositionPatterns:
         text = "Located near the Pacific Ocean."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_within_pattern(self, nlp: Language) -> None:
@@ -97,7 +97,7 @@ class TestSpatialPrepositionPatterns:
         text = "Samples collected within California."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
 
@@ -109,7 +109,7 @@ class TestDirectionOfPatterns:
         text = "The site is north of Paris."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
         assert "north" in relations[0].text.lower()
         assert "of" in relations[0].text.lower()
@@ -123,7 +123,7 @@ class TestDirectionOfPatterns:
 
         for text in test_cases:
             doc = nlp(text)
-            relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+            relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
             assert len(relations) > 0, f"Failed to match: {text}"
 
     def test_offshore_pattern(self, nlp: Language) -> None:
@@ -131,7 +131,7 @@ class TestDirectionOfPatterns:
         text = "Located offshore from California."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
 
@@ -143,7 +143,7 @@ class TestLocationVerbPatterns:
         text = "The study site is located in California."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
         assert "located" in relations[0].text.lower()
 
@@ -152,7 +152,7 @@ class TestLocationVerbPatterns:
         text = "The station is situated at the coast."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_found_near_pattern(self, nlp: Language) -> None:
@@ -160,7 +160,7 @@ class TestLocationVerbPatterns:
         text = "Specimens were found near Tokyo."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_established_in_pattern(self, nlp: Language) -> None:
@@ -168,7 +168,7 @@ class TestLocationVerbPatterns:
         text = "Sites established in the Amazon."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_positioned_along_pattern(self, nlp: Language) -> None:
@@ -176,7 +176,7 @@ class TestLocationVerbPatterns:
         text = "Sensors positioned along the river."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
 
@@ -188,7 +188,7 @@ class TestLocationDescriptorPatterns:
         text = "Study conducted in the Amazon region."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_area_descriptor(self, nlp: Language) -> None:
@@ -196,7 +196,7 @@ class TestLocationDescriptorPatterns:
         text = "Located in the Berlin area."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
     def test_vicinity_descriptor(self, nlp: Language) -> None:
@@ -204,7 +204,7 @@ class TestLocationDescriptorPatterns:
         text = "Sites in the Paris vicinity."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
 
@@ -216,7 +216,7 @@ class TestGreedyLongestMatching:
         text = "Located 10 km north of San Francisco."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
         # Should match the full phrase including distance
@@ -229,7 +229,7 @@ class TestGreedyLongestMatching:
         text = "Site A near Paris and Site B near London."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
 
         # Check no overlaps
         for i, ent1 in enumerate(relations):
@@ -242,7 +242,7 @@ class TestGreedyLongestMatching:
         text = "Site A is 5 km north of Paris, while Site B is located in Berlin."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) >= 2
 
 
@@ -254,7 +254,7 @@ class TestEdgeCases:
         text = "This is a simple sentence without any location information."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) == 0
 
     def test_empty_text(self, nlp: Language) -> None:
@@ -262,7 +262,7 @@ class TestEdgeCases:
         text = ""
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) == 0
 
     def test_location_without_relation(self, nlp: Language) -> None:
@@ -270,7 +270,7 @@ class TestEdgeCases:
         text = "Paris is a city."
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         # Should not match plain location names
         assert len(relations) == 0
 
@@ -280,7 +280,7 @@ class TestEdgeCases:
         doc = nlp(text)
 
         # Should have spatial relation
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) > 0
 
         # Should also have other entities (PERSON, DATE)
@@ -299,7 +299,7 @@ class TestRealWorldExamples:
         """
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) >= 2
 
     def test_abstract_example(self, nlp: Language) -> None:
@@ -310,7 +310,7 @@ class TestRealWorldExamples:
         """
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) >= 2
 
     def test_complex_spatial_description(self, nlp: Language) -> None:
@@ -322,7 +322,7 @@ class TestRealWorldExamples:
         """
         doc = nlp(text)
 
-        relations = [ent for ent in doc.ents if ent.label_ == "SPATIAL_RELATION"]
+        relations = [ent for ent in doc.ents if ent.label_ == "MARESS_SPATIAL_REL"]
         assert len(relations) >= 3
 
 
