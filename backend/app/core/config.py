@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
     EMAILS_FROM_EMAIL: EmailStr | None = None
-    emails_from_name: EmailStr | None = None  # lowercase because it can be altered
+    emails_from_name: str | None = None  # lowercase because it can be altered
 
     @model_validator(mode="after")
     def _set_default_emails_from(self) -> Self:
