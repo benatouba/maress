@@ -122,12 +122,23 @@ class StudySiteExtractionPipeline:
         text_spans = [s for s in layout_spans if s.label_ == "text"]
         logger.info(f"Found {len(text_spans)} text spans for extraction")
 
+        # Section filtering statistics
+        sections_filtered = 0
+
         for span in text_spans:
             section_name = self._classify_section(span)
             section_text = span.text.strip()
 
             if not section_text:
                 logger.debug(f"Skipping empty section: {section_name}")
+                continue
+
+            # NLP best practice: Filter to study-site-relevant sections only
+            if not self._is_study_site_relevant_section(section_name):
+                logger.debug(
+                    f"Skipping section '{section_name}' - not relevant for study site extraction"
+                )
+                sections_filtered += 1
                 continue
 
             logger.debug(f"Processing section '{section_name}' with {len(section_text)} characters")
@@ -156,7 +167,10 @@ class StudySiteExtractionPipeline:
                     )
                 all_entities.extend(entities)
 
-        logger.info(f"Extracted {len(all_entities)} entities from {sections_processed} sections")
+        logger.info(
+            f"Extracted {len(all_entities)} entities from {sections_processed} sections "
+            f"({sections_filtered} sections filtered out)"
+        )
         logger.debug(f"First extracted entities: {all_entities[:5]}")
 
         # Extract from tables
@@ -291,41 +305,94 @@ class StudySiteExtractionPipeline:
         return None
 
     def _classify_section(self, span: Span) -> str:
-        """Classify document section from span metadata."""
-        heading = str(getattr(span._, "heading", "")).lower()
-        text_start = span.text.strip()[:50].lower()
+        """Classify document section from span metadata.
 
-        current_section: str = "other"
+        Enhanced to better detect study site sections following linguistic patterns
+        in earth system papers.
+        """
+        heading = str(getattr(span._, "heading", "")).lower()
+        text_start = span.text.strip()[:100].lower()  # Increased for better detection
+
+        # Check for study site sections first (highest priority)
+        study_site_keywords = [
+            "study area", "study site", "study region", "study location",
+            "field site", "field area", "site description", "area description",
+            "sampling site", "sampling area", "sampling location",
+            "experimental site", "observation site",
+        ]
+        for keyword in study_site_keywords:
+            if keyword in heading or keyword in text_start[:80]:
+                return "study_area"  # Normalize to study_area
+
+        # Check for methods sections (high priority for study site mentions)
         if any(
-            word in heading for word in ["method", "material", "experiment", "data"]
-        ) or text_start.startswith(("method", "data", "material")):
-            current_section = "methods"
+            word in heading for word in ["method", "material", "experiment", "data", "sampling"]
+        ) or text_start.startswith(("method", "data", "material", "sampling")):
+            if "data collection" in heading or "data collection" in text_start[:50]:
+                return "data collection"
+            if "field method" in heading or "field method" in text_start[:50]:
+                return "field methods"
+            return "methods"
+
+        # Abstract
         elif "abstract" in heading or text_start.startswith("abstract"):
-            current_section = "abstract"
+            return "abstract"
+
+        # Results (lower priority)
         elif any(word in heading for word in ["result", "finding"]) or text_start.startswith(
             "result",
         ):
-            current_section = "results"
+            return "results"
+
+        # Discussion (low priority)
         elif "discuss" in heading or text_start.startswith("discuss"):
-            current_section = "discussion"
+            return "discussion"
+
+        # Conclusion (low priority)
         elif any(
             word in heading for word in ["conclusion", "summary", "outlook"]
         ) or text_start.startswith(("conclusion", "outlook")):
-            current_section = "conclusion"
+            return "conclusion"
+
+        # Introduction (low priority)
         elif any(word in heading for word in ["intro", "background"]) or text_start.startswith(
             ("intro", "background"),
         ):
-            current_section = "introduction"
+            return "introduction"
+
+        # References (skip)
         elif any(
-            word in heading for word in ["reference", "bibliography"]
-        ) or text_start.startswith(("reference", "bibliograph")):
-            current_section = "references"
+            word in heading for word in ["reference", "bibliography", "acknowledgment"]
+        ) or text_start.startswith(("reference", "bibliograph", "acknowledgment")):
+            return "references"
 
-        for priority_section in self.config.PRIORITY_SECTIONS:
-            if priority_section in heading or text_start.startswith(priority_section):
-                return priority_section
+        return "other"
 
-        return current_section
+    def _is_study_site_relevant_section(self, section_name: str) -> bool:
+        """Check if a section is relevant for study site extraction.
+
+        Implements NLP best practice of focusing on sections where study sites
+        are typically described in earth system papers.
+
+        Args:
+            section_name: Classified section name
+
+        Returns:
+            True if section should be processed for study site extraction
+        """
+        # Normalize section name
+        section_normalized = section_name.lower().strip()
+
+        # Check against study site sections list
+        for relevant_section in self.config.STUDY_SITE_SECTIONS:
+            if relevant_section.lower() in section_normalized:
+                return True
+
+        # Always skip references and acknowledgments
+        if section_normalized in ["references", "bibliography", "acknowledgments", "acknowledgements"]:
+            return False
+
+        return False
 
     def _deduplicate_entities(self, entities: list[GeoEntity]) -> list[GeoEntity]:
         """Remove duplicate entities based on text and position."""
@@ -341,216 +408,47 @@ class StudySiteExtractionPipeline:
         return unique
 
     def _rank_entities(self, entities: list[GeoEntity]) -> list[GeoEntity]:
-        """Rank entities by relevance for study site identification.
+        """Rank entities using model confidence scores.
 
-        - Multi-factor scoring system that strongly prioritizes coordinates.
-        - Quick Wins: Context-aware filtering, keyword boosting, caption prioritization.
+        NLP best practice: Use confidence scores directly from models/extractors
+        instead of complex heuristics. Linguistic patterns (DependencyMatcher) and
+        spaCy NER already provide well-calibrated confidence scores.
+
+        Priority order:
+        1. COORDINATE entities (highest - explicit coordinates)
+        2. STUDY_SITE entities (high - from linguistic patterns)
+        3. Other entities (by model confidence)
+
+        Args:
+            entities: List of extracted entities
+
+        Returns:
+            Entities sorted by model confidence and entity type priority
         """
 
-        def score(e: GeoEntity) -> float:
-            # Extraction method quality (0-100 points)
-            extraction_quality = {
-                "COORDINATE": 100,  # Direct coordinates - highest priority
-                "table_coordinate": 100,  # Table coordinates (if we add detection)
-                "caption_coordinate": 75,  # From captions
-                "SPATIAL_RELATION": 40,  # "10km north of X"
-                "GPE": 50,  # Geocoded specific place
-                "LOC": 25,  # Geocoded general location
-            }
+        def score(e: GeoEntity) -> tuple[int, float, bool]:
+            """Return (priority, confidence, has_coordinates) for sorting.
 
-            # Section priority (0-100 points)
-            section_priority = {
-                "data and methods": 100,
-                "materials": 100,
-                "study area": 95,
-                "study site": 95,
-                "results": 70,
-                "title": 60,  # Lower: often general location
-                "abstract": 70,
-                "figure": 85,  # Figures are high-quality sources
-                "caption": 80,  # Captions are high-quality sources
-                "introduction": 40,
-                "discussions": 30,
-                "conclusions": 20,
-                "references": 5,  # Almost exclude references
-                "bibliography": 5,  # Almost exclude bibliography
-            }
-
-            # Confidence multiplier (0.7-1.5x)
-            if e.confidence >= 0.95:
-                multiplier = 1.5
-            elif e.confidence >= 0.80:
-                multiplier = 1.2
-            elif e.confidence >= 0.60:
-                multiplier = 1.0
+            Priority levels (higher is better):
+            - 3: COORDINATE (explicit coordinates are always most reliable)
+            - 2: STUDY_SITE (from dependency patterns - high linguistic evidence)
+            - 1: Everything else (NER, spatial relations, etc.)
+            """
+            # Entity type priority
+            if e.entity_type == "COORDINATE":
+                priority = 3
+            elif e.entity_type == "STUDY_SITE":
+                priority = 2
             else:
-                multiplier = 0.7
+                priority = 1
 
-            # Validation bonuses
-            validation_bonus = 0
+            # Use model confidence directly (no heuristic modifications)
+            confidence = e.confidence
 
-            # Has coordinates (explicit location)
-            if e.coordinates:
-                validation_bonus += 20
+            # Prefer entities with coordinates as tiebreaker
+            has_coords = e.coordinates is not None
 
-            # Has context (site name or description)
-            if e.context and len(e.context) > 20:
-                validation_bonus += 10
+            return (priority, confidence, has_coords)
 
-            # Check if in table (from context)
-            if "table" in e.context.lower() or "tab" in e.section.lower():
-                validation_bonus += 5
-                extraction_quality["COORDINATE"] = 100  # Upgrade to table_coordinate
-
-            # Figure/caption prioritization
-            context_lower = e.context.lower()
-            if "figure" in context_lower or "fig" in context_lower or "fig." in context_lower:
-                validation_bonus += 15  # Figures are high-quality sources
-
-            if "caption" in context_lower:
-                validation_bonus += 10
-
-            # Contextual keyword boosting (high-value keywords)
-            # Enhanced with stronger emphasis on study site indicators
-            # Increased weights for better detection of actual study sites
-
-            # Tier 1: Very high confidence study site indicators (70 points - increased from 50)
-            tier1_keywords = [
-                "study site",
-                "study area",
-                "study location",
-                "our study site",
-                "our study area",
-                "study sites were",
-                "study area was",
-                "sites were located",
-                "area was located",
-                "data collection site",
-                "data collection area",
-                "collection site",
-                "collection station",
-            ]
-
-            # Tier 2: High confidence field work indicators (55 points - increased from 40)
-            tier2_keywords = [
-                "sampling site",
-                "sampling location",
-                "sampling station",
-                "sample site",
-                "sample location",
-                "sample collection",
-                "samples were collected",
-                "field site",
-                "field station",
-                "research site",
-                "research station",
-                "research area",
-                "experimental site",
-                "observation site",
-                "monitoring site",
-                "monitoring station",
-                "data collection",
-                "collected at",
-                "measurement site",
-                "survey site",
-                "our site",
-                "our sites",
-                "our location",
-            ]
-
-            # Tier 3: Medium confidence location indicators (40 points - increased from 30)
-            tier3_keywords = [
-                "plot",
-                "transect",
-                "quadrat",
-                "study region",
-                "sites",
-                "location",
-                "locations",
-                "station",
-                "stations",
-                "site",
-            ]
-
-            # Apply tier-based bonuses (only one tier applies)
-            for keyword in tier1_keywords:
-                if keyword in context_lower:
-                    validation_bonus += 70  # Increased from 50
-                    break
-            else:
-                for keyword in tier2_keywords:
-                    if keyword in context_lower:
-                        validation_bonus += 55  # Increased from 40
-                        break
-                else:
-                    for keyword in tier3_keywords:
-                        if keyword in context_lower:
-                            validation_bonus += 40  # Increased from 30
-                            break
-
-            # Penalty factors
-            penalties = 0
-
-            # Low precision check (for coordinates)
-            if e.entity_type == "COORDINATE" and e.coordinates:
-                lat, lon = e.coordinates
-                lat_decimals = len(str(lat).split(".")[-1]) if "." in str(lat) else 0
-                lon_decimals = len(str(lon).split(".")[-1]) if "." in str(lon) else 0
-                if lat_decimals < 2 or lon_decimals < 2:
-                    penalties -= 20
-
-            # No context penalty (but not for table coordinates)
-            if not (e.context or len(e.context) < 10) and "table" not in e.section.lower():
-                penalties -= 10
-
-            # Generic location penalty
-            if e.entity_type in ["LOC", "GPE"] and len(e.text) < 3:
-                penalties -= 15
-
-            # Contextual keyword penalties (low-value/citation keywords)
-            negative_keywords = [
-                "et al",
-                "previous study",
-                "earlier work",
-                "prior study",
-                "reported by",
-                "described by",
-                "according to",
-                "compared to",
-                "similar to",
-                "literature",
-                "author",
-                "affiliation",
-                "department",
-                "university",
-                "address",
-                "correspondence",
-                "laboratory",
-                "institute",
-                "institution",
-                "research center",
-                "research centre",
-                "funded by",
-                "supported by",
-                "grant",
-            ]
-
-            for keyword in negative_keywords:
-                if keyword in context_lower:
-                    penalties -= 25  # Heavy penalty for citations/affiliations
-                    break  # Only apply once
-
-            # Reference section filtering (additional penalty beyond section_priority)
-            if e.section.lower() in ["references", "bibliography", "reference"]:
-                penalties -= 50  # Almost eliminate references section
-
-            # Calculate final score
-            section_score = 0
-            for k, v in section_priority.items():
-                if e.section.lower() in k:
-                    section_score = v
-                    break
-            base_score = extraction_quality.get(e.entity_type, 20) + section_score
-            return (base_score * multiplier) + validation_bonus + penalties
-
+        # Sort by priority (desc), then confidence (desc), then has coordinates (desc)
         return sorted(entities, key=score, reverse=True)

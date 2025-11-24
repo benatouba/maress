@@ -1,0 +1,95 @@
+{
+  "description": "Noun phrases that indicate study sites in earth system papers",
+  "version": "1.0",
+  "last_updated": "2025-01-19",
+  "categories": {
+    "generic_site_terms": {
+      "description": "Generic terms for sites, locations, and areas",
+      "nouns": [
+        "site",
+        "sites",
+        "location",
+        "locations",
+        "area",
+        "areas",
+        "region",
+        "regions",
+        "domain",
+        "domains"
+      ]
+    },
+    "measurement_observation": {
+      "description": "Terms for measurement and observation locations",
+      "nouns": [
+        "station",
+        "stations",
+        "plot",
+        "plots",
+        "transect",
+        "transects",
+        "quadrat",
+        "quadrats",
+        "point",
+        "points",
+        "spot",
+        "spots",
+        "grid",
+        "grids",
+        "cell",
+        "cells"
+      ]
+    },
+    "hydrological": {
+      "description": "Hydrological terms common in earth system papers",
+      "nouns": [
+        "basin",
+        "basins",
+        "catchment",
+        "catchments",
+        "watershed",
+        "watersheds",
+        "valley",
+        "valleys",
+        "river",
+        "rivers",
+        "estuary",
+        "estuaries"
+      ]
+    },
+    "ecological": {
+      "description": "Ecological and field site terms",
+      "nouns": [
+        "stand",
+        "stands",
+        "forest",
+        "forests",
+        "field",
+        "fields"
+      ]
+    },
+    "geographical_features": {
+      "description": "Geographical features",
+      "nouns": [
+        "island",
+        "islands",
+        "mountain",
+        "mountains",
+        "plateau",
+        "plateaus",
+        "plain",
+        "plains"
+      ]
+    },
+    "urban": {
+      "description": "Urban and infrastructure terms",
+      "nouns": [
+        "city",
+        "cities",
+        "town",
+        "towns",
+        "urban area",
+        "urban areas"
+      ]
+    }
+  }
+}

@@ -173,9 +173,10 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
 
         entities: list[GeoEntity] = []
 
-        # Extract COORDINATE entities added by our matcher
+        # Phase 1.4: Extract MARESS_COORDINATE entities added by our matcher
+        # Note: entity_type remains "COORDINATE" as it's a domain concept
         for ent in doc.ents:
-            if ent.label_ != "COORDINATE":
+            if ent.label_ != "MARESS_COORDINATE":
                 continue
 
             # Get coordinate format and confidence from custom attributes
@@ -354,14 +355,9 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         self.cleaner: PDFTextCleaner = PDFTextCleaner()
         # Track seen entities to avoid duplicates
         self._seen_spans: set[tuple[int, int]] = set()
-        # Flag to track if NER has been configured
-        self._ner_configured = False
-        # Flag to track if spatial_relation_matcher has been added
-        self._spatial_matcher_added = False
-        # Flag to track if study_site_dependency_matcher has been added
-        self._dependency_matcher_added = False
-        # Flag to track if multiword_location_matcher has been added
-        self._multiword_matcher_added = False
+        # Phase 1: Components are now added at factory level (no runtime additions)
+        # Track NER configuration to avoid redundant updates
+        self._ner_configured: bool = False
 
     def _configure_ner_for_multiword(self) -> None:
         """Configure NER to favor longer, multi-word entities.
@@ -383,65 +379,9 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
             ner.cfg["beam_density"] = 0.01  # More permissive beam search
             self._ner_configured = True
 
-    def _ensure_spatial_matcher(self) -> None:
-        """Ensure spatial_relation_matcher is in the pipeline.
-
-        Adds the matcher component if not already present.
-        """
-        if self._spatial_matcher_added:
-            return
-
-        if "spatial_relation_matcher" not in self.nlp.pipe_names:
-            # Import to register the factory
-            from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher  # noqa: F401
-
-            # Add after NER if it exists, otherwise add last
-            if "ner" in self.nlp.pipe_names:
-                self.nlp.add_pipe("spatial_relation_matcher", after="ner")
-            else:
-                self.nlp.add_pipe("spatial_relation_matcher", last=True)
-
-        self._spatial_matcher_added = True
-
-    def _ensure_dependency_matcher(self) -> None:
-        """Ensure study_site_dependency_matcher is in the pipeline.
-
-        Adds the matcher component if not already present.
-        """
-        if self._dependency_matcher_added:
-            return
-
-        if "study_site_dependency_matcher" not in self.nlp.pipe_names:
-            # Import to register the factory
-            from app.nlp.spacy_study_site_dependency_matcher import StudySiteDependencyMatcher  # noqa: F401
-
-            # Add after NER to use its entities
-            if "ner" in self.nlp.pipe_names:
-                self.nlp.add_pipe("study_site_dependency_matcher", after="ner")
-            else:
-                self.nlp.add_pipe("study_site_dependency_matcher", last=True)
-
-        self._dependency_matcher_added = True
-
-    def _ensure_multiword_matcher(self) -> None:
-        """Ensure multiword_location_matcher is in the pipeline.
-
-        Adds the matcher component if not already present.
-        """
-        if self._multiword_matcher_added:
-            return
-
-        if "multiword_location_matcher" not in self.nlp.pipe_names:
-            # Import to register the factory
-            from app.nlp.spacy_multiword_location_matcher import MultiWordLocationMatcher  # noqa: F401
-
-            # Add before NER to catch multi-word locations before NER splits them
-            if "ner" in self.nlp.pipe_names:
-                self.nlp.add_pipe("multiword_location_matcher", before="ner")
-            else:
-                self.nlp.add_pipe("multiword_location_matcher", first=True)
-
-        self._multiword_matcher_added = True
+    # Phase 1: Runtime component addition methods removed
+    # Components are now added at factory level in PipelineFactory._configure_spacy_components()
+    # This follows spaCy best practices: predictable pipeline, no runtime mutations
 
     @override
     def extract(self, text: str, section: str) -> list[GeoEntity]:
@@ -464,10 +404,8 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         # Configure NER for multi-word entities (happens once, lazily)
         self._configure_ner_for_multiword()
 
-        # Ensure all matchers are in pipeline (Phase 1)
-        self._ensure_multiword_matcher()
-        self._ensure_spatial_matcher()
-        self._ensure_dependency_matcher()
+        # Phase 1: Components are added at factory level, not at runtime
+        # No need to ensure matchers here
 
         # Reset seen spans for each new extraction
         self._seen_spans.clear()
@@ -482,10 +420,12 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         entities.extend(self._extract_multiword_locations(doc, section))
         entities.extend(self._extract_contextual_locations(doc, section))
 
-        # Apply enhanced confidence scoring (Phase 1)
-        from app.nlp.confidence_scorer import apply_enhanced_scoring
-
-        entities = apply_enhanced_scoring(entities, doc)
+        # NLP best practice: Use model scores directly, no heuristic modifications
+        # Each extractor already assigns appropriate confidence based on:
+        # - spaCy NER: model confidence
+        # - DependencyMatcher patterns: pattern confidence (0.90)
+        # - CoordinateMatcher: format-based confidence (0.80-1.0)
+        # - SpatialRelationMatcher: pattern confidence (0.85)
 
         return entities
 
@@ -536,9 +476,10 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         """
         entities: list[GeoEntity] = []
 
-        # Extract SPATIAL_RELATION entities added by the matcher
+        # Phase 1.4: Extract MARESS_SPATIAL_REL entities added by the matcher
+        # Note: entity_type remains "SPATIAL_RELATION" as it's a domain concept
         for ent in doc.ents:
-            if ent.label_ != "SPATIAL_RELATION":
+            if ent.label_ != "MARESS_SPATIAL_REL":
                 continue
 
             # Check for duplicates
@@ -579,9 +520,10 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         """
         entities: list[GeoEntity] = []
 
-        # Extract STUDY_SITE entities added by the dependency matcher
+        # Phase 1.4: Extract MARESS_STUDY_SITE entities added by the dependency matcher
+        # Note: entity_type remains "STUDY_SITE" as it's a domain concept
         for ent in doc.ents:
-            if ent.label_ != "STUDY_SITE":
+            if ent.label_ != "MARESS_STUDY_SITE":
                 continue
 
             # Check for duplicates
@@ -627,9 +569,10 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         """
         entities: list[GeoEntity] = []
 
-        # Extract MULTIWORD_LOCATION entities added by the phrase matcher
+        # Phase 1.4: Extract MARESS_MULTIWORD_LOC entities added by the phrase matcher
+        # Note: entity_type remains "MULTIWORD_LOCATION" as it's a domain concept
         for ent in doc.ents:
-            if ent.label_ != "MULTIWORD_LOCATION":
+            if ent.label_ != "MARESS_MULTIWORD_LOC":
                 continue
 
             # Check for duplicates

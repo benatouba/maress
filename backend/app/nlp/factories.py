@@ -27,6 +27,7 @@ class PipelineFactory:
     - Geocoding with caching and rate limiting
     - Largest cluster selection
     - Table coordinate extraction
+    - Component initialization at factory level (no runtime additions)
 
     Phase 2 (NLP Enhancements - Quick Wins):
     - Improved sentence boundary detection
@@ -35,6 +36,83 @@ class PipelineFactory:
     """
 
     default_extractors: ClassVar[list[BaseEntityExtractor]] = []
+
+    @staticmethod
+    def _configure_spacy_components(nlp: spacy.language.Language, config: ModelConfig) -> spacy.language.Language:
+        """Configure spaCy pipeline with custom components.
+
+        Phase 1 Best Practice: All components are added at initialization time,
+        not at runtime. This ensures:
+        - Predictable pipeline configuration
+        - No runtime mutations
+        - Easy testing and debugging
+        - Clear component ordering
+
+        Component order (critical for correctness):
+        1. abbreviation_detector (scispacy, if en_core_sci model) - Detects scientific abbreviations
+        2. multiword_location_matcher (before="ner") - Prevents splitting multi-word locations
+        3. ner (built-in) - Standard NER
+        4. coordinate_matcher (after="ner") - Adds coordinate entities
+        5. spatial_relation_matcher (after="ner") - Adds spatial relation entities
+        6. study_site_dependency_matcher (last=True) - Uses all previous entities
+
+        Args:
+            nlp: spaCy Language object
+            config: Model configuration
+
+        Returns:
+            Configured spaCy Language object
+        """
+        # Import component modules to register factories
+        # These imports register the @Language.factory decorators
+        from app.nlp.spacy_coordinate_matcher import CoordinateMatcher  # noqa: F401
+        from app.nlp.spacy_multiword_location_matcher import MultiWordLocationMatcher  # noqa: F401
+        from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher  # noqa: F401
+        from app.nlp.spacy_study_site_dependency_matcher import StudySiteDependencyMatcher  # noqa: F401
+
+        # ScispaCy Best Practice: Add AbbreviationDetector for scientific text models
+        # This should be added early in the pipeline to resolve abbreviations before other components
+        if config.SPACY_MODEL.startswith("en_core_sci"):
+            try:
+                from scispacy.abbreviation import AbbreviationDetector  # noqa: F401
+
+                if "abbreviation_detector" not in nlp.pipe_names:
+                    # Add abbreviation detector early, before NER
+                    # This allows other components to benefit from abbreviation resolution
+                    nlp.add_pipe("abbreviation_detector", first=True)
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info("Added scispacy AbbreviationDetector to pipeline for model %s", config.SPACY_MODEL)
+            except ImportError:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "scispacy model detected (%s) but scispacy package not installed. "
+                    "Install with: pip install scispacy",
+                    config.SPACY_MODEL
+                )
+
+        # Add multiword location matcher BEFORE NER
+        # This prevents NER from splitting multi-word location names
+        if "multiword_location_matcher" not in nlp.pipe_names:
+            nlp.add_pipe("multiword_location_matcher", before="ner")
+
+        # Add coordinate matcher AFTER NER
+        # This allows it to use NER entities for context
+        if "coordinate_matcher" not in nlp.pipe_names:
+            nlp.add_pipe("coordinate_matcher", after="ner")
+
+        # Add spatial relation matcher AFTER NER
+        # Detects patterns like "10 km north of X"
+        if "spatial_relation_matcher" not in nlp.pipe_names:
+            nlp.add_pipe("spatial_relation_matcher", after="ner")
+
+        # Add study site dependency matcher LAST
+        # Uses dependency parsing and all previous entities
+        if "study_site_dependency_matcher" not in nlp.pipe_names:
+            nlp.add_pipe("study_site_dependency_matcher", last=True)
+
+        return nlp
 
     @staticmethod
     def create_pipeline(
@@ -79,13 +157,18 @@ class PipelineFactory:
         pdf_parser = DoclingPDFParser(pdf_nlp)
 
         # Load full spaCy model for entity extraction (shared across all extractors)
-        # Keep NER, parser, and tagger (needed for entity recognition, dependencies, and POS)
-        # Only disable lemmatizer and textcat for performance
+        # Keep NER, parser, tagger, and lemmatizer (needed for entity recognition, dependencies, POS, and LEMMA)
+        # Only disable textcat for performance
         # NOTE: Tagger is required for custom matchers using POS/TAG attributes
+        # NOTE: Lemmatizer is required for custom matchers using LEMMA attributes (Phase 1 patterns)
         shared_nlp = spacy.load(
             config.SPACY_MODEL,
-            disable=["lemmatizer", "textcat"]
+            disable=["textcat"]
         )
+
+        # Phase 1 Best Practice: Add all custom components upfront (no runtime additions)
+        # This creates a predictable pipeline configuration that's easy to test and debug
+        shared_nlp = PipelineFactory._configure_spacy_components(shared_nlp, config)
 
         # Initialize transformer pipeline (optional - can be disabled for speed)
         # ner_pipeline = pipeline(

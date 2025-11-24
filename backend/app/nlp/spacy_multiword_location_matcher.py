@@ -4,11 +4,14 @@ This component uses spaCy's PhraseMatcher to detect complex geographic names
 that are often missed by standard NER, improving study site detection accuracy.
 """
 
+import json
+from pathlib import Path
 from typing import ClassVar
 
 from spacy.language import Language
 from spacy.matcher import PhraseMatcher
 from spacy.tokens import Doc, Span
+from spacy.util import filter_spans  # Phase 1: Use spaCy's optimized overlap filtering
 
 
 class MultiWordLocationMatcher:
@@ -24,108 +27,37 @@ class MultiWordLocationMatcher:
     Uses PhraseMatcher for exact and fuzzy matching of known locations.
     """
 
-    # Common multi-word geographic locations (can be expanded)
-    GEOGRAPHIC_LOCATIONS: ClassVar[list[str]] = [
-        # National Parks & Forests (USA)
-        "Yellowstone National Park",
-        "Yosemite National Park",
-        "Grand Canyon National Park",
-        "Mount Hood National Forest",
-        "Olympic National Forest",
-        "Angeles National Forest",
+    # Phase 1: Geographic locations externalized to JSONL file
+    GEOGRAPHIC_LOCATIONS: ClassVar[list[str]] = []
+    DATA_DIR: ClassVar[Path] = Path(__file__).parent / "data"
 
-        # Geographic Features (USA)
-        "San Francisco Bay Area",
-        "San Francisco Bay",
-        "Columbia River Gorge",
-        "Columbia River",
-        "Mississippi River",
-        "Rio Grande",
-        "Great Salt Lake",
-        "Chesapeake Bay",
-        "Puget Sound",
-        "Sierra Nevada",
-        "Rocky Mountains",
-        "Cascade Range",
-        "Appalachian Mountains",
-        "Great Plains",
-        "Mojave Desert",
-        "Sonoran Desert",
-        "Death Valley",
+    @classmethod
+    def _load_geographic_locations(cls) -> None:
+        """Load geographic locations from JSONL file.
 
-        # Regions (USA)
-        "Pacific Northwest",
-        "Pacific Coast",
-        "Atlantic Coast",
-        "Gulf Coast",
-        "New England",
-        "Great Lakes Region",
-        "Intermountain West",
-        "Mountain West",
+        Phase 1 Best Practice: Externalize vocabularies to JSONL for:
+        - Easy updates without code changes
+        - Version control
+        - Domain-specific customization
+        - User contributions
+        """
+        if cls.GEOGRAPHIC_LOCATIONS:  # Already loaded
+            return
 
-        # International Features
-        "Amazon River Basin",
-        "Amazon Rainforest",
-        "Great Barrier Reef",
-        "Sahara Desert",
-        "Himalayan Mountains",
-        "Mount Everest",
-        "Lake Victoria",
-        "Victoria Falls",
-        "Nile River",
-        "Congo River",
-        "Danube River",
-        "Rhine River",
-        "Ganges River",
-        "Yangtze River",
-        "Mekong River",
-
-        # Marine & Coastal
-        "North Pacific Ocean",
-        "South Pacific Ocean",
-        "North Atlantic Ocean",
-        "South Atlantic Ocean",
-        "Indian Ocean",
-        "Arctic Ocean",
-        "Southern Ocean",
-        "Mediterranean Sea",
-        "Caribbean Sea",
-        "Red Sea",
-        "Baltic Sea",
-        "Black Sea",
-        "Coral Sea",
-        "Bering Sea",
-
-        # Islands & Archipelagos
-        "Hawaiian Islands",
-        "Florida Keys",
-        "Channel Islands",
-        "Galapagos Islands",
-        "British Isles",
-        "Canary Islands",
-
-        # Bays & Gulfs
-        "San Francisco Bay",
-        "Monterey Bay",
-        "Tampa Bay",
-        "Galveston Bay",
-        "Hudson Bay",
-        "Gulf of Mexico",
-        "Gulf of California",
-        "Persian Gulf",
-        "Bay of Bengal",
-
-        # Research Station Names (common patterns)
-        "Hubbard Brook Experimental Forest",
-        "Coweeta Hydrologic Laboratory",
-        "H.J. Andrews Experimental Forest",
-
-        # Universities & Research Areas (often study sites)
-        "Stanford University",
-        "University of California",
-        "Woods Hole",
-        "Friday Harbor",
-    ]
+        locations_file = cls.DATA_DIR / "geographic_locations.jsonl"
+        if locations_file.exists():
+            with open(locations_file) as f:
+                for line in f:
+                    if line.strip():
+                        data = json.loads(line)
+                        cls.GEOGRAPHIC_LOCATIONS.append(data["text"])
+        else:
+            # Fallback to minimal set if file not found
+            cls.GEOGRAPHIC_LOCATIONS = [
+                "Yellowstone National Park",
+                "Amazon Rainforest",
+                "Great Barrier Reef",
+            ]
 
     # Patterns to expand location names
     LOCATION_MODIFIERS: ClassVar[list[str]] = [
@@ -143,6 +75,9 @@ class MultiWordLocationMatcher:
         """
         self.name = name
         self.nlp = nlp
+
+        # Phase 1: Load geographic locations from JSONL file
+        self._load_geographic_locations()
 
         # Initialize PhraseMatcher
         self.matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
@@ -207,61 +142,22 @@ class MultiWordLocationMatcher:
             if overlaps:
                 continue
 
+            # Phase 1.4: Use MARESS_MULTIWORD_LOC label to avoid namespace collisions
             # Create entity span
             try:
-                ent_span = Span(doc, start, end, label="MULTIWORD_LOCATION")
+                ent_span = Span(doc, start, end, label="MARESS_MULTIWORD_LOC")
                 ent_span._.is_multiword_location = True
                 ent_span._.location_type = self.nlp.vocab.strings[match_id].lower()
                 new_ents.append(ent_span)
             except ValueError:
                 continue
 
-        # Merge with existing entities
+        # Phase 1: Use spaCy's filter_spans() instead of manual overlap filtering
+        # filter_spans automatically keeps longest spans and removes overlaps
         all_ents = list(doc.ents) + new_ents
-        doc.ents = self._filter_overlapping_entities(all_ents)
+        doc.ents = filter_spans(all_ents)
 
         return doc
-
-    def _filter_overlapping_entities(self, entities: list[Span]) -> tuple[Span, ...]:
-        """Filter overlapping entities, preferring longer spans.
-
-        Args:
-            entities: List of entity spans
-
-        Returns:
-            Tuple of non-overlapping entities
-        """
-        if not entities:
-            return tuple()
-
-        # Priority: longer spans preferred, then by entity type
-        priority = {
-            "STUDY_SITE": 5,
-            "COORDINATE": 4,
-            "MULTIWORD_LOCATION": 3,
-            "SPATIAL_RELATION": 2,
-        }
-
-        # Sort by: length (longest first), priority, position
-        sorted_ents = sorted(
-            entities,
-            key=lambda e: (
-                -(e.end - e.start),
-                -priority.get(e.label_, 1),
-                e.start
-            )
-        )
-
-        filtered = []
-        occupied_positions = set()
-
-        for ent in sorted_ents:
-            positions = set(range(ent.start, ent.end))
-            if not positions.intersection(occupied_positions):
-                filtered.append(ent)
-                occupied_positions.update(positions)
-
-        return tuple(sorted(filtered, key=lambda e: e.start))
 
     def add_custom_locations(self, locations: list[str]) -> None:
         """Add custom location phrases to the matcher.

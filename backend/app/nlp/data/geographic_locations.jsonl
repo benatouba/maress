@@ -1,0 +1,78 @@
+{"text": "Yellowstone National Park", "category": "park", "priority": 1.0}
+{"text": "Yosemite National Park", "category": "park", "priority": 1.0}
+{"text": "Grand Canyon National Park", "category": "park", "priority": 1.0}
+{"text": "Great Smoky Mountains National Park", "category": "park", "priority": 1.0}
+{"text": "Rocky Mountain National Park", "category": "park", "priority": 1.0}
+{"text": "Zion National Park", "category": "park", "priority": 1.0}
+{"text": "Acadia National Park", "category": "park", "priority": 1.0}
+{"text": "Olympic National Park", "category": "park", "priority": 1.0}
+{"text": "Glacier National Park", "category": "park", "priority": 1.0}
+{"text": "Mount Rainier National Park", "category": "park", "priority": 1.0}
+{"text": "Sequoia National Park", "category": "park", "priority": 1.0}
+{"text": "Denali National Park", "category": "park", "priority": 1.0}
+{"text": "Everglades National Park", "category": "park", "priority": 1.0}
+{"text": "Death Valley National Park", "category": "park", "priority": 1.0}
+{"text": "Joshua Tree National Park", "category": "park", "priority": 1.0}
+{"text": "Great Barrier Reef", "category": "natural_feature", "priority": 0.9}
+{"text": "Amazon Rainforest", "category": "natural_feature", "priority": 0.9}
+{"text": "Sahara Desert", "category": "natural_feature", "priority": 0.9}
+{"text": "Mount Everest", "category": "natural_feature", "priority": 0.9}
+{"text": "Mount Hood", "category": "natural_feature", "priority": 0.9}
+{"text": "Mount St. Helens", "category": "natural_feature", "priority": 0.9}
+{"text": "Mount Shasta", "category": "natural_feature", "priority": 0.9}
+{"text": "Mount Whitney", "category": "natural_feature", "priority": 0.9}
+{"text": "Lake Tahoe", "category": "natural_feature", "priority": 0.9}
+{"text": "Lake Michigan", "category": "natural_feature", "priority": 0.9}
+{"text": "Lake Superior", "category": "natural_feature", "priority": 0.9}
+{"text": "Great Salt Lake", "category": "natural_feature", "priority": 0.9}
+{"text": "Chesapeake Bay", "category": "natural_feature", "priority": 0.9}
+{"text": "San Francisco Bay", "category": "natural_feature", "priority": 0.9}
+{"text": "Puget Sound", "category": "natural_feature", "priority": 0.9}
+{"text": "Columbia River", "category": "natural_feature", "priority": 0.9}
+{"text": "Colorado River", "category": "natural_feature", "priority": 0.9}
+{"text": "Mississippi River", "category": "natural_feature", "priority": 0.9}
+{"text": "Missouri River", "category": "natural_feature", "priority": 0.9}
+{"text": "Rio Grande", "category": "natural_feature", "priority": 0.9}
+{"text": "Hudson River", "category": "natural_feature", "priority": 0.9}
+{"text": "Potomac River", "category": "natural_feature", "priority": 0.9}
+{"text": "Willamette River", "category": "natural_feature", "priority": 0.9}
+{"text": "Snake River", "category": "natural_feature", "priority": 0.9}
+{"text": "Sacramento River", "category": "natural_feature", "priority": 0.9}
+{"text": "Columbia River Gorge", "category": "natural_feature", "priority": 0.9}
+{"text": "Cascade Range", "category": "natural_feature", "priority": 0.9}
+{"text": "Sierra Nevada", "category": "natural_feature", "priority": 0.9}
+{"text": "Rocky Mountains", "category": "natural_feature", "priority": 0.9}
+{"text": "Appalachian Mountains", "category": "natural_feature", "priority": 0.9}
+{"text": "Great Plains", "category": "natural_feature", "priority": 0.9}
+{"text": "Mojave Desert", "category": "natural_feature", "priority": 0.9}
+{"text": "Sonoran Desert", "category": "natural_feature", "priority": 0.9}
+{"text": "Chihuahuan Desert", "category": "natural_feature", "priority": 0.9}
+{"text": "San Francisco Bay Area", "category": "urban_region", "priority": 0.85}
+{"text": "Greater Los Angeles", "category": "urban_region", "priority": 0.85}
+{"text": "New York Metropolitan Area", "category": "urban_region", "priority": 0.85}
+{"text": "Washington Metropolitan Area", "category": "urban_region", "priority": 0.85}
+{"text": "Chicago Metropolitan Area", "category": "urban_region", "priority": 0.85}
+{"text": "Portland Metropolitan Area", "category": "urban_region", "priority": 0.85}
+{"text": "Seattle Metropolitan Area", "category": "urban_region", "priority": 0.85}
+{"text": "Pacific Northwest", "category": "region", "priority": 0.8}
+{"text": "New England", "category": "region", "priority": 0.8}
+{"text": "Mid-Atlantic", "category": "region", "priority": 0.8}
+{"text": "Deep South", "category": "region", "priority": 0.8}
+{"text": "Great Lakes Region", "category": "region", "priority": 0.8}
+{"text": "Gulf Coast", "category": "region", "priority": 0.8}
+{"text": "Atlantic Coast", "category": "region", "priority": 0.8}
+{"text": "Pacific Coast", "category": "region", "priority": 0.8}
+{"text": "Central Valley", "category": "region", "priority": 0.8}
+{"text": "Silicon Valley", "category": "region", "priority": 0.8}
+{"text": "Napa Valley", "category": "region", "priority": 0.8}
+{"text": "Willamette Valley", "category": "region", "priority": 0.8}
+{"text": "Harvard Forest", "category": "research_site", "priority": 1.0}
+{"text": "Hubbard Brook Experimental Forest", "category": "research_site", "priority": 1.0}
+{"text": "Konza Prairie", "category": "research_site", "priority": 1.0}
+{"text": "Cedar Creek Ecosystem Science Reserve", "category": "research_site", "priority": 1.0}
+{"text": "Coweeta Hydrologic Laboratory", "category": "research_site", "priority": 1.0}
+{"text": "H.J. Andrews Experimental Forest", "category": "research_site", "priority": 1.0}
+{"text": "Jornada Experimental Range", "category": "research_site", "priority": 1.0}
+{"text": "Niwot Ridge", "category": "research_site", "priority": 1.0}
+{"text": "Sevilleta National Wildlife Refuge", "category": "research_site", "priority": 1.0}
+{"text": "Toolik Field Station", "category": "research_site", "priority": 1.0}

@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from app.nlp.model_config import model_config
 from app.nlp.nlp_logger import logger
 
 if TYPE_CHECKING:
@@ -131,7 +132,10 @@ class ContextExtractor:
         self.max_paragraph_chars = max_paragraph_chars
 
     def extract_context(
-        self, doc: Doc, entity_span: Span, section: str = "unknown"
+        self,
+        doc: Doc,
+        entity_span: Span,
+        section: str = "unknown",
     ) -> EnrichedContext:
         """Extract enriched context for an entity.
 
@@ -149,7 +153,8 @@ class ContextExtractor:
 
         # Get nearby entities
         preceding_entities, following_entities = self._get_nearby_entities(
-            doc, entity_span
+            doc,
+            entity_span,
         )
 
         # Extract geographic keywords
@@ -230,7 +235,9 @@ class ContextExtractor:
             return span.sent.text if hasattr(span, "sent") else span.text
 
     def _get_nearby_entities(
-        self, doc: Doc, span: Span
+        self,
+        doc: Doc,
+        span: Span,
     ) -> tuple[list[str], list[str]]:
         """Extract named entities near the coordinate.
 
@@ -306,7 +313,9 @@ class ContextExtractor:
         return None
 
     def _calculate_distance_from_section_start(
-        self, span: Span, section: str
+        self,
+        span: Span,
+        section: str,
     ) -> int:
         """Calculate character distance from section start.
 
@@ -341,7 +350,10 @@ class ContextExtractor:
             return 0
 
     def _assess_context_quality(
-        self, sentence: str, paragraph: str, keywords: list[str]
+        self,
+        sentence: str,
+        paragraph: str,
+        keywords: list[str],
     ) -> float:
         """Assess the quality of extracted context.
 
@@ -380,7 +392,7 @@ class ContextExtractor:
 if __name__ == "__main__":
     import spacy
 
-    nlp = spacy.load("en_core_web_lg")
+    nlp = spacy.load(model_config.SPACY_MODEL)
     extractor = ContextExtractor()
 
     # Test text

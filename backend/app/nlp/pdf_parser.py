@@ -26,13 +26,15 @@ from docling.datamodel.pipeline_options import (
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from spacy_layout import spaCyLayout
 
+from app.core.config import settings
+
 if TYPE_CHECKING:
     from docling_core.types import DoclingDocument
     from spacy.language import Language
     from spacy.tokens import Doc
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(settings.LOG_LEVEL)
 
 
 class OCRBackend(str, Enum):
@@ -323,7 +325,7 @@ class DoclingPDFParser(PDFParser):
             )
 
         except Exception as e:
-            logger.error(f"PyMuPDF parsing failed: {e!s}", exc_info=True)
+            logger.exception("PyMuPDF parsing failed: ")
             return ParseResult(
                 doc=None,
                 backend_used="pymupdf",

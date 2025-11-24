@@ -1,0 +1,31 @@
+{
+  "description": "Prepositions that link verbs to locations in study site descriptions",
+  "version": "1.0",
+  "last_updated": "2025-01-19",
+  "prepositions": [
+    "at",
+    "in",
+    "near",
+    "from",
+    "within",
+    "along",
+    "around",
+    "across",
+    "throughout",
+    "over",
+    "on"
+  ],
+  "usage_notes": {
+    "at": "Specific locations (e.g., 'conducted at the station')",
+    "in": "General locations (e.g., 'sites in California')",
+    "near": "Proximity (e.g., 'near the coast')",
+    "from": "Origin/source (e.g., 'collected from sites')",
+    "within": "Containment (e.g., 'within the basin')",
+    "along": "Linear features (e.g., 'along the river')",
+    "around": "Surrounding area (e.g., 'around the lake')",
+    "across": "Spanning (e.g., 'across the region')",
+    "throughout": "Distributed (e.g., 'throughout the area')",
+    "over": "Scope (e.g., 'focus over the domain')",
+    "on": "Focus (e.g., 'focus on the basin')"
+  }
+}

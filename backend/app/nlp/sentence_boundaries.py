@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from spacy.language import Language
 from spacy.symbols import ORTH
 
+from app.nlp.model_config import model_config
 from app.nlp.nlp_logger import logger
 
 if TYPE_CHECKING:
@@ -93,7 +94,8 @@ SCIENTIFIC_ABBREVIATIONS = [
 
 
 def add_scientific_abbreviations(nlp: Language) -> Language:
-    """Add scientific abbreviations as special cases to prevent sentence breaks.
+    """Add scientific abbreviations as special cases to prevent sentence
+    breaks.
 
     Args:
         nlp: spaCy Language model
@@ -197,7 +199,7 @@ if __name__ == "__main__":
     import spacy
 
     # Load model and improve sentence boundaries
-    nlp = spacy.load("en_core_web_lm")
+    nlp = spacy.load(model_config.SPACY_MODEL)
     nlp = improve_sentence_boundaries(nlp)
 
     # Test cases

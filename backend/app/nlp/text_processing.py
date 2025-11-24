@@ -588,6 +588,36 @@ class CoordinateParser:
                         m.group(6),
                     ),
                 ),
+                # Degree as "u", minute as "9": 13 u 13 9 09 S, 74 u 57 9 45 W
+                (
+                    r"(\d+)\s*u\s*(\d+)\s*9\s*(\d+\.?\d*)\s*([NS])\s*,?\s*(\d+)\s*u\s*(\d+)\s*9\s*(\d+\.?\d*)\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2)), float(m.group(3))],
+                        m.group(4),
+                        [float(m.group(5)), float(m.group(6)), float(m.group(7))],
+                        m.group(8),
+                    ),
+                ),
+                # Degree as "u", minute as "9" (DM only, no seconds): 13 u 13 9 S
+                (
+                    r"(\d+)\s*u\s*(\d+)\s*9\s*([NS])\s*,?\s*(\d+)\s*u\s*(\d+)\s*9\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+                # Degree as "u" (without seconds): 13 u 13' S or 13u13'S
+                (
+                    r"(\d+)\s*u\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*u\s*(\d+)\s*[\'′]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
                 # === WELL-FORMED PATTERNS (Priority 2) ===
                 # Simple decimal pairs: 45.123, -122.456
                 (

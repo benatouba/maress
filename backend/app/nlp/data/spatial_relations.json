@@ -1,0 +1,123 @@
+{
+  "description": "Vocabulary for spatial relation patterns in geographic texts",
+  "version": "1.0",
+  "last_updated": "2025-01-19",
+  "categories": {
+    "distance_units": {
+      "description": "Units of distance measurement",
+      "units": [
+        "km",
+        "kilometers",
+        "kilometres",
+        "m",
+        "meters",
+        "metres",
+        "miles",
+        "mi"
+      ]
+    },
+    "cardinal_directions": {
+      "description": "Cardinal and ordinal directions",
+      "directions": [
+        "north",
+        "south",
+        "east",
+        "west",
+        "n",
+        "s",
+        "e",
+        "w",
+        "northeast",
+        "northwest",
+        "southeast",
+        "southwest",
+        "ne",
+        "nw",
+        "se",
+        "sw"
+      ]
+    },
+    "hydrological_directions": {
+      "description": "Directions specific to water features",
+      "directions": [
+        "upstream",
+        "downstream",
+        "offshore",
+        "onshore",
+        "inland"
+      ]
+    },
+    "proximity_prepositions": {
+      "description": "Prepositions indicating proximity",
+      "prepositions": [
+        "near",
+        "nearby",
+        "close",
+        "adjacent",
+        "next",
+        "beside",
+        "neighboring",
+        "neighbouring"
+      ]
+    },
+    "containment_prepositions": {
+      "description": "Prepositions indicating containment or surrounding",
+      "prepositions": [
+        "within",
+        "inside",
+        "outside",
+        "around",
+        "surrounding"
+      ]
+    },
+    "directional_prepositions": {
+      "description": "Prepositions for directional relations",
+      "prepositions": [
+        "of",
+        "from",
+        "to"
+      ]
+    },
+    "location_prepositions": {
+      "description": "General location prepositions",
+      "prepositions": [
+        "in",
+        "at",
+        "near",
+        "on",
+        "along",
+        "across",
+        "through",
+        "over"
+      ]
+    },
+    "location_verbs": {
+      "description": "Verbs specifically for describing spatial location",
+      "verbs": [
+        "located",
+        "situated",
+        "positioned",
+        "found",
+        "established",
+        "placed",
+        "set"
+      ]
+    },
+    "location_descriptors": {
+      "description": "Nouns that describe spatial regions or areas",
+      "descriptors": [
+        "region",
+        "area",
+        "vicinity",
+        "basin",
+        "zone",
+        "sector",
+        "district",
+        "territory",
+        "locale",
+        "neighborhood",
+        "neighbourhood"
+      ]
+    }
+  }
+}

@@ -10,6 +10,7 @@ from spacy.language import Language
 from spacy.matcher import Matcher
 from spacy.pipeline import EntityRuler
 from spacy.tokens import Doc, Span
+from spacy.util import filter_spans  # Phase 1: Use spaCy's optimized overlap filtering
 
 
 class CoordinateMatcher:
@@ -108,74 +109,88 @@ class CoordinateMatcher:
         These patterns handle character-level coordinate formats that don't
         align with token boundaries (DMS, special symbols, PDF artifacts).
         EntityRuler integrates regex patterns into spaCy's entity system.
+
+        Phase 1.4: Use MARESS_COORDINATE label to avoid namespace collisions.
         """
         patterns = [
             # === WELL-FORMED DMS/DM FORMATS ===
             # Degrees Minutes Seconds: 45°12'30"N, 122°30'15"W
             {
-                "label": "COORDINATE",
+                "label": "MARESS_COORDINATE",
                 "pattern": r"\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[EW]",
                 "id": "dms",
             },
             # Degrees Minutes: 45°12'N, 122°30'W
             {
-                "label": "COORDINATE",
+                "label": "MARESS_COORDINATE",
                 "pattern": r"\d+\s*[°º]\s*\d+\s*[\'′]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*[EW]",
                 "id": "dm",
             },
             # Decimal degrees with symbol: 45.123°N, 122.456°W
             {
-                "label": "COORDINATE",
+                "label": "MARESS_COORDINATE",
                 "pattern": r"-?\d+\.\d+\s*°\s*[NS]?\s*,?\s*-?\d+\.\d+\s*°\s*[EW]?",
                 "id": "dd_symbol",
             },
             # === MALFORMED PATTERNS - PDF Extraction Artifacts ===
             # Degree as "7" (OCR corruption): 45 7 12'N, 122 7 30'W
             {
-                "label": "COORDINATE",
-                "pattern": r"\d+\s+7\s+\d+\s*[\'′b]\s*[NS]\s*,?\s*\d+\s+7\s+\d+\s*[\'′b]\s*[EW]",
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s+7\s+\d+\s*[\'′b9]\s*[NS]\s*,?\s*\d+\s+7\s+\d+\s*[\'′b9]\s*[EW]",
                 "id": "dm_deg7",
             },
             # Degree as "o" or "O": 45o12'N, 122o30'W
             {
-                "label": "COORDINATE",
-                "pattern": r"\d+\s*[oO]\s*\d+\s*[\'′]\s*[NS]\s*,?\s*\d+\s*[oO]\s*\d+\s*[\'′]\s*[EW]",
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[oO]\s*\d+\s*[\'′9]\s*[NS]\s*,?\s*\d+\s*[oO]\s*\d+\s*[\'′9]\s*[EW]",
                 "id": "dm_dego",
+            },
+            # Degree as "u" (OCR corruption): 13 u 13 9 09 S, 74 u 57 9 45 W
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[EW]",
+                "id": "dm_degu",
             },
             # Minute as "b" (OCR corruption): 45°12bN, 122°30bW
             {
-                "label": "COORDINATE",
-                "pattern": r"\d+\s*[°7oO]\s*\d+\s*[b]\s*[NS]\s*,?\s*\d+\s*[°7oO]\s*\d+\s*[b]\s*[EW]",
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[EW]",
                 "id": "dm_minb",
             },
             # Compact decimal minutes: 00°01'.72N, 77°59'.13E
             {
-                "label": "COORDINATE",
-                "pattern": r"\d+\s*[°7oO]\s*\d+\s*[\'′b]\.?\d*\s*[NS]\s*,?\s*\d+\s*[°7oO]\s*\d+\s*[\'′b]\.?\d*\s*[EW]",
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[EW]",
                 "id": "dm_compact",
+            },
+            # DMS with "u" degree and "9" minute: 13 u 13 9 09 S (full format with seconds)
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[EW]",
+                "id": "dms_u_9",
             },
             # === SIMPLE FORMATS ===
             # Decimal pairs in parentheses: (45.123, -122.456)
             {
-                "label": "COORDINATE",
+                "label": "MARESS_COORDINATE",
                 "pattern": r"\(\s*-?\d+\.\d{2,}\s*,\s*-?\d+\.\d{2,}\s*\)",
                 "id": "parentheses",
             },
             # Decimal pairs in brackets: [45.123, -122.456]
             {
-                "label": "COORDINATE",
+                "label": "MARESS_COORDINATE",
                 "pattern": r"\[\s*-?\d+\.\d{2,}\s*,\s*-?\d+\.\d{2,}\s*\]",
                 "id": "brackets",
             },
             # Decimal with direction: 45.5 N, 122.3 W
             {
-                "label": "COORDINATE",
+                "label": "MARESS_COORDINATE",
                 "pattern": r"\d+\.\d+\s+[NS]\s*,?\s*\d+\.\d+\s+[EW]",
                 "id": "dd_direction",
             },
             # Signed decimals: +45.123, -122.456 or -45.123, 122.456
             {
-                "label": "COORDINATE",
+                "label": "MARESS_COORDINATE",
                 "pattern": r"[+-]?\d+\.\d{2,}\s*,\s*[+-]?\d+\.\d{2,}",
                 "id": "decimal_pair",
             },
@@ -207,48 +222,19 @@ class CoordinateMatcher:
             span._.coordinate_format = self.nlp.vocab.strings[match_id].lower()
             span._.coordinate_confidence = 0.90  # High confidence for structured patterns
 
+            # Phase 1.4: Use MARESS_COORDINATE label to avoid namespace collisions
             # Create entity span
-            ent_span = Span(doc, start, end, label="COORDINATE")
+            ent_span = Span(doc, start, end, label="MARESS_COORDINATE")
             ent_span._.coordinate_format = span._.coordinate_format
             ent_span._.coordinate_confidence = span._.coordinate_confidence
             new_ents.append(ent_span)
 
-        # Merge with existing entities, keeping longest spans
+        # Phase 1: Use spaCy's filter_spans() instead of manual overlap filtering
+        # filter_spans automatically keeps longest spans and removes overlaps
         all_ents = list(doc.ents) + new_ents
-        doc.ents = self._filter_overlapping_entities(all_ents)
+        doc.ents = filter_spans(all_ents)
 
         return doc
-
-    def _filter_overlapping_entities(self, entities: list[Span]) -> tuple[Span, ...]:
-        """Filter overlapping entities, keeping longest spans (greedy).
-
-        Args:
-            entities: List of entity spans
-
-        Returns:
-            Tuple of non-overlapping entities, sorted by position
-        """
-        if not entities:
-            return tuple()
-
-        # Sort by: length (longest first), then by start position
-        sorted_ents = sorted(
-            entities,
-            key=lambda e: (-(e.end - e.start), e.start)
-        )
-
-        filtered = []
-        occupied_positions = set()
-
-        for ent in sorted_ents:
-            # Check if any token position is already occupied
-            positions = set(range(ent.start, ent.end))
-            if not positions.intersection(occupied_positions):
-                filtered.append(ent)
-                occupied_positions.update(positions)
-
-        # Sort by document position for final output
-        return tuple(sorted(filtered, key=lambda e: e.start))
 
 
 # Register custom extensions for coordinate metadata

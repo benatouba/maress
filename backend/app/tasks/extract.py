@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.celery_app import celery
 from app.core.db import SessionLocal
@@ -62,6 +62,28 @@ def _extract_study_site_impl(
             "status": "skipped",
             "message": f"Item already has {len(existing_ids)} study site(s)",
         }
+
+    # Delete existing study sites and extraction results if forcing re-extraction
+    if force and item.study_sites:
+        logger.info("Force=True: Deleting %d existing study sites for item %s",
+                   len(item.study_sites), item_id)
+
+        # Delete all study sites for this item
+        for study_site in item.study_sites:
+            session.delete(study_site)
+
+        # Delete all extraction results for this item
+        extraction_results = session.exec(
+            select(ExtractionResult).where(ExtractionResult.item_id == item_uuid)
+        ).all()
+
+        logger.info("Deleting %d extraction results for item %s",
+                   len(extraction_results), item_id)
+        for extraction_result in extraction_results:
+            session.delete(extraction_result)
+
+        session.flush()  # Flush deletions before proceeding
+        logger.info("Deleted existing study sites and extraction results for item %s", item_id)
 
     if not item.attachment:
         logger.warning("Item %s has no attachment", item.id)

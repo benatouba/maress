@@ -4,11 +4,14 @@ This component uses spaCy's DependencyMatcher to find linguistic patterns
 that indicate study site mentions, following best practices for relation extraction.
 """
 
+import json
+from pathlib import Path
 from typing import ClassVar
 
 from spacy.language import Language
 from spacy.matcher import DependencyMatcher
 from spacy.tokens import Doc, Span
+from spacy.util import filter_spans  # Phase 1: Use spaCy's optimized overlap filtering
 
 
 class StudySiteDependencyMatcher:
@@ -24,31 +27,57 @@ class StudySiteDependencyMatcher:
     indicate study site mentions.
     """
 
-    # Verbs that indicate study site activities
-    STUDY_VERBS: ClassVar[set[str]] = {
-        "conduct", "perform", "carry out", "undertake",
-        "establish", "set up", "create", "install",
-        "locate", "position", "situate", "place",
-        "sample", "collect", "gather", "obtain",
-        "measure", "monitor", "observe", "record",
-        "study", "investigate", "examine", "analyze",
-        "survey", "assess", "evaluate",
-    }
+    # Phase 1: Vocabularies externalized to JSON files for easy updates
+    # These are loaded from backend/app/nlp/data/ directory
+    STUDY_VERBS: ClassVar[set[str]] = set()
+    LOCATION_PREPS: ClassVar[set[str]] = set()
+    SITE_NOUNS: ClassVar[set[str]] = set()
+    DATA_DIR: ClassVar[Path] = Path(__file__).parent / "data"
 
-    # Prepositions that link verbs to locations
-    LOCATION_PREPS: ClassVar[set[str]] = {
-        "at", "in", "near", "from", "within",
-        "along", "around", "across", "throughout",
-    }
+    @classmethod
+    def _load_vocabularies(cls) -> None:
+        """Load vocabularies from JSON files.
 
-    # Noun phrases that indicate study sites
-    SITE_NOUNS: ClassVar[set[str]] = {
-        "site", "sites", "location", "locations",
-        "area", "areas", "region", "regions",
-        "station", "stations", "plot", "plots",
-        "transect", "transects", "quadrat", "quadrats",
-        "point", "points", "spot", "spots",
-    }
+        Phase 1 Best Practice: Externalize vocabularies to JSON for:
+        - Easy updates without code changes
+        - Version control
+        - Domain-specific customization
+        - User contributions
+        """
+        if cls.STUDY_VERBS:  # Already loaded
+            return
+
+        # Load study verbs
+        verbs_file = cls.DATA_DIR / "study_verbs.json"
+        if verbs_file.exists():
+            with open(verbs_file) as f:
+                data = json.load(f)
+                for category in data["categories"].values():
+                    cls.STUDY_VERBS.update(category["verbs"])
+        else:
+            # Fallback to minimal set if file not found
+            cls.STUDY_VERBS = {"conduct", "perform", "collect", "study", "locate"}
+
+        # Load site nouns
+        nouns_file = cls.DATA_DIR / "site_nouns.json"
+        if nouns_file.exists():
+            with open(nouns_file) as f:
+                data = json.load(f)
+                for category in data["categories"].values():
+                    cls.SITE_NOUNS.update(category["nouns"])
+        else:
+            # Fallback to minimal set if file not found
+            cls.SITE_NOUNS = {"site", "sites", "area", "areas", "location", "locations"}
+
+        # Load location prepositions
+        preps_file = cls.DATA_DIR / "location_prepositions.json"
+        if preps_file.exists():
+            with open(preps_file) as f:
+                data = json.load(f)
+                cls.LOCATION_PREPS.update(data["prepositions"])
+        else:
+            # Fallback to minimal set if file not found
+            cls.LOCATION_PREPS = {"at", "in", "near", "from", "within"}
 
     def __init__(self, nlp: Language, name: str = "study_site_dependency_matcher") -> None:
         """Initialize the study site dependency matcher.
@@ -59,6 +88,9 @@ class StudySiteDependencyMatcher:
         """
         self.name = name
         self.nlp = nlp
+
+        # Phase 1: Load vocabularies from JSON files
+        self._load_vocabularies()
 
         # Initialize DependencyMatcher
         self.matcher = DependencyMatcher(nlp.vocab)
@@ -232,6 +264,112 @@ class StudySiteDependencyMatcher:
         ]
         self.matcher.add("SITE_NOUN_PASSIVE_LOCATION", [pattern5])
 
+        # Pattern 6: "We/This study focus(es) on [LOCATION]"
+        # Example: "We focus on the Amazon basin"
+        # Common in earth system papers for describing study scope
+        pattern6 = [
+            {
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["focus", "concentrate", "center", "centre"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": "on",
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("FOCUS_ON_LOCATION", [pattern6])
+
+        # Pattern 7: "Data/Measurements were collected from/in [LOCATION]"
+        # Example: "Data were collected from sites in California"
+        # Captures passive data collection constructions
+        pattern7 = [
+            {
+                "RIGHT_ID": "data_noun",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["data", "datum", "measurement", "observation", "sample"]},
+                }
+            },
+            {
+                "LEFT_ID": "data_noun",
+                "REL_OP": ">",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "DEP": {"IN": ["relcl", "acl", "ROOT"]},
+                    "LEMMA": {"IN": ["collect", "gather", "obtain", "take", "record"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": list(self.LOCATION_PREPS)},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("DATA_COLLECTED_LOCATION", [pattern7])
+
+        # Pattern 8: Domain/Region coverage patterns
+        # Example: "The domain covers California" or "The region extends from..."
+        # Common in climate modeling and regional studies
+        pattern8 = [
+            {
+                "RIGHT_ID": "domain_noun",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["domain", "region", "area", "model"]},
+                }
+            },
+            {
+                "LEFT_ID": "domain_noun",
+                "REL_OP": ">",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["cover", "span", "extend", "encompass", "include"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": {"IN": ["dobj", "pobj"]},
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("DOMAIN_COVERAGE_LOCATION", [pattern8])
+
     def __call__(self, doc: Doc) -> Doc:
         """Process a Doc object and add study site entities.
 
@@ -272,9 +410,10 @@ class StudySiteDependencyMatcher:
                 # Create a span from the token
                 span = doc[location_token.i:location_token.i + 1]
 
-            # Create entity span with STUDY_SITE label
+            # Phase 1.4: Use MARESS_STUDY_SITE label to avoid namespace collisions
+            # Create entity span with MARESS_STUDY_SITE label
             try:
-                ent_span = Span(doc, span.start, span.end, label="STUDY_SITE")
+                ent_span = Span(doc, span.start, span.end, label="MARESS_STUDY_SITE")
                 ent_span._.dependency_pattern = self.nlp.vocab.strings[match_id]
                 ent_span._.study_site_confidence = 0.90  # High confidence from dependency patterns
                 new_ents.append(ent_span)
@@ -282,53 +421,12 @@ class StudySiteDependencyMatcher:
                 # Skip if span creation fails
                 continue
 
-        # Merge with existing entities
+        # Phase 1: Use spaCy's filter_spans() instead of manual overlap filtering
+        # filter_spans automatically handles priority and removes overlaps
         all_ents = list(doc.ents) + new_ents
-        doc.ents = self._filter_overlapping_entities(all_ents)
+        doc.ents = filter_spans(all_ents)
 
         return doc
-
-    def _filter_overlapping_entities(self, entities: list[Span]) -> tuple[Span, ...]:
-        """Filter overlapping entities, keeping highest priority.
-
-        Priority: STUDY_SITE > COORDINATE > SPATIAL_RELATION > others
-
-        Args:
-            entities: List of entity spans
-
-        Returns:
-            Tuple of non-overlapping entities
-        """
-        if not entities:
-            return tuple()
-
-        # Define priority order
-        priority = {
-            "STUDY_SITE": 4,
-            "COORDINATE": 3,
-            "SPATIAL_RELATION": 2,
-        }
-
-        # Sort by: priority (highest first), length (longest first), position
-        sorted_ents = sorted(
-            entities,
-            key=lambda e: (
-                -priority.get(e.label_, 1),
-                -(e.end - e.start),
-                e.start
-            )
-        )
-
-        filtered = []
-        occupied_positions = set()
-
-        for ent in sorted_ents:
-            positions = set(range(ent.start, ent.end))
-            if not positions.intersection(occupied_positions):
-                filtered.append(ent)
-                occupied_positions.update(positions)
-
-        return tuple(sorted(filtered, key=lambda e: e.start))
 
 
 # Register custom extensions

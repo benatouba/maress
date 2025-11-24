@@ -1,0 +1,77 @@
+{
+  "description": "Verbs that indicate study site activities in earth system papers",
+  "version": "1.0",
+  "last_updated": "2025-01-19",
+  "categories": {
+    "location_establishment": {
+      "description": "Verbs indicating location or establishment of study sites",
+      "verbs": [
+        "conduct",
+        "perform",
+        "carry out",
+        "undertake",
+        "establish",
+        "set up",
+        "create",
+        "install",
+        "locate",
+        "position",
+        "situate",
+        "place"
+      ]
+    },
+    "data_collection": {
+      "description": "Verbs indicating data collection activities",
+      "verbs": [
+        "sample",
+        "collect",
+        "gather",
+        "obtain",
+        "measure",
+        "monitor",
+        "observe",
+        "record"
+      ]
+    },
+    "study_analysis": {
+      "description": "Verbs indicating study or analysis activities",
+      "verbs": [
+        "study",
+        "investigate",
+        "examine",
+        "analyze",
+        "analyse",
+        "survey",
+        "assess",
+        "evaluate"
+      ]
+    },
+    "focus_scope": {
+      "description": "Verbs indicating study scope (e.g., 'We focus on...')",
+      "verbs": [
+        "focus",
+        "concentrate",
+        "center",
+        "centre"
+      ]
+    },
+    "coverage": {
+      "description": "Verbs indicating domain/region coverage",
+      "verbs": [
+        "cover",
+        "span",
+        "extend",
+        "encompass",
+        "include"
+      ]
+    },
+    "passive_forms": {
+      "description": "Passive forms commonly used in scientific writing",
+      "verbs": [
+        "base",
+        "found",
+        "situate"
+      ]
+    }
+  }
+}
