@@ -440,19 +440,28 @@ def start_extract_study_site(
         # No specific items requested - fetch all items
         items.extend(read_db_items(session, current_user, skip, limit)[0])
 
-    if not request.force:
+    # Determine force behavior based on number of items
+    # Single item: Always force re-extraction (delete existing and reprocess)
+    # Multiple items: Skip items with existing study sites (unless explicit force=True)
+    is_single_item = request.item_ids is not None and len(request.item_ids) == 1
+    should_force = request.force or is_single_item
+
+    if not should_force:
         # Only process items without a study site
+        items_with_sites = [item for item in items if item.study_sites]
         items = [item for item in items if not item.study_sites]
+        if items_with_sites:
+            logger.info("Skipping %d items that already have study sites", len(items_with_sites))
 
     # Enqueue tasks
     enqueued: list[TaskRef] = []
     for item in items:
-        logger.info("Enqueuing extraction task for item %s", item.id)
+        logger.info("Enqueuing extraction task for item %s (force=%s)", item.id, should_force)
         async_result = extract_study_site_task.delay(
             item_id=str(item.id),
             user_id=str(current_user.id),
             is_superuser=bool(current_user.is_superuser),
-            force=bool(request.force),
+            force=bool(should_force),
         )
         enqueued.append(
             TaskRef(
