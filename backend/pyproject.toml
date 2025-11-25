@@ -1,6 +1,6 @@
 [project]
 dependencies = [
-  "fastapi[standard-no-fastapi-cloud-cli]>=0.122.0,<1.0.0",
+  "fastapi[standard-no-fastapi-cloud-cli]>=0.123.0,<1.0.0",
   "python-multipart<1.0.0,>=0.0.20",
   "email-validator<3.0.0,>=2.3.0",
   "tenacity>=9.1.0",
@@ -28,7 +28,7 @@ dependencies = [
   "yara-python>=4.5.4",
   "spacy-layout>=0.0.12",
   "alembic-postgresql-enum>=1.8.0",
-  "celery[redis]>=5.5.3",
+  "celery[redis]>=5.6.0",
   "redis>=5.2.1",
   "flower>=2.0.1",
   "onnxruntime>=1.23.2", # needed for RapidOCR in pdf parsing
