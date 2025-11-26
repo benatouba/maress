@@ -12,6 +12,7 @@ from pydantic import (
 )
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from logging import Logger
 
 
 def parse_cors(v: list[Any] | str) -> list[str] | str:
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
         extra="ignore",
     )
+    LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = secrets.token_urlsafe(32)
     # 60 minutes * 24 hours * 8 days = 8 days
@@ -101,7 +103,7 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str
 
     # NLP Configuration
-    SPACY_MODEL: str = "en_core_web_lg"
+    # SPACY_MODEL: str = "en_core_web_lg"  # Set up in nlp.model_config.py
 
     # Geocoding Configuration
     GEOCODING_CACHE_TTL: int = 60 * 60 * 24 * 30  # 30 days in seconds
