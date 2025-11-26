@@ -1,9 +1,7 @@
 from typing import ClassVar
 
 import spacy
-from transformers import pipeline
 
-from app.nlp.context_extraction import ContextExtractor
 from app.nlp.extractors import (
     BaseEntityExtractor,
     CoordinateExtractor,
@@ -14,7 +12,6 @@ from app.nlp.extractors import (
 from app.nlp.model_config import ModelConfig
 from app.nlp.orchestrator import StudySiteExtractionPipeline
 from app.nlp.pdf_parser import DoclingPDFParser
-from app.nlp.quality_assessment import TextQualityAssessor
 from app.nlp.sentence_boundaries import improve_sentence_boundaries
 
 
@@ -89,7 +86,7 @@ class PipelineFactory:
                 logger.warning(
                     "scispacy model detected (%s) but scispacy package not installed. "
                     "Install with: pip install scispacy",
-                    config.SPACY_MODEL
+                    config.SPACY_MODEL,
                 )
 
         # Add multiword location matcher BEFORE NER
@@ -118,6 +115,7 @@ class PipelineFactory:
     def create_pipeline(
         config: ModelConfig | None = None,
         extractors: list[BaseEntityExtractor] | None = None,
+        *,
         enable_geocoding: bool = True,
         enable_clustering: bool = True,
         enable_table_extraction: bool = True,
@@ -163,7 +161,7 @@ class PipelineFactory:
         # NOTE: Lemmatizer is required for custom matchers using LEMMA attributes (Phase 1 patterns)
         shared_nlp = spacy.load(
             config.SPACY_MODEL,
-            disable=["textcat"]
+            disable=["textcat"],
         )
 
         # Phase 1 Best Practice: Add all custom components upfront (no runtime additions)
@@ -211,25 +209,25 @@ class PipelineFactory:
     @staticmethod
     def create_pipeline_for_api(
         config: ModelConfig,  # Required - no default
+        *,
         use_spacy_coordinate_matcher: bool = True,
     ) -> StudySiteExtractionPipeline:
-        """Create pipeline optimized for API use.
+        """Create pipeline optimised for API use.
 
         This configuration:
         - Enables all Phase 1 improvements (geocoding, clustering, tables)
         - Enables all Phase 2 improvements (quality, sentences, context)
         - Enables Phase 3 spaCy coordinate matcher (handles malformed coordinates)
         - Uses fast extractors (no transformer models)
-        - Optimized for production use
+        - Optimised for production use
 
         Args:
             config: Model configuration (required, must be provided by caller)
             use_spacy_coordinate_matcher: Use spaCy-integrated coordinate matching
 
         Returns:
-            API-optimized pipeline
+            API-optimised pipeline
         """
-
         # Choose coordinate extractor
         if use_spacy_coordinate_matcher:
             coord_extractor = SpaCyCoordinateExtractor(config)
