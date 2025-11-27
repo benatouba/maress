@@ -1,10 +1,4 @@
 words = [
-    "completeopt",
-    "isort",
-    "jsonls",
-    "menuone",
-    "pycodestyle",
-    "pyflakes",
-    "pyproject",
     "ress",
+    "vitest",
 ]
