@@ -30,19 +30,18 @@
               ref="formRef"
               v-model="formValid"
               @submit.prevent="handleLogin">
-              <!-- Email Field -->
               <v-text-field
                 v-model="email"
                 :rules="emailRules"
                 label="Email Address"
                 placeholder="Enter your email"
-                type="email"
+                type="text"
                 variant="outlined"
                 prepend-inner-icon="mdi-email"
                 density="comfortable"
                 class="mb-3"
                 :disabled="authStore.loading"
-                autocomplete="email"
+                autocomplete="username"
                 required />
 
               <!-- Password Field -->
@@ -58,6 +57,7 @@
                 density="comfortable"
                 class="mb-2"
                 :disabled="authStore.loading"
+                name="password"
                 autocomplete="current-password"
                 required
                 @click:append-inner="showPassword = !showPassword" />
