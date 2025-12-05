@@ -2355,9 +2355,6 @@ When adding features, update:
 - **Project README:** `/README.md`
 - **Backend README:** `/backend/README.md`
 - **Frontend README:** `/frontend/README.md`
-- **Backend Development Guide:** `/backend/CLAUDE.md`
-- **sciSpaCy Guide:** `/backend/SCISPACY_GUIDE.md`
-- **Study Sites API:** `/backend/app/api/routes/STUDY_SITES_API.md`
 
 ### External Documentation
 
@@ -2403,6 +2400,6 @@ Good luck, and happy coding!
 
 ---
 
-**Last Updated:** 2024-12-05
-**Version:** 1.0
+**Last Updated:** 2025-12-05
+**Version:** 0.1.0
 **Authors:** Generated based on codebase exploration
