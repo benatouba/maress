@@ -78,7 +78,6 @@ dist
 
 # Gatsby files
 .cache/
-public
 
 # vuepress build output
 .vuepress/dist
@@ -89,9 +88,6 @@ public
 # Storybook build outputs
 .out
 .storybook-out
-
-# Hexo build output
-public/
 
 # Stylelint cache
 .stylelintcache
