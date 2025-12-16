@@ -98,7 +98,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     try {
       const params = { limit }
 
-      const response = await axios.get('/items', { params })
+      const response = await axios.get('/items/', { params })
       items.value = response.data
       itemsCount.value = response.data.length
       return items.value
