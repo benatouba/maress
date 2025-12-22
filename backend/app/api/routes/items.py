@@ -245,9 +245,12 @@ def import_zotero_items(
         local_items = []
     local_keys = [item.key for item in local_items]
     new_items = []
+    i =0
     for item_data in zot_items_data:
-        if item_data["key"] in local_keys or item_data["itemType"] in ["note", "attachment"]:
+        if item_data["key"] in local_keys or item_data.get("parentItem", None) is not None:
             continue
+        i += 1
+        logger.info("Processing Zotero item %d/%d: %s", i, len(zot_items_data), item_data.get("title", "No Title"))
 
         # Extract creators before validating the item
         creators_data = item_data.pop("creators", [])
