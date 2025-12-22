@@ -197,7 +197,7 @@ def import_zotero_items(
     session: SessionDep,
     current_user: CurrentUser,
     skip: int = 0,
-    limit: int = 500,
+    limit: int = 20000, # FIXME: This should be properly handled. High value to effectvely remove this
     *,
     reload: bool = False,
     library_type: Literal["group", "user"] = "group",
