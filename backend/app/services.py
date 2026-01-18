@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from pyzotero import zotero
+from pyzotero import Zotero
 
 from app.models import User
 
 
-class Zotero(zotero.Zotero):
+class Zotero(Zotero):
     """Zotero API client wrapper with user authentication.
 
     Extends pyzotero.Zotero to automatically configure with user credentials.
