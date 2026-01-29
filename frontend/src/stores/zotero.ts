@@ -304,7 +304,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   const updateStudySite = async (studySiteId, updateData) => {
     const notificationStore = useNotificationStore()
     try {
-      const response = await axios.patch(`/study_sites/${studySiteId}`, updateData)
+      const response = await axios.patch(`/study-sites/study-sites/${studySiteId}`, updateData)
       return response.data
     } catch (error) {
       notificationStore.showNotification(

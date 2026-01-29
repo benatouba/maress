@@ -62,7 +62,7 @@ export const useTagStore = defineStore('tags', (): TagStore => {
     loading.value = true
     try {
       const params = { skip, limit }
-      const response = await axios.get('/tags', { params })
+      const response = await axios.get('/tags/', { params })
       tags.value = response.data.data
       totalCount.value = response.data.count
       console.log('Fetched tags:', response.data)
