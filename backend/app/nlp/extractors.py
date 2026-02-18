@@ -331,11 +331,31 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
 
     Extracts standard NER entities (LOC, GPE, FAC, NORP) and identifies
     spatial relation phrases using the spatial_relation_matcher
-    component.
+    component. Also extracts domain-specific earth science entities.
     """
 
     # Geospatial entity labels from spaCy NER
     GEO_LABELS: ClassVar[set[str]] = {"LOC", "GPE", "FAC", "NORP"}
+
+    # Earth science domain-specific entity labels (from earth_science_matcher)
+    EARTH_SCIENCE_LABELS: ClassVar[set[str]] = {
+        "MARESS_WATER_BODY",
+        "MARESS_GEO_FEATURE",
+        "MARESS_ECOSYSTEM",
+        "MARESS_COASTAL",
+        "MARESS_RESEARCH_SITE",
+        "MARESS_CLIMATE_ZONE",
+    }
+
+    # Map MARESS labels to domain entity types
+    LABEL_TO_TYPE: ClassVar[dict[str, str]] = {
+        "MARESS_WATER_BODY": "WATER_BODY",
+        "MARESS_GEO_FEATURE": "GEO_FEATURE",
+        "MARESS_ECOSYSTEM": "ECOSYSTEM",
+        "MARESS_COASTAL": "COASTAL",
+        "MARESS_RESEARCH_SITE": "RESEARCH_SITE",
+        "MARESS_CLIMATE_ZONE": "CLIMATE_ZONE",
+    }
 
     LOCATION_INDICATORS: ClassVar[set[str]] = {
         "located",
@@ -347,6 +367,15 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         "vicinity",
         "site",
         "station",
+    }
+
+    # Distance indicators for spatial relation parsing
+    DISTANCE_INDICATORS: ClassVar[set[str]] = {
+        "km", "kilometers", "kilometres", "kilometer", "kilometre",
+        "m", "meters", "metres", "meter", "metre",
+        "mi", "miles", "mile",
+        "ft", "feet", "foot",
+        "yd", "yards", "yard",
     }
 
     def __init__(self, config: ModelConfig) -> None:
@@ -415,6 +444,7 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
 
         entities: list[GeoEntity] = []
         entities.extend(self._extract_ner_entities(doc, section))
+        entities.extend(self._extract_earth_science_entities(doc, section))
         entities.extend(self._extract_spatial_relations_from_matcher(doc, section))
         entities.extend(self._extract_study_sites_from_matcher(doc, section))
         entities.extend(self._extract_multiword_locations(doc, section))
@@ -454,6 +484,63 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
                     context=context,
                     section=section,
                     confidence=self.config.DEFAULT_NER_CONFIDENCE,
+                    start_char=ent.start_char,
+                    end_char=ent.end_char,
+                ),
+            )
+
+        return entities
+
+    def _extract_earth_science_entities(self, doc: Doc, section: str) -> list[GeoEntity]:
+        """Extract earth science domain-specific entities.
+
+        Uses the earth_science_matcher component to detect:
+        - Water bodies (rivers, lakes, wetlands)
+        - Geological features (mountains, glaciers, basins)
+        - Ecosystems (forests, reefs, savannas)
+        - Coastal features (estuaries, beaches)
+        - Research infrastructure (stations, transects)
+
+        Args:
+            doc: Processed spaCy Doc
+            section: Document section name
+
+        Returns:
+            List of GeoEntity objects for earth science entities
+        """
+        entities: list[GeoEntity] = []
+
+        for ent in doc.ents:
+            if ent.label_ not in self.EARTH_SCIENCE_LABELS:
+                continue
+
+            # Check for duplicates
+            span_key = (ent.start_char, ent.end_char)
+            if span_key in self._seen_spans:
+                continue
+
+            self._seen_spans.add(span_key)
+
+            # Map MARESS label to domain entity type
+            entity_type = self.LABEL_TO_TYPE.get(ent.label_, ent.label_)
+
+            # Get confidence from custom attribute if available
+            confidence = (
+                ent._.earth_science_confidence
+                if hasattr(ent._, "earth_science_confidence")
+                else 0.85
+            )
+
+            # Get sentence context
+            context = ent.sent.text if ent.sent else ent.text
+
+            entities.append(
+                GeoEntity(
+                    text=ent.text,
+                    entity_type=entity_type,
+                    context=context,
+                    section=section,
+                    confidence=confidence,
                     start_char=ent.start_char,
                     end_char=ent.end_char,
                 ),

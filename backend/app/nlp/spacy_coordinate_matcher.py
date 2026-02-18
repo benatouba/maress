@@ -1,20 +1,21 @@
-"""spaCy component for coordinate detection using Matcher and EntityRuler.
+"""spaCy component for coordinate detection using Matcher and regex.
 
 This component follows spaCy best practices:
 - Uses Matcher with greedy="LONGEST" for token-based patterns
-- Uses EntityRuler for regex patterns
+- Uses regex for complex coordinate patterns
 - Integrates seamlessly with spaCy's entity system
 """
 
+import re
+
 from spacy.language import Language
 from spacy.matcher import Matcher
-from spacy.pipeline import EntityRuler
 from spacy.tokens import Doc, Span
 from spacy.util import filter_spans  # Phase 1: Use spaCy's optimized overlap filtering
 
 
 class CoordinateMatcher:
-    """spaCy component for detecting coordinates using Matcher and EntityRuler.
+    """spaCy component for detecting coordinates using Matcher and regex.
 
     Uses greedy longest-match strategy for overlapping patterns.
     Handles both well-formed and malformed coordinates from PDF extraction.
@@ -35,9 +36,8 @@ class CoordinateMatcher:
         # Add token-based patterns (these align with token boundaries)
         self._add_token_patterns()
 
-        # Initialize EntityRuler for regex patterns
-        self.ruler = EntityRuler(nlp, validate=True, overwrite_ents=False)
-        self._add_regex_patterns()
+        # Store regex patterns for direct application
+        self.regex_patterns = self._get_regex_patterns()
 
     def _add_token_patterns(self) -> None:
         """Add token-based coordinate patterns using spaCy Matcher.
@@ -103,100 +103,102 @@ class CoordinateMatcher:
             greedy="LONGEST",
         )
 
-    def _add_regex_patterns(self) -> None:
-        """Add regex-based patterns using EntityRuler.
+    def _get_regex_patterns(self) -> list[tuple[str, str, float]]:
+        """Get regex-based patterns for coordinate matching.
 
         These patterns handle character-level coordinate formats that don't
         align with token boundaries (DMS, special symbols, PDF artifacts).
-        EntityRuler integrates regex patterns into spaCy's entity system.
 
         Phase 1.4: Use MARESS_COORDINATE label to avoid namespace collisions.
+
+        Returns:
+            List of tuples (pattern, pattern_id, confidence)
         """
         patterns = [
             # === WELL-FORMED DMS/DM FORMATS ===
             # Degrees Minutes Seconds: 45°12'30"N, 122°30'15"W
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[EW]",
-                "id": "dms",
-            },
+            (
+                r"\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[EW]",
+                "dms",
+                0.95,
+            ),
             # Degrees Minutes: 45°12'N, 122°30'W
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s*[°º]\s*\d+\s*[\'′]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*[EW]",
-                "id": "dm",
-            },
+            (
+                r"\d+\s*[°º]\s*\d+\s*[\'′]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*[EW]",
+                "dm",
+                0.90,
+            ),
             # Decimal degrees with symbol: 45.123°N, 122.456°W
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"-?\d+\.\d+\s*°\s*[NS]?\s*,?\s*-?\d+\.\d+\s*°\s*[EW]?",
-                "id": "dd_symbol",
-            },
+            (
+                r"-?\d+\.\d+\s*°\s*[NS]?\s*,?\s*-?\d+\.\d+\s*°\s*[EW]?",
+                "dd_symbol",
+                0.85,
+            ),
             # === MALFORMED PATTERNS - PDF Extraction Artifacts ===
             # Degree as "7" (OCR corruption): 45 7 12'N, 122 7 30'W
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s+7\s+\d+\s*[\'′b9]\s*[NS]\s*,?\s*\d+\s+7\s+\d+\s*[\'′b9]\s*[EW]",
-                "id": "dm_deg7",
-            },
+            (
+                r"\d+\s+7\s+\d+\s*[\'′b9]\s*[NS]\s*,?\s*\d+\s+7\s+\d+\s*[\'′b9]\s*[EW]",
+                "dm_deg7",
+                0.70,
+            ),
             # Degree as "o" or "O": 45o12'N, 122o30'W
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s*[oO]\s*\d+\s*[\'′9]\s*[NS]\s*,?\s*\d+\s*[oO]\s*\d+\s*[\'′9]\s*[EW]",
-                "id": "dm_dego",
-            },
+            (
+                r"\d+\s*[oO]\s*\d+\s*[\'′9]\s*[NS]\s*,?\s*\d+\s*[oO]\s*\d+\s*[\'′9]\s*[EW]",
+                "dm_dego",
+                0.70,
+            ),
             # Degree as "u" (OCR corruption): 13 u 13 9 09 S, 74 u 57 9 45 W
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[EW]",
-                "id": "dm_degu",
-            },
+            (
+                r"\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[EW]",
+                "dm_degu",
+                0.65,
+            ),
             # Minute as "b" (OCR corruption): 45°12bN, 122°30bW
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[EW]",
-                "id": "dm_minb",
-            },
+            (
+                r"\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[EW]",
+                "dm_minb",
+                0.70,
+            ),
             # Compact decimal minutes: 00°01'.72N, 77°59'.13E
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[EW]",
-                "id": "dm_compact",
-            },
+            (
+                r"\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[EW]",
+                "dm_compact",
+                0.75,
+            ),
             # DMS with "u" degree and "9" minute: 13 u 13 9 09 S (full format with seconds)
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[EW]",
-                "id": "dms_u_9",
-            },
+            (
+                r"\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[EW]",
+                "dms_u_9",
+                0.65,
+            ),
             # === SIMPLE FORMATS ===
-            # Decimal pairs in parentheses: (45.123, -122.456)
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\(\s*-?\d+\.\d{2,}\s*,\s*-?\d+\.\d{2,}\s*\)",
-                "id": "parentheses",
-            },
-            # Decimal pairs in brackets: [45.123, -122.456]
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\[\s*-?\d+\.\d{2,}\s*,\s*-?\d+\.\d{2,}\s*\]",
-                "id": "brackets",
-            },
+            # Decimal pairs in parentheses: (45.123, -122.456) or (45.5, -122.3)
+            (
+                r"\(\s*-?\d+\.\d+\s*,\s*-?\d+\.\d+\s*\)",
+                "parentheses",
+                0.85,
+            ),
+            # Decimal pairs in brackets: [45.123, -122.456] or [45.5, -122.3]
+            (
+                r"\[\s*-?\d+\.\d+\s*,\s*-?\d+\.\d+\s*\]",
+                "brackets",
+                0.85,
+            ),
             # Decimal with direction: 45.5 N, 122.3 W
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"\d+\.\d+\s+[NS]\s*,?\s*\d+\.\d+\s+[EW]",
-                "id": "dd_direction",
-            },
-            # Signed decimals: +45.123, -122.456 or -45.123, 122.456
-            {
-                "label": "MARESS_COORDINATE",
-                "pattern": r"[+-]?\d+\.\d{2,}\s*,\s*[+-]?\d+\.\d{2,}",
-                "id": "decimal_pair",
-            },
+            (
+                r"\d+\.\d+\s+[NS]\s*,?\s*\d+\.\d+\s+[EW]",
+                "dd_direction",
+                0.80,
+            ),
+            # Signed decimals: +45.123, -122.456 or 45.5, -122.3 or -45.1, 122.4
+            (
+                r"[+-]?\d+\.\d+\s*,\s*[+-]?\d+\.\d+",
+                "decimal_pair",
+                0.80,
+            ),
         ]
 
-        self.ruler.add_patterns(patterns)
+        return patterns
 
     def __call__(self, doc: Doc) -> Doc:
         """Process a Doc object and add coordinate entities.
@@ -207,15 +209,30 @@ class CoordinateMatcher:
         Returns:
             Doc with coordinate entities added
         """
-        # First, apply EntityRuler (regex patterns)
-        doc = self.ruler(doc)
+        new_ents = []
+
+        # First, apply regex patterns directly to text
+        text = doc.text
+        for pattern, pattern_id, confidence in self.regex_patterns:
+            for match in re.finditer(pattern, text):
+                # Find character span in doc
+                start_char = match.start()
+                end_char = match.end()
+
+                # Convert character offsets to token offsets
+                span = doc.char_span(start_char, end_char, alignment_mode="expand")
+                if span is not None:
+                    # Create entity span
+                    ent_span = Span(doc, span.start, span.end, label="MARESS_COORDINATE")
+                    ent_span._.coordinate_format = pattern_id
+                    ent_span._.coordinate_confidence = confidence
+                    new_ents.append(ent_span)
 
         # Then, apply Matcher (token patterns)
         # Matcher with greedy="LONGEST" automatically handles overlaps
         matches = self.matcher(doc)
 
         # Convert matches to entities
-        new_ents = []
         for match_id, start, end in matches:
             span = doc[start:end]
             # Set custom attributes

@@ -1,0 +1,118 @@
+{
+  "description": "Earth science domain-specific entity patterns for NER enhancement",
+  "version": "1.0",
+  "last_updated": "2025-01-10",
+  "categories": {
+    "water_bodies": {
+      "description": "Hydrological features",
+      "terms": [
+        "river", "stream", "creek", "brook", "tributary",
+        "lake", "pond", "reservoir", "lagoon",
+        "ocean", "sea", "gulf", "bay", "strait", "channel",
+        "estuary", "delta", "fjord", "inlet",
+        "wetland", "marsh", "swamp", "bog", "fen",
+        "aquifer", "groundwater", "spring", "waterfall"
+      ],
+      "compound_patterns": [
+        "river basin", "river mouth", "river delta",
+        "drainage basin", "catchment area", "watershed",
+        "water table", "flood plain", "floodplain"
+      ]
+    },
+    "geological_features": {
+      "description": "Geological and geomorphological features",
+      "terms": [
+        "mountain", "volcano", "hill", "ridge", "peak", "summit",
+        "plateau", "mesa", "butte", "escarpment",
+        "valley", "canyon", "gorge", "ravine", "gully",
+        "basin", "depression", "graben", "rift",
+        "glacier", "icefield", "moraine", "drumlin",
+        "cave", "karst", "sinkhole", "doline",
+        "fault", "fold", "anticline", "syncline",
+        "crater", "caldera", "lava field",
+        "cliff", "bluff", "terrace", "bench"
+      ],
+      "compound_patterns": [
+        "mountain range", "volcanic field", "rift valley",
+        "fault zone", "fold belt", "sedimentary basin",
+        "continental shelf", "ocean floor", "mid-ocean ridge",
+        "subduction zone", "tectonic plate"
+      ]
+    },
+    "ecosystems": {
+      "description": "Ecosystem and biome types",
+      "terms": [
+        "forest", "woodland", "grove", "stand",
+        "rainforest", "jungle", "mangrove",
+        "savanna", "grassland", "prairie", "steppe", "meadow",
+        "tundra", "taiga", "boreal",
+        "desert", "dune", "oasis",
+        "reef", "atoll", "seamount",
+        "peatland", "mire", "heath", "moor"
+      ],
+      "compound_patterns": [
+        "tropical rainforest", "temperate forest", "boreal forest",
+        "coral reef", "barrier reef", "fringing reef",
+        "alpine meadow", "alpine tundra",
+        "coastal wetland", "riparian zone", "riparian forest",
+        "old-growth forest", "primary forest", "secondary forest"
+      ]
+    },
+    "coastal_features": {
+      "description": "Coastal and marine features",
+      "terms": [
+        "coast", "shore", "beach", "dune",
+        "headland", "cape", "peninsula", "isthmus",
+        "island", "archipelago", "atoll",
+        "lagoon", "barrier island", "sandbar", "spit",
+        "tidal flat", "mudflat", "salt marsh"
+      ],
+      "compound_patterns": [
+        "continental margin", "continental slope",
+        "coastal zone", "intertidal zone", "subtidal zone",
+        "marine protected area", "exclusive economic zone"
+      ]
+    },
+    "research_infrastructure": {
+      "description": "Research stations and monitoring infrastructure",
+      "terms": [
+        "station", "observatory", "laboratory",
+        "tower", "mast", "buoy",
+        "transect", "plot", "quadrat",
+        "borehole", "well", "core"
+      ],
+      "compound_patterns": [
+        "research station", "field station", "monitoring station",
+        "weather station", "meteorological station",
+        "flux tower", "eddy covariance tower",
+        "sampling site", "monitoring site", "study plot",
+        "permanent plot", "experimental plot",
+        "ice core", "sediment core", "lake core",
+        "tree ring", "pollen record"
+      ]
+    },
+    "climate_zones": {
+      "description": "Climate and atmospheric zones",
+      "terms": [
+        "tropics", "subtropics", "midlatitudes",
+        "arctic", "antarctic", "polar",
+        "equatorial", "temperate", "continental",
+        "monsoon", "trade winds", "westerlies"
+      ],
+      "compound_patterns": [
+        "climate zone", "climate region",
+        "intertropical convergence zone", "ITCZ",
+        "polar vortex", "jet stream",
+        "el nino", "la nina", "ENSO"
+      ]
+    }
+  },
+  "context_indicators": {
+    "description": "Terms that indicate the following noun is a location type",
+    "indicators": [
+      "the", "a", "an", "this", "that", "these", "those",
+      "located in", "situated at", "found in", "observed at",
+      "sampled from", "collected at", "measured at"
+    ]
+  }
+}

@@ -49,9 +49,10 @@ class PipelineFactory:
         1. abbreviation_detector (scispacy, if en_core_sci model) - Detects scientific abbreviations
         2. multiword_location_matcher (before="ner") - Prevents splitting multi-word locations
         3. ner (built-in) - Standard NER
-        4. coordinate_matcher (after="ner") - Adds coordinate entities
-        5. spatial_relation_matcher (after="ner") - Adds spatial relation entities
-        6. study_site_dependency_matcher (last=True) - Uses all previous entities
+        4. earth_science_matcher (after="ner") - Domain-specific entity detection
+        5. coordinate_matcher (after="ner") - Adds coordinate entities
+        6. spatial_relation_matcher (after="ner") - Adds spatial relation entities
+        7. study_site_dependency_matcher (last=True) - Uses all previous entities
 
         Args:
             nlp: spaCy Language object
@@ -63,6 +64,7 @@ class PipelineFactory:
         # Import component modules to register factories
         # These imports register the @Language.factory decorators
         from app.nlp.spacy_coordinate_matcher import CoordinateMatcher  # noqa: F401
+        from app.nlp.spacy_earth_science_matcher import EarthScienceEntityMatcher  # noqa: F401
         from app.nlp.spacy_multiword_location_matcher import MultiWordLocationMatcher  # noqa: F401
         from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher  # noqa: F401
         from app.nlp.spacy_study_site_dependency_matcher import StudySiteDependencyMatcher  # noqa: F401
@@ -93,6 +95,11 @@ class PipelineFactory:
         # This prevents NER from splitting multi-word location names
         if "multiword_location_matcher" not in nlp.pipe_names:
             nlp.add_pipe("multiword_location_matcher", before="ner")
+
+        # Add earth science domain matcher AFTER NER
+        # Detects domain-specific entities (water bodies, geological features, etc.)
+        if "earth_science_matcher" not in nlp.pipe_names:
+            nlp.add_pipe("earth_science_matcher", after="ner")
 
         # Add coordinate matcher AFTER NER
         # This allows it to use NER entities for context

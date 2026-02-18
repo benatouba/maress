@@ -370,6 +370,395 @@ class StudySiteDependencyMatcher:
         ]
         self.matcher.add("DOMAIN_COVERAGE_LOCATION", [pattern8])
 
+        # === NEW PATTERNS (Priority 2 Improvements) ===
+
+        # Pattern 9: "field work was carried out at [LOCATION]"
+        # Example: "Fieldwork was carried out at three sites in the Alps"
+        # Captures passive fieldwork constructions
+        pattern9 = [
+            {
+                "RIGHT_ID": "fieldwork",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["fieldwork", "field", "work", "campaign", "expedition"]},
+                }
+            },
+            {
+                "LEFT_ID": "fieldwork",
+                "REL_OP": ">",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["carry", "conduct", "perform", "undertake", "complete"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": list(self.LOCATION_PREPS)},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("FIELDWORK_AT_LOCATION", [pattern9])
+
+        # Pattern 10: "[LOCATION] was selected as the study site"
+        # Example: "The Amazon basin was selected as our primary study area"
+        # Captures selection/choice patterns
+        pattern10 = [
+            {
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            },
+            {
+                "LEFT_ID": "location",
+                "REL_OP": "<",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["select", "choose", "designate", "identify", "define"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep_as",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": "as",
+                }
+            },
+            {
+                "LEFT_ID": "prep_as",
+                "REL_OP": ">",
+                "RIGHT_ID": "site_noun",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "LEMMA": {"IN": list(self.SITE_NOUNS)},
+                }
+            }
+        ]
+        self.matcher.add("LOCATION_SELECTED_AS_SITE", [pattern10])
+
+        # Pattern 11: "cores/samples were extracted from [LOCATION]"
+        # Example: "Sediment cores were extracted from Lake Victoria"
+        # Common in paleoclimate and geological studies
+        pattern11 = [
+            {
+                "RIGHT_ID": "sample_noun",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["core", "sample", "specimen", "sediment", "ice", "peat"]},
+                }
+            },
+            {
+                "LEFT_ID": "sample_noun",
+                "REL_OP": ">",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["extract", "retrieve", "obtain", "collect", "drill", "take"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": ["from", "in", "at"]},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("SAMPLES_FROM_LOCATION", [pattern11])
+
+        # Pattern 12: "sensors/instruments deployed at [LOCATION]"
+        # Example: "Flux towers were deployed across the boreal forest"
+        # Common in monitoring and remote sensing studies
+        pattern12 = [
+            {
+                "RIGHT_ID": "instrument",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["sensor", "instrument", "tower", "station", "buoy", "logger", "probe", "gauge"]},
+                }
+            },
+            {
+                "LEFT_ID": "instrument",
+                "REL_OP": ">",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["deploy", "install", "place", "position", "set", "mount"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": list(set(self.LOCATION_PREPS) | {"across", "throughout"})},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("INSTRUMENTS_AT_LOCATION", [pattern12])
+
+        # Pattern 13: "transects/plots established across [LOCATION]"
+        # Example: "Vegetation transects were established across the savanna"
+        # Common in ecological surveys
+        pattern13 = [
+            {
+                "RIGHT_ID": "survey_noun",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["transect", "plot", "quadrat", "grid", "profile", "survey"]},
+                }
+            },
+            {
+                "LEFT_ID": "survey_noun",
+                "REL_OP": ">",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["establish", "set", "lay", "run", "conduct", "perform"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": ["across", "along", "through", "in", "within", "throughout"]},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("TRANSECTS_ACROSS_LOCATION", [pattern13])
+
+        # Pattern 14: "monitoring network in [LOCATION]"
+        # Example: "A monitoring network was established in the watershed"
+        # Common in long-term ecological research
+        pattern14 = [
+            {
+                "RIGHT_ID": "network_noun",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["network", "array", "system", "infrastructure", "observatory"]},
+                }
+            },
+            {
+                "LEFT_ID": "network_noun",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": list(self.LOCATION_PREPS)},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("NETWORK_IN_LOCATION", [pattern14])
+
+        # Pattern 15: "derived from [LOCATION]" (remote sensing)
+        # Example: "Data were derived from imagery covering the Sahel"
+        # Common in remote sensing studies
+        pattern15 = [
+            {
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["derive", "obtain", "acquire", "source", "extract"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep_from",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": "from",
+                }
+            },
+            {
+                "LEFT_ID": "prep_from",
+                "REL_OP": ">",
+                "RIGHT_ID": "imagery",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "LEMMA": {"IN": ["imagery", "image", "satellite", "scene", "data", "product"]},
+                }
+            },
+            {
+                "LEFT_ID": "imagery",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep_cover",
+                "RIGHT_ATTRS": {
+                    "DEP": "acl",
+                }
+            },
+            {
+                "LEFT_ID": "prep_cover",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": {"IN": ["dobj", "pobj"]},
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("DERIVED_FROM_LOCATION", [pattern15])
+
+        # Pattern 16: "experiments performed/conducted at [LOCATION]"
+        # Example: "Experiments were conducted at the field station"
+        pattern16 = [
+            {
+                "RIGHT_ID": "experiment",
+                "RIGHT_ATTRS": {
+                    "POS": "NOUN",
+                    "LEMMA": {"IN": ["experiment", "trial", "test", "manipulation", "treatment"]},
+                }
+            },
+            {
+                "LEFT_ID": "experiment",
+                "REL_OP": ">",
+                "RIGHT_ID": "verb",
+                "RIGHT_ATTRS": {
+                    "POS": "VERB",
+                    "LEMMA": {"IN": ["perform", "conduct", "carry", "run", "execute"]},
+                }
+            },
+            {
+                "LEFT_ID": "verb",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": list(self.LOCATION_PREPS)},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("EXPERIMENTS_AT_LOCATION", [pattern16])
+
+        # Pattern 17: "based in/at [LOCATION]" (research base)
+        # Example: "The research was based at McMurdo Station"
+        pattern17 = [
+            {
+                "RIGHT_ID": "based",
+                "RIGHT_ATTRS": {
+                    "LEMMA": "base",
+                    "TAG": {"IN": ["VBN", "VBD"]},
+                }
+            },
+            {
+                "LEFT_ID": "based",
+                "REL_OP": ">",
+                "RIGHT_ID": "prep",
+                "RIGHT_ATTRS": {
+                    "DEP": "prep",
+                    "LEMMA": {"IN": ["in", "at", "on"]},
+                }
+            },
+            {
+                "LEFT_ID": "prep",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("BASED_AT_LOCATION", [pattern17])
+
+        # Pattern 18: "along the [LOCATION] coast/river/border"
+        # Example: "Sampling was conducted along the California coast"
+        # Captures linear feature sampling
+        pattern18 = [
+            {
+                "RIGHT_ID": "prep_along",
+                "RIGHT_ATTRS": {
+                    "LEMMA": {"IN": ["along", "across", "through"]},
+                }
+            },
+            {
+                "LEFT_ID": "prep_along",
+                "REL_OP": ">",
+                "RIGHT_ID": "feature",
+                "RIGHT_ATTRS": {
+                    "DEP": "pobj",
+                    "LEMMA": {"IN": ["coast", "coastline", "river", "border", "margin", "shore", "gradient", "transect"]},
+                }
+            },
+            {
+                "LEFT_ID": "feature",
+                "REL_OP": ">",
+                "RIGHT_ID": "location",
+                "RIGHT_ATTRS": {
+                    "DEP": {"IN": ["compound", "nmod", "poss"]},
+                    "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                }
+            }
+        ]
+        self.matcher.add("ALONG_LOCATION_FEATURE", [pattern18])
+
     def __call__(self, doc: Doc) -> Doc:
         """Process a Doc object and add study site entities.
 
@@ -395,19 +784,16 @@ class StudySiteDependencyMatcher:
             seen_locations.add(location_token.i)
 
             # Expand to full entity span if it's part of a named entity
+            span = None
             if location_token.ent_type_:
-                span = location_token.ent_kb_id_
-                start = location_token.ent_id
                 # Find the full entity span
                 for ent in doc.ents:
                     if location_token.i >= ent.start and location_token.i < ent.end:
                         span = ent
                         break
-                else:
-                    # Create a span from the token
-                    span = doc[location_token.i:location_token.i + 1]
-            else:
-                # Create a span from the token
+
+            # Fallback: Create a span from just the token
+            if span is None:
                 span = doc[location_token.i:location_token.i + 1]
 
             # Phase 1.4: Use MARESS_STUDY_SITE label to avoid namespace collisions

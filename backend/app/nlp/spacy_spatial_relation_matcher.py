@@ -68,13 +68,13 @@ class SpatialRelationMatcher:
                 cls.LOCATION_DESCRIPTORS = categories["location_descriptors"]["descriptors"]
         else:
             # Fallback to minimal sets if file not found
-            cls.DISTANCE_UNITS = ["km", "m", "miles"]
-            cls.CARDINAL_DIRECTIONS = ["north", "south", "east", "west"]
-            cls.HYDROLOGICAL_DIRECTIONS = ["upstream", "downstream"]
+            cls.DISTANCE_UNITS = ["km", "kilometers", "kilometer", "m", "meters", "meter", "miles", "mile"]
+            cls.CARDINAL_DIRECTIONS = ["north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest"]
+            cls.HYDROLOGICAL_DIRECTIONS = ["upstream", "downstream", "offshore"]
             cls.PROXIMITY_PREPS = ["near", "close", "adjacent"]
             cls.CONTAINMENT_PREPS = ["within", "inside", "around"]
             cls.DIRECTIONAL_PREPS = ["of", "from"]
-            cls.LOCATION_PREPS = ["in", "at", "near", "on"]
+            cls.LOCATION_PREPS = ["in", "at", "near", "on", "along"]
             cls.LOCATION_VERBS = ["located", "situated", "positioned"]
             cls.LOCATION_DESCRIPTORS = ["region", "area", "basin"]
 

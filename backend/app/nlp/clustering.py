@@ -176,10 +176,10 @@ class CoordinateClusterer:
         median_distance = np.median(k_distances)
 
         earth_radius_km = 6371.0088
-        estimated_eps = median_distance * earth_radius_km * 1.5
+        estimated_eps = median_distance * earth_radius_km * 2.0  # Increased multiplier for better clustering
 
-        # Clamp to reasonable range
-        estimated_eps = max(10.0, min(200.0, estimated_eps))
+        # Clamp to reasonable range - increased minimum to 15km for geographic clustering
+        estimated_eps = max(15.0, min(200.0, estimated_eps))
 
         logger.debug(f"Estimated optimal eps: {estimated_eps:.1f} km")
         return estimated_eps

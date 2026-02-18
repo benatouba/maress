@@ -244,54 +244,6 @@ class PDFTextCleaner:
 
         return text
 
-    def _normalize_whitespace(self, text: str) -> str:
-        """Normalise all whitespace to single spaces except paragraph
-        breaks."""
-        # Replace multiple spaces with single space
-        text = re.sub(r"[ \t]+", " ", text)
-
-        # Normalise line breaks (preserve double breaks for paragraphs)
-        text = re.sub(r"\n\s*\n", "\n\n", text)
-        text = re.sub(r"(?<!\n)\n(?!\n)", " ", text)
-
-        # Remove spaces before punctuation
-        text = re.sub(r"\s+([.,;:!?])", r"\1", text)
-
-        # Ensure space after punctuation
-        text = re.sub(r"([.,;:!?])(?=[A-Za-z])", r"\1 ", text)
-
-        return text
-
-    def _remove_pdf_artifacts(self, text: str) -> str:
-        """Remove common PDF extraction artifacts."""
-        # Remove page numbers at line starts/ends
-        text = re.sub(r"^\d{1,4}\s*$", "", text, flags=re.MULTILINE)
-
-        # Remove isolated numbers that are likely page numbers
-        text = re.sub(r"\s+\d{1,3}\s+(?=[A-Z])", " ", text)
-
-        # Remove repeated headers/footers (same line repeated 3+ times)
-        text = re.sub(r"(^.{1,80}$)(\n\1){2,}", r"\1", text, flags=re.MULTILINE)
-
-        # Remove excessive newlines but preserve paragraphs
-        text = re.sub(r"\n{3,}", "\n\n", text)
-
-        return text
-
-    def _fix_hyphenation(self, text: str) -> str:
-        """Fix word hyphenation from PDF line breaks."""
-        # Fix hyphenated words at line breaks
-        # "geograph-\nical" -> "geographical"
-        text = re.sub(r"(\w+)-\s*\n\s*(\w+)", r"\1\2", text)
-
-        # Handle soft hyphens
-        text = text.replace("\u00ad", "")  # Soft hyphen
-
-        # Fix broken coordinates (e.g., "45°30-\n15"N" -> "45°30'15"N")
-        text = re.sub(r"([°'\"″′]\d+)-\s*\n\s*(\d+[°'\"″′])", r"\1'\2", text)
-
-        return text
-
     def _fix_character_confusions(self, text: str) -> str:
         """Fix common character recognition errors."""
         # Common OCR confusions in scientific text
@@ -694,9 +646,9 @@ class CoordinateParser:
                         m.group(4),
                     ),
                 ),
-                # With explicit signs: +45.123, -122.456
+                # With explicit signs: +45.123, -122.456 or simple decimals: 45.5, -122.3
                 (
-                    r"^([+-]\d+\.\d{2,})\s*,\s*([+-]\d+\.\d{2,})$",
+                    r"([+-]?\d+\.\d+)\s*,\s*([+-]?\d+\.\d+)",
                     lambda m: (float(m.group(1)), float(m.group(2))),
                 ),
                 # Compact format: 00°01'.72N, 77°59'.13E

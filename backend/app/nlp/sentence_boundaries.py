@@ -112,6 +112,24 @@ def add_scientific_abbreviations(nlp: Language) -> Language:
     return nlp
 
 
+def _safe_set_sent_start(doc: Doc, idx: int, value: bool) -> None:
+    """Safely set is_sent_start on a token, handling parsed documents.
+
+    spaCy raises ValueError when trying to modify is_sent_start on
+    already-parsed documents. This helper silently skips such cases.
+
+    Args:
+        doc: spaCy Doc object
+        idx: Token index
+        value: Value to set for is_sent_start
+    """
+    try:
+        doc[idx].is_sent_start = value
+    except ValueError:
+        # Document is parsed, sentence boundaries are locked
+        pass
+
+
 @Language.component("scientific_sentencizer")
 def scientific_sentencizer(doc: Doc) -> Doc:
     """Custom sentence boundary detection for scientific text.
@@ -122,11 +140,14 @@ def scientific_sentencizer(doc: Doc) -> Doc:
     - Coordinates: "45°30'15\"N, 122°30'W" - don't split at comma
     - Multi-part figures: "Fig. 1A-C" - don't split at hyphen
 
+    Note: If the document is already parsed, sentence boundaries are locked
+    and modifications will be silently skipped.
+
     Args:
         doc: spaCy Doc object
 
     Returns:
-        Modified Doc with corrected sentence boundaries
+        Modified Doc with corrected sentence boundaries (if possible)
     """
     # Handle list numbering: (1) Site A, (2) Site B
     for i, token in enumerate(doc[:-1]):
@@ -138,7 +159,7 @@ def scientific_sentencizer(doc: Doc) -> Doc:
                 while next_idx < len(doc) and doc[next_idx].is_space:
                     next_idx += 1
                 if next_idx < len(doc):
-                    doc[next_idx].is_sent_start = False
+                    _safe_set_sent_start(doc, next_idx, False)
 
     # Handle coordinate commas: "45°30'N, 122°30'W"
     # Don't start sentence after comma if surrounded by coordinates
@@ -152,14 +173,14 @@ def scientific_sentencizer(doc: Doc) -> Doc:
             if any(symbol in window_text for symbol in ["°", "'", '"', "N", "S", "E", "W"]):
                 # Likely coordinate comma, don't start sentence
                 if i + 1 < len(doc):
-                    doc[i + 1].is_sent_start = False
+                    _safe_set_sent_start(doc, i + 1, False)
 
     # Handle figure references: "Fig. 1A" - don't split between Fig. and number
     for i, token in enumerate(doc[:-2]):
         if token.text.lower() in ["fig", "figure", "table", "tab", "eq"]:
             # If next token is period, and token after that is digit
             if doc[i + 1].text == "." and doc[i + 2].text[0].isdigit():
-                doc[i + 2].is_sent_start = False
+                _safe_set_sent_start(doc, i + 2, False)
 
     return doc
 

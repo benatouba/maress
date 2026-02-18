@@ -5,8 +5,10 @@ from typing import TYPE_CHECKING
 
 from geopy.point import Point
 
+from app.nlp.bounding_box_extractor import BoundingBoxExtractor, get_bounding_box_extractor
 from app.nlp.clustering import CoordinateClusterer
 from app.nlp.context_extraction import ContextExtractor
+from app.nlp.context_filter import ContextFilter, get_context_filter
 from app.nlp.domain_models import ExtractionMetadata, ExtractionResult, GeoEntity
 from app.nlp.extractors import BaseEntityExtractor
 from app.nlp.geocoding import get_geocoder
@@ -14,7 +16,19 @@ from app.nlp.model_config import ModelConfig
 from app.nlp.nlp_logger import logger
 from app.nlp.pdf_parser import PDFParser
 from app.nlp.quality_assessment import TextQualityAssessor
+from app.nlp.section_classifier import SectionClassifier, get_section_classifier
+from app.nlp.spatial_relation_resolver import SpatialRelationResolver, get_spatial_relation_resolver
 from app.nlp.table_extractor import TableCoordinateExtractor
+from app.nlp.temporal_filter import TemporalContextFilter, TemporalContext, get_temporal_filter
+from app.nlp.location_name_handler import LocationNameHandler, get_location_name_handler
+from app.nlp.coreference_resolver import (
+    LocationCoreferenceResolver,
+    AbbreviationExpander,
+    get_coreference_resolver,
+    get_abbreviation_expander,
+)
+from app.nlp.uncertainty_detector import UncertaintyDetector, get_uncertainty_detector
+from app.nlp.validation import ExtractionValidator, get_validator
 
 if TYPE_CHECKING:
     from spacy.tokens import Span
@@ -37,6 +51,16 @@ class StudySiteExtractionPipeline:
         enable_table_extraction: bool = True,
         enable_quality_assessment: bool = True,
         enable_enriched_context: bool = True,
+        enable_context_filtering: bool = True,
+        enable_bounding_box_extraction: bool = True,
+        enable_ml_section_classifier: bool = True,
+        enable_spatial_resolution: bool = True,
+        enable_temporal_filtering: bool = True,
+        enable_location_name_merging: bool = True,
+        enable_coreference_resolution: bool = True,
+        enable_abbreviation_expansion: bool = True,
+        enable_uncertainty_detection: bool = True,
+        enable_validation: bool = True,
     ) -> None:
         """Initialize pipeline with dependencies.
 
@@ -49,6 +73,16 @@ class StudySiteExtractionPipeline:
             enable_table_extraction: Enable table coordinate extraction
             enable_quality_assessment: Enable text quality assessment
             enable_enriched_context: Enable enriched context extraction
+            enable_context_filtering: Enable context-based filtering (Priority 1)
+            enable_bounding_box_extraction: Enable bounding box extraction (Priority 2)
+            enable_ml_section_classifier: Enable ML-based section classification (Priority 2)
+            enable_spatial_resolution: Enable spatial relation resolution (Priority 3)
+            enable_temporal_filtering: Enable temporal context filtering (Priority 3)
+            enable_location_name_merging: Enable merging compound location names (Priority 3)
+            enable_coreference_resolution: Enable coreference resolution (Priority 4)
+            enable_abbreviation_expansion: Enable abbreviation expansion (Priority 4)
+            enable_uncertainty_detection: Enable uncertainty detection (Priority 4)
+            enable_validation: Enable validation and quality assurance (Priority 4)
         """
         self.config: ModelConfig = config
         self.pdf_parser: PDFParser = pdf_parser
@@ -60,6 +94,16 @@ class StudySiteExtractionPipeline:
         self.enable_table_extraction = enable_table_extraction
         self.enable_quality_assessment = enable_quality_assessment
         self.enable_enriched_context = enable_enriched_context
+        self.enable_context_filtering = enable_context_filtering
+        self.enable_bounding_box_extraction = enable_bounding_box_extraction
+        self.enable_ml_section_classifier = enable_ml_section_classifier
+        self.enable_spatial_resolution = enable_spatial_resolution
+        self.enable_temporal_filtering = enable_temporal_filtering
+        self.enable_location_name_merging = enable_location_name_merging
+        self.enable_coreference_resolution = enable_coreference_resolution
+        self.enable_abbreviation_expansion = enable_abbreviation_expansion
+        self.enable_uncertainty_detection = enable_uncertainty_detection
+        self.enable_validation = enable_validation
 
         # Initialize components
         if enable_geocoding:
@@ -73,6 +117,26 @@ class StudySiteExtractionPipeline:
             self.quality_assessor = TextQualityAssessor()
         if enable_enriched_context:
             self.context_extractor = ContextExtractor()
+        if enable_context_filtering:
+            self.context_filter = get_context_filter()
+        if enable_bounding_box_extraction:
+            self.bbox_extractor = get_bounding_box_extractor()
+        if enable_ml_section_classifier:
+            self.section_classifier = get_section_classifier(use_ml=True)
+        if enable_spatial_resolution:
+            self.spatial_resolver = get_spatial_relation_resolver()
+        if enable_temporal_filtering:
+            self.temporal_filter = get_temporal_filter()
+        if enable_location_name_merging:
+            self.location_handler = get_location_name_handler()
+        if enable_coreference_resolution:
+            self.coref_resolver = get_coreference_resolver()
+        if enable_abbreviation_expansion:
+            self.abbr_expander = get_abbreviation_expander()
+        if enable_uncertainty_detection:
+            self.uncertainty_detector = get_uncertainty_detector()
+        if enable_validation:
+            self.validator = get_validator()
 
     def extract_from_pdf(self, pdf_path: Path, title: str | None = None) -> ExtractionResult:
         """Complete extraction pipeline for a PDF improvements.
@@ -182,12 +246,81 @@ class StudySiteExtractionPipeline:
                 all_entities.extend(table_entities)
                 logger.info(f"Extracted {len(table_entities)} entities from tables")
 
+        # Extract bounding boxes (Priority 2 improvement)
+        # Looks for coordinate ranges that define study area extent
+        if self.enable_bounding_box_extraction:
+            bbox_entities = self._extract_bounding_boxes(text_spans)
+            if bbox_entities:
+                all_entities.extend(bbox_entities)
+                logger.info(f"Extracted {len(bbox_entities)} bounding box entities")
+
+        # Context-based filtering (Priority 1 improvement)
+        # Remove entities from references, affiliations, captions, etc.
+        if self.enable_context_filtering:
+            pre_filter_count = len(all_entities)
+            all_entities = self.context_filter.filter_entities(all_entities)
+            filtered_count = pre_filter_count - len(all_entities)
+            if filtered_count > 0:
+                logger.info(
+                    f"Context filtering: removed {filtered_count} entities from "
+                    f"reference/affiliation/caption contexts"
+                )
+
+        # Merge compound location names (Priority 3 improvement)
+        # Ensures "Paradise, United States" is recognized as one entity
+        if self.enable_location_name_merging:
+            pre_merge_count = len(all_entities)
+            all_entities = self.location_handler.post_process_entities(
+                all_entities,
+                merge=True,
+                prioritize_long=True,
+            )
+            merged_count = pre_merge_count - len(all_entities)
+            if merged_count > 0:
+                logger.info(
+                    f"Location name merging: merged {merged_count} fragmented location entities"
+                )
+
+        # Coreference resolution (Priority 4 improvement)
+        # Resolve references like "the site" back to actual locations
+        if self.enable_coreference_resolution:
+            pre_coref_count = len(all_entities)
+            all_entities = self.coref_resolver.expand_entities_with_coreferences(
+                doc,
+                all_entities,
+            )
+            added_count = len(all_entities) - pre_coref_count
+            if added_count > 0:
+                logger.info(
+                    f"Coreference resolution: added {added_count} entities from anaphoric references"
+                )
+
+        # Abbreviation expansion (Priority 4 improvement)
+        # Expand abbreviations in entity text before geocoding
+        if self.enable_abbreviation_expansion:
+            all_entities = self._expand_abbreviations(all_entities)
+
         # Geocode location entities (with caching and rate limiting)
         if self.enable_geocoding:
             logger.info("Geocoding location entities...")
             all_entities = self.geocoder.geocode_entities(all_entities, title_bias_point)
             geocoded_count = sum(1 for e in all_entities if e.coordinates)
             logger.info(f"Geocoded entities: {geocoded_count} now have coordinates")
+
+        # Resolve spatial relations to coordinates (Priority 3 improvement)
+        # Converts "10 km north of Paris" to actual coordinates
+        if self.enable_spatial_resolution:
+            all_entities = self._resolve_spatial_relations(all_entities)
+
+        # Temporal context filtering (Priority 3 improvement)
+        # Remove historical/comparative references, keep current study sites
+        if self.enable_temporal_filtering:
+            all_entities = self._filter_by_temporal_context(all_entities)
+
+        # Uncertainty detection (Priority 4 improvement)
+        # Adjust confidence based on certainty markers in context
+        if self.enable_uncertainty_detection:
+            all_entities = self.uncertainty_detector.adjust_entity_confidence(all_entities)
 
         # Cluster coordinates and keep largest cluster
         cluster_info = {}
@@ -260,7 +393,7 @@ class StudySiteExtractionPipeline:
 
         logger.info(f"Extraction complete: {len(ranked_entities)} total entities")
 
-        return ExtractionResult(
+        result = ExtractionResult(
             pdf_path=pdf_path,
             entities=ranked_entities,
             total_sections_processed=sections_processed,
@@ -271,6 +404,23 @@ class StudySiteExtractionPipeline:
             average_text_quality=avg_quality,
             section_quality_scores=quality_scores_dict,
         )
+
+        # Validation (Priority 4 improvement)
+        # Perform quality assurance checks on the extraction result
+        if self.enable_validation:
+            validation_report = self.validator.validate_result(result)
+            if not validation_report.is_valid:
+                logger.warning(
+                    f"Validation found {len(validation_report.errors)} errors, "
+                    f"attempting auto-fix..."
+                )
+                result = self.validator.auto_fix_issues(result, validation_report)
+            if validation_report.warnings:
+                logger.warning(
+                    f"Validation warnings: {len(validation_report.warnings)} issues found"
+                )
+
+        return result
 
     def _extract_title_bias_point(self, title: str) -> Point | None:
         """Extract location from title for geocoding bias.
@@ -304,14 +454,214 @@ class StudySiteExtractionPipeline:
 
         return None
 
+    def _extract_bounding_boxes(self, text_spans: list) -> list[GeoEntity]:
+        """Extract bounding boxes from text sections.
+
+        Priority 2 improvement: Detect coordinate ranges that define
+        study area extent (e.g., "45°N-47°N, 122°W-124°W").
+
+        Args:
+            text_spans: List of text spans from the document
+
+        Returns:
+            List of GeoEntity objects with bounding box information
+        """
+        entities: list[GeoEntity] = []
+
+        for span in text_spans:
+            section_name = self._classify_section(span)
+            section_text = span.text.strip()
+
+            if not section_text:
+                continue
+
+            # Only process study-site-relevant sections
+            if not self._is_study_site_relevant_section(section_name):
+                continue
+
+            # Extract bounding boxes
+            bboxes = self.bbox_extractor.extract(section_text)
+
+            for bbox in bboxes:
+                # Create GeoEntity with bounding box
+                entity = GeoEntity(
+                    text=bbox.source_text,
+                    entity_type="BOUNDING_BOX",
+                    context=f"Study area extent in {section_name}",
+                    section=section_name,
+                    confidence=bbox.confidence,
+                    start_char=0,  # Position within section
+                    end_char=len(bbox.source_text),
+                    coordinates=bbox.center,  # Center point
+                    bounding_box=(
+                        bbox.min_lat,
+                        bbox.max_lat,
+                        bbox.min_lon,
+                        bbox.max_lon,
+                    ),
+                )
+                entities.append(entity)
+
+                logger.debug(
+                    f"Found bounding box in {section_name}: "
+                    f"{bbox.min_lat:.2f}-{bbox.max_lat:.2f}°, "
+                    f"{bbox.min_lon:.2f}-{bbox.max_lon:.2f}°"
+                )
+
+        return entities
+
+    def _resolve_spatial_relations(
+        self, entities: list[GeoEntity]
+    ) -> list[GeoEntity]:
+        """Resolve spatial relations to actual coordinates.
+
+        Priority 3 improvement: Convert phrases like "10 km north of Paris"
+        to actual geographic coordinates.
+
+        Args:
+            entities: List of entities to process
+
+        Returns:
+            List with spatial relations resolved to coordinates
+        """
+        resolved_entities: list[GeoEntity] = []
+        resolved_count = 0
+
+        for entity in entities:
+            # Only process SPATIAL_RELATION entities without coordinates
+            if entity.entity_type != "SPATIAL_RELATION" or entity.coordinates:
+                resolved_entities.append(entity)
+                continue
+
+            # Try to resolve the spatial relation
+            coords = self.spatial_resolver.resolve_entity(entity)
+
+            if coords:
+                # Create new entity with coordinates
+                resolved_entity = GeoEntity(
+                    text=entity.text,
+                    entity_type="SPATIAL_RELATION",
+                    context=entity.context,
+                    section=entity.section,
+                    confidence=entity.confidence,
+                    start_char=entity.start_char,
+                    end_char=entity.end_char,
+                    coordinates=coords,
+                )
+                resolved_entities.append(resolved_entity)
+                resolved_count += 1
+                logger.debug(
+                    f"Resolved spatial relation '{entity.text[:50]}...' to {coords}"
+                )
+            else:
+                resolved_entities.append(entity)
+
+        if resolved_count > 0:
+            logger.info(
+                f"Spatial resolution: resolved {resolved_count} spatial relations to coordinates"
+            )
+
+        return resolved_entities
+
+    def _filter_by_temporal_context(
+        self, entities: list[GeoEntity]
+    ) -> list[GeoEntity]:
+        """Filter entities based on temporal context.
+
+        Priority 3 improvement: Remove entities that refer to historical studies,
+        comparative references, or future/hypothetical locations. Keep only
+        entities that refer to the current study's actual research sites.
+
+        Args:
+            entities: List of entities to filter
+
+        Returns:
+            Filtered list with only current study entities
+        """
+        pre_filter_count = len(entities)
+
+        # Filter to keep current study and unknown (for low-confidence cases)
+        filtered_entities = self.temporal_filter.filter_entities(
+            entities,
+            keep_contexts={TemporalContext.CURRENT_STUDY, TemporalContext.UNKNOWN},
+        )
+
+        removed_count = pre_filter_count - len(filtered_entities)
+        if removed_count > 0:
+            logger.info(
+                f"Temporal filtering: removed {removed_count} historical/comparative references"
+            )
+
+        return filtered_entities
+
+    def _expand_abbreviations(
+        self, entities: list[GeoEntity]
+    ) -> list[GeoEntity]:
+        """Expand abbreviations in entity text.
+
+        Priority 4 improvement: Normalizes location names by expanding
+        common abbreviations before geocoding, improving match rates.
+
+        Args:
+            entities: List of entities
+
+        Returns:
+            Entities with expanded abbreviations
+        """
+        expanded: list[GeoEntity] = []
+        expansion_count = 0
+
+        for entity in entities:
+            # Expand abbreviations in entity text
+            original_text = entity.text
+            expanded_text = self.abbr_expander.normalize_location_name(original_text)
+
+            # Create new entity if text changed
+            if expanded_text != original_text:
+                expanded_entity = GeoEntity(
+                    text=expanded_text,
+                    entity_type=entity.entity_type,
+                    context=entity.context,
+                    section=entity.section,
+                    confidence=entity.confidence,
+                    start_char=entity.start_char,
+                    end_char=entity.end_char,
+                    coordinates=entity.coordinates,
+                    bounding_box=entity.bounding_box,
+                )
+                expanded.append(expanded_entity)
+                expansion_count += 1
+                logger.debug(f"Expanded '{original_text}' -> '{expanded_text}'")
+            else:
+                expanded.append(entity)
+
+        if expansion_count > 0:
+            logger.info(
+                f"Abbreviation expansion: expanded {expansion_count} entity names"
+            )
+
+        return expanded
+
     def _classify_section(self, span: Span) -> str:
         """Classify document section from span metadata.
 
+        Uses ML classifier (Priority 2) when available, with rule-based fallback.
         Enhanced to better detect study site sections following linguistic patterns
         in earth system papers.
         """
         heading = str(getattr(span._, "heading", "")).lower()
-        text_start = span.text.strip()[:100].lower()  # Increased for better detection
+        text_start = span.text.strip()[:200]  # Increased for better ML detection
+
+        # Use ML classifier if available (Priority 2 improvement)
+        if self.enable_ml_section_classifier and hasattr(self, "section_classifier"):
+            label, confidence = self.section_classifier.classify(heading, text_start)
+            if confidence >= 0.6:  # Only use ML prediction if confident
+                logger.debug(f"ML classified section as '{label}' (confidence: {confidence:.2f})")
+                return label
+
+        # Fallback to rule-based classification
+        heading_lower = heading.lower()
+        text_lower = text_start[:100].lower()
 
         # Check for study site sections first (highest priority)
         study_site_keywords = [
@@ -321,49 +671,49 @@ class StudySiteExtractionPipeline:
             "experimental site", "observation site",
         ]
         for keyword in study_site_keywords:
-            if keyword in heading or keyword in text_start[:80]:
+            if keyword in heading_lower or keyword in text_lower[:80]:
                 return "study_area"  # Normalize to study_area
 
         # Check for methods sections (high priority for study site mentions)
         if any(
-            word in heading for word in ["method", "material", "experiment", "data", "sampling"]
-        ) or text_start.startswith(("method", "data", "material", "sampling")):
-            if "data collection" in heading or "data collection" in text_start[:50]:
-                return "data collection"
-            if "field method" in heading or "field method" in text_start[:50]:
-                return "field methods"
+            word in heading_lower for word in ["method", "material", "experiment", "data", "sampling"]
+        ) or text_lower.startswith(("method", "data", "material", "sampling")):
+            if "data collection" in heading_lower or "data collection" in text_lower[:50]:
+                return "data"
+            if "field method" in heading_lower or "field method" in text_lower[:50]:
+                return "methods"
             return "methods"
 
         # Abstract
-        elif "abstract" in heading or text_start.startswith("abstract"):
+        elif "abstract" in heading_lower or text_lower.startswith("abstract"):
             return "abstract"
 
         # Results (lower priority)
-        elif any(word in heading for word in ["result", "finding"]) or text_start.startswith(
+        elif any(word in heading_lower for word in ["result", "finding"]) or text_lower.startswith(
             "result",
         ):
             return "results"
 
         # Discussion (low priority)
-        elif "discuss" in heading or text_start.startswith("discuss"):
+        elif "discuss" in heading_lower or text_lower.startswith("discuss"):
             return "discussion"
 
         # Conclusion (low priority)
         elif any(
-            word in heading for word in ["conclusion", "summary", "outlook"]
-        ) or text_start.startswith(("conclusion", "outlook")):
+            word in heading_lower for word in ["conclusion", "summary", "outlook"]
+        ) or text_lower.startswith(("conclusion", "outlook")):
             return "conclusion"
 
         # Introduction (low priority)
-        elif any(word in heading for word in ["intro", "background"]) or text_start.startswith(
+        elif any(word in heading_lower for word in ["intro", "background"]) or text_lower.startswith(
             ("intro", "background"),
         ):
             return "introduction"
 
         # References (skip)
         elif any(
-            word in heading for word in ["reference", "bibliography", "acknowledgment"]
-        ) or text_start.startswith(("reference", "bibliograph", "acknowledgment")):
+            word in heading_lower for word in ["reference", "bibliography", "acknowledgment"]
+        ) or text_lower.startswith(("reference", "bibliograph", "acknowledgment")):
             return "references"
 
         return "other"

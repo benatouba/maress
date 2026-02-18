@@ -13,7 +13,7 @@ class GeoEntity(BaseModel):
     text: str = Field(..., min_length=1, description="Entity text")
     entity_type: str = Field(
         ...,
-        description="Type: COORDINATE, SPATIAL_RELATION, LOC, GPE",
+        description="Type: COORDINATE, SPATIAL_RELATION, LOC, GPE, BOUNDING_BOX, etc.",
     )
     context: str = Field(..., description="Surrounding text context")
     section: str = Field(..., description="Document section name")
@@ -23,6 +23,10 @@ class GeoEntity(BaseModel):
     coordinates: tuple[float, float] | None = Field(
         default=None,
         description="Parsed (lat, lon) if available",
+    )
+    bounding_box: tuple[float, float, float, float] | None = Field(
+        default=None,
+        description="Bounding box (min_lat, max_lat, min_lon, max_lon) for area entities",
     )
 
     @field_validator("end_char")
@@ -36,7 +40,7 @@ class GeoEntity(BaseModel):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary with separated lat/lon."""
-        return {
+        result = {
             "text": self.text,
             "type": self.entity_type,
             "section": self.section,
@@ -45,6 +49,17 @@ class GeoEntity(BaseModel):
             "latitude": self.coordinates[0] if self.coordinates else None,
             "longitude": self.coordinates[1] if self.coordinates else None,
         }
+
+        # Add bounding box if present
+        if self.bounding_box:
+            result["bounding_box"] = {
+                "min_lat": self.bounding_box[0],
+                "max_lat": self.bounding_box[1],
+                "min_lon": self.bounding_box[2],
+                "max_lon": self.bounding_box[3],
+            }
+
+        return result
 
 class ExtractionMetadata(BaseModel):
     """Metadata for extraction process."""

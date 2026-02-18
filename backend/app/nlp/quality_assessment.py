@@ -228,14 +228,26 @@ class TextQualityAssessor:
         return health_score
 
     def _fragmentation_score(self, text: str) -> float:
-        """Assess line fragmentation.
+        """Assess line and character fragmentation.
 
-        Fragmented text has many very short lines, indicating
-        poor extraction or OCR issues.
+        Fragmented text has many very short lines or excessive spaces between characters,
+        indicating poor extraction or OCR issues.
         """
+        if not text:
+            return 0.0
+
+        # Check for character-level fragmentation (e.g., "S t u d y" instead of "Study")
+        # Count single-letter words which indicate character fragmentation
+        words = text.split()
+        single_letter_words = sum(1 for word in words if len(word) == 1 and word.isalpha())
+        if len(words) > 0:
+            char_frag_ratio = single_letter_words / len(words)
+            if char_frag_ratio > 0.3:  # More than 30% single-letter words is fragmented
+                return char_frag_ratio  # Return low score (0.3-1.0 range, but inverted meaning)
+
         lines = text.split("\n")
         if not lines:
-            return 0.0
+            return 1.0
 
         # Count lines by length
         very_short_lines = sum(1 for line in lines if 0 < len(line.strip()) < 10)
@@ -244,7 +256,7 @@ class TextQualityAssessor:
 
         total_content_lines = very_short_lines + short_lines + normal_lines
         if total_content_lines == 0:
-            return 0.0
+            return 1.0
 
         # Calculate score (prefer longer lines)
         score = (normal_lines * 1.0 + short_lines * 0.5 + very_short_lines * 0.1) / (

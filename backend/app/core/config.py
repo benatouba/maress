@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     GEOCODING_CACHE_TTL: int = 60 * 60 * 24 * 30  # 30 days in seconds
     GEOCODING_RATE_LIMIT: float = 1.0  # requests per second for Nominatim
 
+    # GeoNames Configuration (for entity linking/disambiguation)
+    # Register free account at: https://www.geonames.org/login
+    GEONAMES_USERNAME: str | None = None
+
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
             message = (
