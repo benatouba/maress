@@ -564,10 +564,9 @@ def get_task_status(
                     "message": str(error_info),
                     "type": type(error_info).__name__,
                 }
-    else:
-        # Task is still running - check for progress info
-        if hasattr(result, "info") and isinstance(result.info, dict):
-            response["result"] = result.info  # Progress metadata
+    # Task is still running - check for progress infol
+    elif hasattr(result, "info") and isinstance(result.info, dict):
+        response["result"] = result.info  # Progress metadata
 
     # Add task metadata if available
     if hasattr(result, "info") and isinstance(result.info, dict):
