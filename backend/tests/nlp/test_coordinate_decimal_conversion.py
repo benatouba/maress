@@ -226,12 +226,15 @@ class TestCoordinateDecimalConversion:
     # === EDGE CASES ===
 
     def test_equator_coordinates(self, parser: CoordinateParser) -> None:
-        """Test coordinates at the equator."""
-        result = parser.parse_to_decimal("0.0, 0.0")
+        """Test coordinates near the equator.
+
+        Note: (0.0, 0.0) is rejected as a placeholder, so we test near-equator coordinates.
+        """
+        result = parser.parse_to_decimal("0.5, 0.5")
         assert result is not None
         lat, lon = result
-        assert abs(lat) < 0.001
-        assert abs(lon) < 0.001
+        assert abs(lat - 0.5) < 0.001
+        assert abs(lon - 0.5) < 0.001
 
     def test_prime_meridian_coordinates(self, parser: CoordinateParser) -> None:
         """Test coordinates at prime meridian."""
@@ -254,6 +257,11 @@ class TestCoordinateDecimalConversion:
         assert result is not None
         lat, lon = result
         assert abs(lon - 179.9) < 0.001
+
+    def test_zero_zero_rejected_as_placeholder(self, parser: CoordinateParser) -> None:
+        """Test that (0, 0) is rejected as a placeholder coordinate."""
+        result = parser.parse_to_decimal("0.0, 0.0")
+        assert result is None, "(0, 0) should be rejected as placeholder"
 
     def test_invalid_format_returns_none(self, parser: CoordinateParser) -> None:
         """Test that invalid format returns None."""

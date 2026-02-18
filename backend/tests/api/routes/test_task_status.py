@@ -29,6 +29,7 @@ class TestTaskStatusEndpoint:
         task_id = str(uuid.uuid4())
 
         mock_result = Mock(spec=AsyncResult)
+        mock_result.state = "PENDING"
         mock_result.status = "PENDING"
         mock_result.ready.return_value = False
         mock_result.successful.return_value = False
@@ -66,6 +67,7 @@ class TestTaskStatusEndpoint:
         }
 
         mock_result = Mock(spec=AsyncResult)
+        mock_result.state = "SUCCESS"
         mock_result.status = "SUCCESS"
         mock_result.ready.return_value = True
         mock_result.successful.return_value = True
@@ -104,6 +106,7 @@ class TestTaskStatusEndpoint:
         }
 
         mock_result = Mock(spec=AsyncResult)
+        mock_result.state = "FAILURE"
         mock_result.status = "FAILURE"
         mock_result.ready.return_value = True
         mock_result.successful.return_value = False
@@ -270,19 +273,27 @@ class TestExtractionSummaryEndpoint:
         self,
         client: TestClient,
         db_session: Session,
+        test_user,
         normal_user_token_headers: dict[str, str],
     ) -> None:
         """Test retrieving extraction summary statistics."""
         # Create items with study sites
         from pydantic_extra_types.coordinate import Latitude, Longitude
 
+        from app import crud
         from app.crud import create_study_site
         from app.models import StudySiteCreate
+        from tests.factories import ItemFactory
 
-        # Create 3 items, 2 with study sites
-        item1 = create_random_item(db_session)
-        item2 = create_random_item(db_session)
-        item3 = create_random_item(db_session)
+        # Create 3 items owned by test_user, 2 with study sites
+        item1_in = ItemFactory.build()
+        item1 = crud.create_item(session=db_session, item_in=item1_in, owner_id=test_user.id)
+
+        item2_in = ItemFactory.build()
+        item2 = crud.create_item(session=db_session, item_in=item2_in, owner_id=test_user.id)
+
+        item3_in = ItemFactory.build()
+        item3 = crud.create_item(session=db_session, item_in=item3_in, owner_id=test_user.id)
 
         # Add study sites to item1 and item2
         site1 = StudySiteCreate(
@@ -312,6 +323,9 @@ class TestExtractionSummaryEndpoint:
             item_id=item2.id,
         )
         create_study_site(db_session, site2)
+
+        # Commit changes and refresh session to ensure data is available
+        db_session.commit()
 
         response = client.get(
             f"{settings.API_V1_STR}/items/tasks/summary/",
@@ -377,15 +391,20 @@ class TestExtractionSummaryEndpoint:
         self,
         client: TestClient,
         db_session: Session,
+        test_superuser,
         superuser_token_headers: dict[str, str],
     ) -> None:
         """Test that summary breaks down sites by extraction method."""
         from pydantic_extra_types.coordinate import Latitude, Longitude
 
+        from app import crud
         from app.crud import create_study_site
         from app.models import StudySiteCreate
+        from tests.factories import ItemFactory
 
-        item = create_random_item(db_session)
+        # Create item owned by test_superuser
+        item_in = ItemFactory.build()
+        item = crud.create_item(session=db_session, item_in=item_in, owner_id=test_superuser.id)
 
         # Create sites with different extraction methods
         methods = [
@@ -408,6 +427,9 @@ class TestExtractionSummaryEndpoint:
                 item_id=item.id,
             )
             create_study_site(db_session, site)
+
+        # Commit changes to ensure data is available
+        db_session.commit()
 
         response = client.get(
             f"{settings.API_V1_STR}/items/tasks/summary/",

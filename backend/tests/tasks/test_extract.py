@@ -12,7 +12,7 @@ from pydantic_extra_types.coordinate import Latitude, Longitude
 
 from app.models import Item
 from app.models import StudySite
-from app.nlp.domain_models import ExtractionResult, GeoEntity
+from app.nlp.domain_models import ExtractionMetadata, ExtractionResult, GeoEntity
 from app.tasks.extract import extract_study_site_task
 from maress_types import (
     CoordinateExtractionMethod,
@@ -23,6 +23,24 @@ from tests.utils.item import create_random_item
 
 if TYPE_CHECKING:
     from sqlmodel import Session
+
+
+def make_extraction_metadata(
+    total_entities: int = 0,
+    coordinates: int = 0,
+    clusters: int = 0,
+    locations: int = 0,
+) -> ExtractionMetadata:
+    """Helper to create ExtractionMetadata for tests."""
+    return ExtractionMetadata(
+        total_sections_processed=1,
+        average_text_quality=0.9,
+        section_quality_scores={},
+        total_entities=total_entities,
+        coordinates=coordinates,
+        clusters=clusters,
+        locations=locations,
+    )
 
 
 @pytest.fixture
@@ -63,13 +81,11 @@ def mock_single_site_result(mock_pdf_path: Path) -> ExtractionResult:
         pdf_path=mock_pdf_path,
         entities=[entity],
         total_sections_processed=1,
-        extraction_metadata={
-            "total_entities": 1,
-            "coordinates": 1,
-            "spatial_relations": 0,
-            "locations": 0,
-            "clusters": 1,
-        },
+        extraction_metadata=make_extraction_metadata(
+            total_entities=1,
+            coordinates=1,
+            clusters=1,
+        ),
         doc=None,
         title="Test Study in Ecuador",
         cluster_info={"cluster_1": 1},
@@ -133,13 +149,12 @@ def mock_multi_site_result(mock_pdf_path: Path) -> ExtractionResult:
         pdf_path=mock_pdf_path,
         entities=[entity_1, entity_2, entity_3, entity_4],
         total_sections_processed=2,
-        extraction_metadata={
-            "total_entities": 4,
-            "coordinates": 4,
-            "spatial_relations": 0,
-            "locations": 2,
-            "clusters": 3,
-        },
+        extraction_metadata=make_extraction_metadata(
+            total_entities=4,
+            coordinates=4,
+            clusters=3,
+            locations=2,
+        ),
         doc=None,
         title="Test Study in Multiple Countries",
         cluster_info={"cluster_1": 2, "cluster_2": 1, "cluster_3": 1},
@@ -373,13 +388,12 @@ class TestExtractStudySiteTask:
             pdf_path=mock_pdf_path,
             entities=[],
             total_sections_processed=5,
-            extraction_metadata={
-                "total_entities": 0,
-                "coordinates": 0,
-                "spatial_relations": 0,
-                "locations": 0,
-                "clusters": 0,
-            },
+            extraction_metadata=make_extraction_metadata(
+                total_entities=0,
+                coordinates=0,
+                clusters=0,
+                locations=0,
+            ),
             doc=None,
             title="Test Study with No Sites",
             cluster_info={},
@@ -451,13 +465,12 @@ class TestExtractStudySiteTask:
             pdf_path=mock_pdf_path,
             entities=[entity_1, entity_2],
             total_sections_processed=2,
-            extraction_metadata={
-                "total_entities": 2,
-                "coordinates": 2,
-                "spatial_relations": 0,
-                "locations": 1,
-                "clusters": 1,
-            },
+            extraction_metadata=make_extraction_metadata(
+                total_entities=2,
+                coordinates=2,
+                clusters=1,
+                locations=1,
+            ),
             doc=None,
             title="Test Deduplication",
             cluster_info={"cluster_1": 2},

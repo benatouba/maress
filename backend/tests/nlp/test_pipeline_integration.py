@@ -16,10 +16,28 @@ import spacy
 
 from app.nlp.adapters import StudySiteResultAdapter
 from app.nlp.clustering import CoordinateClusterer
-from app.nlp.domain_models import ExtractionResult, GeoEntity
+from app.nlp.domain_models import ExtractionResult, ExtractionMetadata, GeoEntity
 from app.nlp.extractors import SpaCyCoordinateExtractor, SpaCyGeoExtractor
 from app.nlp.factories import PipelineFactory
 from app.nlp.model_config import ModelConfig
+
+
+def make_extraction_metadata(
+    total_entities: int = 0,
+    coordinates: int = 0,
+    clusters: int = 0,
+    locations: int = 0,
+) -> ExtractionMetadata:
+    """Helper to create ExtractionMetadata for tests."""
+    return ExtractionMetadata(
+        total_sections_processed=1,
+        average_text_quality=0.9,
+        section_quality_scores={},
+        total_entities=total_entities,
+        coordinates=coordinates,
+        clusters=clusters,
+        locations=locations,
+    )
 
 
 class TestFullPipelineIntegration:
@@ -94,6 +112,8 @@ class TestFullPipelineIntegration:
                 context="SF site",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=20,
             ),
             # Coordinate in New York (far from California)
             GeoEntity(
@@ -103,6 +123,8 @@ class TestFullPipelineIntegration:
                 context="NY site",
                 section="methods",
                 confidence=0.95,
+                start_char=100,
+                end_char=120,
             ),
             # Named entities in California (larger cluster)
             GeoEntity(
@@ -112,6 +134,8 @@ class TestFullPipelineIntegration:
                 context="In SF",
                 section="methods",
                 confidence=0.9,
+                start_char=200,
+                end_char=215,
             ),
             GeoEntity(
                 text="Oakland",
@@ -120,6 +144,8 @@ class TestFullPipelineIntegration:
                 context="In Oakland",
                 section="methods",
                 confidence=0.9,
+                start_char=250,
+                end_char=260,
             ),
             # Named entity in New York (smaller cluster)
             GeoEntity(
@@ -129,6 +155,8 @@ class TestFullPipelineIntegration:
                 context="In NY",
                 section="methods",
                 confidence=0.9,
+                start_char=300,
+                end_char=310,
             ),
         ]
 
@@ -156,6 +184,8 @@ class TestFullPipelineIntegration:
                 context="Study site A",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=20,
             ),
             GeoEntity(
                 text="40.7128, -74.0060",
@@ -164,6 +194,8 @@ class TestFullPipelineIntegration:
                 context="Study site B",
                 section="methods",
                 confidence=0.95,
+                start_char=100,
+                end_char=120,
             ),
             # Named entity with low confidence (should be filtered)
             GeoEntity(
@@ -173,13 +205,27 @@ class TestFullPipelineIntegration:
                 context="In California",
                 section="methods",
                 confidence=0.3,  # Below threshold
+                start_char=200,
+                end_char=212,
             ),
         ]
+
+        nlp = spacy.blank("en")
+        doc = nlp("test document")
 
         result = ExtractionResult(
             pdf_path=Path("test.pdf"),
             entities=entities,
             total_sections_processed=1,
+            extraction_metadata=make_extraction_metadata(
+                total_entities=3,
+                coordinates=2,
+                locations=1,
+            ),
+            doc=doc,
+            cluster_info={"total_clusters": 1, "largest_cluster_size": 3},
+            average_text_quality=0.9,
+            section_quality_scores={},
         )
 
         item_id = uuid.uuid4()
@@ -269,6 +315,8 @@ class TestFullPipelineIntegration:
                 context="Site",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=20,
             ),
             # Cluster 1: California (larger)
             GeoEntity(
@@ -278,6 +326,8 @@ class TestFullPipelineIntegration:
                 context="SF",
                 section="methods",
                 confidence=0.9,
+                start_char=50,
+                end_char=65,
             ),
             GeoEntity(
                 text="10 km north of SF",
@@ -286,6 +336,8 @@ class TestFullPipelineIntegration:
                 context="Near SF",
                 section="methods",
                 confidence=0.85,
+                start_char=100,
+                end_char=120,
             ),
             # Cluster 2: New York (smaller)
             GeoEntity(
@@ -295,6 +347,8 @@ class TestFullPipelineIntegration:
                 context="NY",
                 section="methods",
                 confidence=0.9,
+                start_char=200,
+                end_char=210,
             ),
         ]
 

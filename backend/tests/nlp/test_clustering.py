@@ -32,6 +32,8 @@ class TestClusteringLogic:
                 context="Site A",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=20,
             ),
             # Coordinates in cluster 2 (New York) - far from cluster 1
             GeoEntity(
@@ -41,6 +43,8 @@ class TestClusteringLogic:
                 context="Site B",
                 section="methods",
                 confidence=0.95,
+                start_char=100,
+                end_char=120,
             ),
             # Named entity in cluster 1
             GeoEntity(
@@ -50,6 +54,8 @@ class TestClusteringLogic:
                 context="Located in San Francisco",
                 section="methods",
                 confidence=0.85,
+                start_char=200,
+                end_char=215,
             ),
             # Named entity in cluster 2
             GeoEntity(
@@ -59,6 +65,8 @@ class TestClusteringLogic:
                 context="Located in New York",
                 section="methods",
                 confidence=0.85,
+                start_char=300,
+                end_char=310,
             ),
         ]
 
@@ -86,6 +94,8 @@ class TestClusteringLogic:
                 context="SF",
                 section="methods",
                 confidence=0.9,
+                start_char=0,
+                end_char=15,
             ),
             GeoEntity(
                 text="Oakland",
@@ -94,6 +104,8 @@ class TestClusteringLogic:
                 context="Oakland",
                 section="methods",
                 confidence=0.9,
+                start_char=50,
+                end_char=60,
             ),
             GeoEntity(
                 text="Berkeley",
@@ -102,6 +114,8 @@ class TestClusteringLogic:
                 context="Berkeley",
                 section="methods",
                 confidence=0.9,
+                start_char=100,
+                end_char=110,
             ),
             # Cluster 2: 2 entities (New York) - smaller cluster
             GeoEntity(
@@ -111,6 +125,8 @@ class TestClusteringLogic:
                 context="NY",
                 section="methods",
                 confidence=0.9,
+                start_char=200,
+                end_char=210,
             ),
             GeoEntity(
                 text="Brooklyn",
@@ -119,6 +135,8 @@ class TestClusteringLogic:
                 context="Brooklyn",
                 section="methods",
                 confidence=0.9,
+                start_char=250,
+                end_char=260,
             ),
         ]
 
@@ -146,6 +164,8 @@ class TestClusteringLogic:
                 context="SF",
                 section="methods",
                 confidence=0.9,
+                start_char=0,
+                end_char=15,
             ),
             GeoEntity(
                 text="Oakland",
@@ -154,6 +174,8 @@ class TestClusteringLogic:
                 context="Oakland",
                 section="methods",
                 confidence=0.9,
+                start_char=50,
+                end_char=60,
             ),
             GeoEntity(
                 text="Berkeley",
@@ -162,6 +184,8 @@ class TestClusteringLogic:
                 context="Berkeley",
                 section="methods",
                 confidence=0.9,
+                start_char=100,
+                end_char=110,
             ),
             # Coordinate in small cluster (New York) - just 1 entity
             GeoEntity(
@@ -171,6 +195,8 @@ class TestClusteringLogic:
                 context="NY Site",
                 section="methods",
                 confidence=0.95,
+                start_char=200,
+                end_char=220,
             ),
         ]
 
@@ -195,6 +221,8 @@ class TestClusteringLogic:
                 context="Study site near SF",
                 section="methods",
                 confidence=0.85,
+                start_char=0,
+                end_char=30,
             ),
             GeoEntity(
                 text="near Oakland",
@@ -203,6 +231,8 @@ class TestClusteringLogic:
                 context="Oakland area",
                 section="methods",
                 confidence=0.85,
+                start_char=50,
+                end_char=65,
             ),
             # Cluster 2: New York (smaller cluster)
             GeoEntity(
@@ -212,6 +242,8 @@ class TestClusteringLogic:
                 context="Near Brooklyn",
                 section="methods",
                 confidence=0.85,
+                start_char=100,
+                end_char=120,
             ),
         ]
 
@@ -237,6 +269,8 @@ class TestClusteringLogic:
                 context="SF",
                 section="methods",
                 confidence=0.9,
+                start_char=0,
+                end_char=15,
             ),
             # Cluster 2
             GeoEntity(
@@ -246,6 +280,8 @@ class TestClusteringLogic:
                 context="NY",
                 section="methods",
                 confidence=0.9,
+                start_char=100,
+                end_char=110,
             ),
         ]
 
@@ -266,6 +302,8 @@ class TestClusteringLogic:
                 context="SF site",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=20,
             ),
             # Entity without coordinates
             GeoEntity(
@@ -275,6 +313,8 @@ class TestClusteringLogic:
                 context="In California",
                 section="methods",
                 confidence=0.8,
+                start_char=50,
+                end_char=60,
             ),
         ]
 
@@ -296,6 +336,8 @@ class TestClusteringLogic:
                 context="Single site",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=20,
             ),
         ]
 
@@ -333,6 +375,8 @@ class TestCoordinateFormat:
                 context="Site",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=20,
             ),
         ]
 
@@ -358,6 +402,8 @@ class TestCoordinateFormat:
                 context="Precise site",
                 section="methods",
                 confidence=0.95,
+                start_char=0,
+                end_char=25,
             ),
         ]
 
