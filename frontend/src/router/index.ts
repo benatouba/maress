@@ -12,13 +12,13 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const authStore = useAuthStore()
 
-  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
-    next({ name: 'Login', query: { redirect: to.fullPath } })
-  } else if (to.meta.guest && authStore.isAuthenticated) {
-    next({ name: 'Home' })
-  } else {
+  // if (to.meta.requiresAuth && !authStore.isAuthenticated) {
+  //   next({ name: 'Login', query: { redirect: to.fullPath } })
+  // } else if (to.meta.guest && authStore.isAuthenticated) {
+  //   next({ name: 'Home' })
+  // } else {
     next()
-  }
+  // }
 })
 
 // Workaround for https://github.com/vitejs/vite/issues/11804
