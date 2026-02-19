@@ -1,0 +1,13 @@
+{
+  "name": "maress",
+  "private": true,
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "pnpm --dir frontend dev",
+    "lint": "pnpm --dir frontend lint",
+    "test": "pnpm --dir frontend test",
+    "test:ui": "pnpm --dir frontend test:ui"
+  }
+}
