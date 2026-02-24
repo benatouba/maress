@@ -14,7 +14,7 @@
         class="fill-height sidebar sidebar-left">
         <v-card
           class="fill-height d-flex flex-column"
-          elevation="4">
+          elevation="1">
           <v-card-title class="d-flex align-center justify-space-between">
             <span>Papers</span>
             <div class="d-flex align-center gap-2">
@@ -171,7 +171,7 @@
         class="fill-height sidebar sidebar-right">
         <v-card
           class="fill-height d-flex flex-column"
-          elevation="4">
+          elevation="1">
           <v-card-title class="d-flex align-center justify-space-between">
             <span>Study Sites</span>
             <div class="d-flex align-center gap-2">

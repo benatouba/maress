@@ -3,10 +3,13 @@
     <top-bar />
     <task-progress-banner />
     <v-main>
-      <v-container centered class="pa-4">
         <router-view />
-      </v-container>
     </v-main>
+    <v-footer app class="text-center text-medium-emphasis text-body-2">
+      <v-spacer />
+      <span>MaRESS &mdash; Marine Research &amp; Study Sites &copy; {{ new Date().getFullYear() }}</span>
+      <v-spacer />
+    </v-footer>
   </v-app>
 </template>
 

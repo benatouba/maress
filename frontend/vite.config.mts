@@ -2,7 +2,6 @@
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
 import Fonts from 'unplugin-fonts/vite'
-import Layouts from 'vite-plugin-vue-layouts-next'
 import Vue from '@vitejs/plugin-vue'
 import VueRouter from 'vue-router/vite'
 import { VueRouterAutoImports } from 'vue-router/unplugin'
@@ -18,7 +17,6 @@ export default defineConfig({
     VueRouter({
       dts: 'src/typed-router.d.ts',
     }),
-    Layouts(),
     AutoImport({
       imports: [
         'vue',

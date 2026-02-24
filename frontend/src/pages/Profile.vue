@@ -2,7 +2,7 @@
   <v-row justify="center">
     <v-col cols="12" md="8" lg="6">
       <!-- Profile Header Card -->
-      <v-card class="profile-card" elevation="4">
+      <v-card class="profile-card" elevation="1">
         <!-- Cover Image -->
         <v-img height="200" :src="coverImage" gradient="to bottom, rgba(0,0,0,.1), rgba(0,0,0,.5)">
           <div class="d-flex justify-end pa-4">

@@ -11,7 +11,7 @@
         </div>
 
         <!-- Profile Information Card -->
-        <v-card class="mb-6" elevation="2">
+        <v-card class="mb-6" elevation="1">
           <v-card-title class="bg-primary">
             <v-icon class="mr-2">mdi-account</v-icon>
             Profile Information
@@ -105,7 +105,7 @@
         </v-card>
 
         <!-- Password Change Card -->
-        <v-card elevation="2">
+        <v-card elevation="1">
           <v-card-title class="bg-secondary">
             <v-icon class="mr-2">mdi-lock</v-icon>
             Change Password
@@ -182,7 +182,7 @@
         </v-card>
 
         <!-- Account Status Card -->
-        <v-card class="mt-6" elevation="2">
+        <v-card class="mt-6" elevation="1">
           <v-card-title>
             <v-icon class="mr-2">mdi-information</v-icon>
             Account Status

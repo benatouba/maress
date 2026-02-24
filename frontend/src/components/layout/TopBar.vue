@@ -1,15 +1,15 @@
 <template>
-  <v-app-bar app color="primary" dark>
+  <v-app-bar color="primary" theme="dark">
     <template #prepend>
       <router-link to="/" aria-label="Home">
         <v-img width="100" cover src="@/assets/logo.svg" alt="UCO Logo" />
       </router-link>
     </template>
     <v-toolbar-title>MaRESS</v-toolbar-title>
-    <v-btn text to="/items">Papers</v-btn>
-    <v-btn text to="/map">Map</v-btn>
-    <v-btn text to="/graph">Graph</v-btn>
-    <v-btn text to="/tasks">
+    <v-btn variant="text" to="/items">Papers</v-btn>
+    <v-btn variant="text" to="/map">Map</v-btn>
+    <v-btn variant="text" to="/graph">Graph</v-btn>
+    <v-btn variant="text" to="/tasks">
       Tasks
       <v-badge
         v-if="taskStore.hasTasks"
@@ -20,6 +20,10 @@
       />
     </v-btn>
     <v-spacer></v-spacer>
+    <!-- Theme Toggle -->
+    <v-btn icon @click="toggleTheme">
+      <v-icon>{{ isDark ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
+    </v-btn>
     <div v-if="authStore.isAuthenticated">
       <!-- User Menu -->
       <v-menu offset-y>
@@ -53,8 +57,8 @@
       </v-menu>
     </div>
     <div v-else>
-      <v-btn text to="/login">Login</v-btn>
-      <v-btn text to="/register">Sign Up</v-btn>
+      <v-btn variant="text" to="/login">Login</v-btn>
+      <v-btn variant="text" to="/register">Sign Up</v-btn>
     </div>
   </v-app-bar>
 </template>
@@ -62,12 +66,20 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useTheme } from 'vuetify'
 import { useAuthStore } from '@/stores/auth'
 import { useTaskStore } from '@/stores/tasks'
 
 const router = useRouter()
+const theme = useTheme()
 const authStore = useAuthStore()
 const taskStore = useTaskStore()
+
+const isDark = computed(() => theme.global.name.value === 'dark')
+
+const toggleTheme = () => {
+  theme.global.name.value = isDark.value ? 'light' : 'dark'
+}
 
 // Get user initial for avatar
 const userInitial = computed(() => {

@@ -13,7 +13,7 @@
         <!-- Welcome Card -->
         <v-card
           class="mx-auto mb-8"
-          elevation="2">
+          elevation="1">
           <v-card-text class="text-center pa-8">
             <!-- Welcome Message -->
             <div class="mb-4">
@@ -163,7 +163,7 @@
         <v-card
           v-if="authStore.isAuthenticated"
           class="mt-8"
-          elevation="2">
+          elevation="1">
           <v-card-title>
             <v-icon
               left

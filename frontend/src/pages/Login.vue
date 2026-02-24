@@ -11,7 +11,7 @@
         md="6"
         lg="4">
         <v-card
-          elevation="8"
+          elevation="2"
           rounded="lg">
           <!-- Header -->
           <v-card-title class="text-h5 text-center pa-6 bg-primary">
@@ -150,13 +150,11 @@ const handleLogin = async () => {
   min-height: 100vh;
 }
 
-@layer override {
-  .bg-primary {
-    background-color: rgb(var(--v-theme-primary));
-  }
+.bg-primary {
+  background-color: rgb(var(--v-theme-primary));
+}
 
-  .text-white {
-    color: white;
-  }
+.text-white {
+  color: white;
 }
 </style>

@@ -82,7 +82,7 @@
     </v-row>
 
     <!-- Zotero Collections -->
-    <v-card class="mb-4" elevation="2" v-if="zoteroCollections.length > 0">
+    <v-card class="mb-4" elevation="1" v-if="zoteroCollections.length > 0">
       <v-card-title class="text-subtitle-1">
         <v-icon class="mr-2">mdi-folder-multiple</v-icon>
         Zotero Collections
@@ -115,7 +115,7 @@
     </v-card>
 
     <!-- Filters and Search -->
-    <v-card class="mb-4" elevation="2">
+    <v-card class="mb-4" elevation="1">
       <v-card-text>
         <v-row>
           <v-col cols="12" md="4">
@@ -211,7 +211,7 @@
     </v-alert>
 
     <!-- Data Table -->
-    <v-card elevation="2">
+    <v-card elevation="1">
       <v-data-table
         v-model:page="page"
         v-model:items-per-page="itemsPerPage"

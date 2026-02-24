@@ -17,7 +17,7 @@
 
     <!-- Map controls -->
     <div class="map-controls">
-      <v-card elevation="2">
+      <v-card elevation="1">
         <v-card-text>
           <v-btn
             @click="fitToMarkers"
@@ -39,7 +39,7 @@
 
     <!-- Map statistics -->
     <div class="map-stats">
-      <v-card elevation="2">
+      <v-card elevation="1">
         <v-card-text class="pa-3">
           <div class="d-flex gap-4">
             <div class="stat-item">

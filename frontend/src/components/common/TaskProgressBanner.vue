@@ -4,7 +4,7 @@
       v-if="taskStore.hasTasks && dismissed !== true"
       color="info"
       icon="mdi-cog-sync"
-      elevation="4"
+      elevation="1"
       class="task-progress-banner clickable"
       @click="navigateToTasks">
       <template #text>
