@@ -67,6 +67,9 @@ export default createVuetify({
     defaultSet: 'mdi',
   },
   defaults: {
+    VBtn: {
+      style: 'text-transform: uppercase',
+    },
     VCol: {
       style: 'margin: 0; padding: 6px',
     },

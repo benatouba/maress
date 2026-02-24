@@ -268,11 +268,13 @@ const handleRegister = async () => {
   min-height: 100vh;
 }
 
-.bg-primary {
-  background-color: rgb(var(--v-theme-primary)) !important;
-}
+@layer override {
+  .bg-primary {
+    background-color: rgb(var(--v-theme-primary));
+  }
 
-.text-white {
-  color: white !important;
+  .text-white {
+    color: white;
+  }
 }
 </style>

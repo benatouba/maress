@@ -158,8 +158,10 @@
 }
 
 /* Responsive utilities */
-@media (max-width: 640px) {
-  .mobile-hidden {
-    display: none !important;
+@layer override {
+  @media (max-width: 640px) {
+    .mobile-hidden {
+      display: none;
+    }
   }
 }

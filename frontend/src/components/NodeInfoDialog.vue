@@ -86,11 +86,11 @@
               density="comfortable"
               class="mt-3"
               @update:model-value="addItemToTag">
-              <template #item="{ props, item }">
+              <template #item="{ props, internalItem }">
                 <v-list-item
                   v-bind="props"
-                  :title="item.raw.title || 'Untitled'"
-                  :subtitle="item.raw.publicationTitle || ''" />
+                  :title="internalItem.raw.title || 'Untitled'"
+                  :subtitle="internalItem.raw.publicationTitle || ''" />
               </template>
             </v-autocomplete>
           </div>

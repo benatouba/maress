@@ -25,11 +25,11 @@
             :hint="selectedItemInfo"
             persistent-hint
           >
-            <template #item="{ props: itemProps, item }">
+            <template #item="{ props: itemProps, internalItem }">
               <v-list-item
                 v-bind="itemProps"
-                :title="item.raw.title"
-                :subtitle="getItemSubtitle(item.raw)"
+                :title="internalItem.raw.title"
+                :subtitle="getItemSubtitle(internalItem.raw)"
               />
             </template>
           </v-autocomplete>

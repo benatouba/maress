@@ -443,4 +443,77 @@ defineExpose({ panTo, fitToMarkers, resetView, map })
 .map-container :deep(.ol-viewport) {
   cursor: pointer;
 }
+
+/* Move OpenLayers default controls to bottom-right and style to match app */
+.map-container :deep(.ol-zoom) {
+  top: auto;
+  left: auto;
+  bottom: 2.5rem;
+  right: 0.5rem;
+}
+
+.map-container :deep(.ol-rotate) {
+  top: auto;
+  left: auto;
+  bottom: 7rem;
+  right: 0.5rem;
+}
+
+.map-container :deep(.ol-attribution) {
+  top: auto;
+  left: auto;
+  bottom: 0.5rem;
+  right: 0.5rem;
+}
+
+.map-container :deep(.ol-zoom),
+.map-container :deep(.ol-rotate),
+.map-container :deep(.ol-attribution) {
+  background: none;
+  padding: 0;
+}
+
+.map-container :deep(.ol-zoom button),
+.map-container :deep(.ol-rotate button) {
+  background-color: rgb(var(--v-theme-surface));
+  color: rgb(var(--v-theme-on-surface));
+  border: none;
+  border-radius: 4px;
+  margin: 2px 0;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.2), 0 4px 5px 0 rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.map-container :deep(.ol-zoom button:hover),
+.map-container :deep(.ol-rotate button:hover) {
+  background-color: rgb(var(--v-theme-surface-variant));
+}
+
+.map-container :deep(.ol-zoom button:focus),
+.map-container :deep(.ol-rotate button:focus) {
+  outline: none;
+}
+
+.map-container :deep(.ol-attribution button),
+.map-container :deep(.ol-attribution ul) {
+  background-color: rgb(var(--v-theme-surface));
+  color: rgb(var(--v-theme-on-surface));
+  font-size: 0.7rem;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.2), 0 4px 5px 0 rgba(0, 0, 0, 0.14);
+}
+
+.map-container :deep(.ol-attribution button) {
+  border: none;
+  cursor: pointer;
+}
+
+.map-container :deep(.ol-attribution ul) {
+  padding: 2px 6px;
+}
 </style>

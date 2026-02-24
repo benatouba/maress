@@ -2,7 +2,7 @@
   <v-app-bar app color="primary" dark>
     <template #prepend>
       <router-link to="/" aria-label="Home">
-        <v-img width="100" cover src="@/assets/logo.svg" format="png" alt="UCO Logo" />
+        <v-img width="100" cover src="@/assets/logo.svg" alt="UCO Logo" />
       </router-link>
     </template>
     <v-toolbar-title>MaRESS</v-toolbar-title>
