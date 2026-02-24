@@ -564,6 +564,15 @@ class ExtractStudySitesRequest(SQLModel):
     )
 
 
+class EnrichItemsRequest(SQLModel):
+    """Request body for CrossRef enrichment endpoint."""
+
+    item_ids: list[uuid.UUID] | None = Field(
+        default=None,
+        description="Optional list of specific item IDs to enrich. If None, enriches all items missing title, abstract, or DOI.",
+    )
+
+
 class TasksAccepted(SQLModel):
     """Model representing a batch of accepted tasks."""
 
