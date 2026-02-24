@@ -450,43 +450,41 @@ defineExpose({ panTo, fitToMarkers, resetView, map })
   color: rgba(0, 0, 0, 0.6);
   letter-spacing: 0.5px;
 }
+</style>
 
-/* Add pointer cursor for map to indicate it's clickable */
-.map-container :deep(.ol-viewport) {
-  cursor: pointer;
+<!-- Unscoped overrides for OpenLayers controls (OL's own CSS uses high specificity) -->
+<style>
+.study-site-map .ol-zoom {
+  top: auto !important;
+  left: auto !important;
+  bottom: 2.5rem !important;
+  right: 0.5rem !important;
 }
 
-/* Move OpenLayers default controls to bottom-right and style to match app */
-.map-container :deep(.ol-zoom) {
-  top: auto;
-  left: auto;
-  bottom: 2.5rem;
-  right: 0.5rem;
+.study-site-map .ol-rotate {
+  top: auto !important;
+  left: auto !important;
+  bottom: 7rem !important;
+  right: 0.5rem !important;
 }
 
-.map-container :deep(.ol-rotate) {
-  top: auto;
-  left: auto;
-  bottom: 7rem;
-  right: 0.5rem;
+.study-site-map .ol-attribution {
+  top: auto !important;
+  left: auto !important;
+  bottom: 0.5rem !important;
+  right: 0.5rem !important;
 }
 
-.map-container :deep(.ol-attribution) {
-  top: auto;
-  left: auto;
-  bottom: 0.5rem;
-  right: 0.5rem;
-}
-
-.map-container :deep(.ol-zoom),
-.map-container :deep(.ol-rotate),
-.map-container :deep(.ol-attribution) {
+.study-site-map .ol-zoom,
+.study-site-map .ol-rotate,
+.study-site-map .ol-attribution {
+  position: absolute !important;
   background: none;
   padding: 0;
 }
 
-.map-container :deep(.ol-zoom button),
-.map-container :deep(.ol-rotate button) {
+.study-site-map .ol-zoom button,
+.study-site-map .ol-rotate button {
   background-color: rgb(var(--v-theme-surface));
   color: rgb(var(--v-theme-on-surface));
   border: none;
@@ -501,18 +499,18 @@ defineExpose({ panTo, fitToMarkers, resetView, map })
   transition: background-color 0.15s;
 }
 
-.map-container :deep(.ol-zoom button:hover),
-.map-container :deep(.ol-rotate button:hover) {
+.study-site-map .ol-zoom button:hover,
+.study-site-map .ol-rotate button:hover {
   background-color: rgb(var(--v-theme-surface-variant));
 }
 
-.map-container :deep(.ol-zoom button:focus),
-.map-container :deep(.ol-rotate button:focus) {
+.study-site-map .ol-zoom button:focus,
+.study-site-map .ol-rotate button:focus {
   outline: none;
 }
 
-.map-container :deep(.ol-attribution button),
-.map-container :deep(.ol-attribution ul) {
+.study-site-map .ol-attribution button,
+.study-site-map .ol-attribution ul {
   background-color: rgb(var(--v-theme-surface));
   color: rgb(var(--v-theme-on-surface));
   font-size: 0.7rem;
@@ -520,12 +518,12 @@ defineExpose({ panTo, fitToMarkers, resetView, map })
   box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.2), 0 4px 5px 0 rgba(0, 0, 0, 0.14);
 }
 
-.map-container :deep(.ol-attribution button) {
+.study-site-map .ol-attribution button {
   border: none;
   cursor: pointer;
 }
 
-.map-container :deep(.ol-attribution ul) {
+.study-site-map .ol-attribution ul {
   padding: 2px 6px;
 }
 </style>
