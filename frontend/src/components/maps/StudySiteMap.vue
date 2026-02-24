@@ -81,14 +81,13 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Map, View } from 'ol'
 import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer'
-import { OSM, Vector as VectorSource } from 'ol/source'
+import { OSM, Vector as VectorSource, Cluster } from 'ol/source'
 import { Feature } from 'ol'
 import { Point } from 'ol/geom'
 import { fromLonLat, toLonLat } from 'ol/proj'
 import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
-import { click } from 'ol/events/condition'
-import { Select } from 'ol/interaction'
-import { useStudySitesStore, type StudySiteWithItem } from '../../stores/studySites'
+import { boundingExtent } from 'ol/extent'
+import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
 import StudySiteCreateDialog from './StudySiteCreateDialog.vue'
 
@@ -99,7 +98,7 @@ const props = defineProps({
   },
   initialZoom: { type: Number, default: 2 },
   sites: {
-    type: Array as () => StudySiteWithItem[],
+    type: Array as () => MapPoint[],
     default: null,
   },
 })
@@ -108,47 +107,75 @@ const emit = defineEmits(['site-selected', 'map-ready'])
 
 // Store
 const studySitesStore = useStudySitesStore()
-const { studySites: allStudySites, loading } = storeToRefs(studySitesStore)
+const { mapPoints: allMapPoints, loading } = storeToRefs(studySitesStore)
 
-// Use filtered sites if provided, otherwise use all sites from store
-const studySites = computed(() => props.sites || allStudySites.value)
+// Use filtered sites if provided, otherwise use all from store
+const mapPoints = computed(() => props.sites || allMapPoints.value)
 
 // Map refs
 const mapContainer = ref<HTMLDivElement | null>(null)
 const map = ref<Map | null>(null)
 const vectorSource = ref<VectorSource | null>(null)
-const vectorLayer = ref<VectorLayer<VectorSource> | null>(null)
-const selectInteraction = ref<Select | null>(null)
+const clusterSource = ref<Cluster | null>(null)
+const clusterLayer = ref<VectorLayer<Cluster> | null>(null)
 
 // Dialog state
 const editDialogOpen = ref(false)
 const createDialogOpen = ref(false)
-const selectedSite = ref<StudySiteWithItem | null>(null)
+const selectedSite = ref<MapPoint | null>(null)
 const createItemId = ref<string | null>(null)
 const createCoordinates = ref<[number, number] | null>(null)
 
 // Computed
-const totalSites = computed(() => studySites.value.length)
-const manualCount = computed(() => studySites.value.filter((s) => s.is_manual).length)
-const automaticCount = computed(() => studySites.value.filter((s) => !s.is_manual).length)
+const totalSites = computed(() => mapPoints.value.length)
+const manualCount = computed(() => mapPoints.value.filter((s) => s.is_manual).length)
+const automaticCount = computed(() => mapPoints.value.filter((s) => !s.is_manual).length)
+
+// Style cache to avoid creating new Style objects on every render
+const styleCache: Record<string, Style> = {}
 
 /**
- * Create style for a study site marker
- * Manual sites: green, Automatic sites: blue
+ * Create cluster style: single marker or count badge
  */
-const createMarkerStyle = (studySite: StudySiteWithItem, selected = false) => {
-  const color = studySite.is_manual ? '#4CAF50' : '#2196F3' // Green for manual, blue for automatic
-  const strokeColor = selected ? '#FF5722' : '#FFFFFF'
-  const strokeWidth = selected ? 3 : 2
-  const radius = selected ? 8 : 6
+const clusterStyleFunction = (feature: Feature): Style => {
+  const clusterFeatures = feature.get('features') as Feature[]
+  const size = clusterFeatures.length
 
-  return new Style({
-    image: new Circle({
-      radius,
-      fill: new Fill({ color }),
-      stroke: new Stroke({ color: strokeColor, width: strokeWidth }),
-    }),
-  })
+  if (size === 1) {
+    // Single point — use manual/auto color
+    const point = clusterFeatures[0].get('mapPoint') as MapPoint
+    const color = point.is_manual ? '#4CAF50' : '#2196F3'
+    const key = `single-${color}`
+    if (!styleCache[key]) {
+      styleCache[key] = new Style({
+        image: new Circle({
+          radius: 6,
+          fill: new Fill({ color }),
+          stroke: new Stroke({ color: '#FFFFFF', width: 2 }),
+        }),
+      })
+    }
+    return styleCache[key]
+  }
+
+  // Cluster badge
+  const key = `cluster-${size}`
+  if (!styleCache[key]) {
+    const radius = Math.min(8 + Math.log2(size) * 4, 24)
+    styleCache[key] = new Style({
+      image: new Circle({
+        radius,
+        fill: new Fill({ color: 'rgba(33, 150, 243, 0.7)' }),
+        stroke: new Stroke({ color: '#FFFFFF', width: 2 }),
+      }),
+      text: new Text({
+        text: size.toString(),
+        fill: new Fill({ color: '#FFFFFF' }),
+        font: 'bold 12px sans-serif',
+      }),
+    })
+  }
+  return styleCache[key]
 }
 
 /**
@@ -157,80 +184,93 @@ const createMarkerStyle = (studySite: StudySiteWithItem, selected = false) => {
 const initMap = () => {
   if (!mapContainer.value) return
 
-  // Create vector source for markers
+  // Create vector source for individual point features
   vectorSource.value = new VectorSource()
 
-  // Create vector layer
-  vectorLayer.value = new VectorLayer({ source: vectorSource.value })
+  // Wrap in a Cluster source
+  clusterSource.value = new Cluster({
+    distance: 40, // px
+    minDistance: 20,
+    source: vectorSource.value,
+  })
+
+  // Cluster layer
+  clusterLayer.value = new VectorLayer({
+    source: clusterSource.value,
+    style: clusterStyleFunction as any,
+  })
 
   // Create map
   map.value = new Map({
     target: mapContainer.value,
-    layers: [new TileLayer({ source: new OSM() }), vectorLayer.value],
+    layers: [new TileLayer({ source: new OSM() }), clusterLayer.value],
     view: new View({ center: fromLonLat(props.initialCenter), zoom: props.initialZoom }),
   })
 
-  // Add click interaction for selecting markers
-  selectInteraction.value = new Select({
-    condition: click,
-    layers: [vectorLayer.value],
-    style: (feature) => {
-      const studySite = feature.get('studySite')
-      return createMarkerStyle(studySite, true)
-    },
-  })
-
-  selectInteraction.value.on('select', (event) => {
-    if (event.selected.length > 0) {
-      const feature = event.selected[0]
-      const studySite = feature.get('studySite') as StudySiteWithItem
-      handleMarkerClick(studySite)
-    }
-  })
-
-  map.value.addInteraction(selectInteraction.value)
-
-  // Add click interaction for creating new sites
+  // Click handler — works for both clusters and single points
   map.value.on('click', (event) => {
-    const features = map.value?.getFeaturesAtPixel(event.pixel)
+    const feature = map.value?.forEachFeatureAtPixel(event.pixel, (f) => f) as Feature | undefined
 
-    // If no features at click location, open create dialog
-    if (!features || features.length === 0) {
+    if (!feature) {
+      // Empty area click → create dialog
       const coords = toLonLat(event.coordinate)
       handleMapClick(coords as [number, number])
+      return
+    }
+
+    const clusterFeatures = feature.get('features') as Feature[] | undefined
+    if (!clusterFeatures) return
+
+    if (clusterFeatures.length === 1) {
+      // Single point — open edit dialog
+      const point = clusterFeatures[0].get('mapPoint') as MapPoint
+      handleMarkerClick(point)
+    } else {
+      // Multi-point cluster — zoom to its extent
+      const extent = boundingExtent(
+        clusterFeatures.map((f) => (f.getGeometry() as Point).getCoordinates()),
+      )
+      map.value?.getView().fit(extent, {
+        padding: [80, 80, 80, 80],
+        maxZoom: 16,
+        duration: 500,
+      })
     }
   })
 
-  // Emit map-ready event
+  // Pointer cursor on hover over features
+  map.value.on('pointermove', (event) => {
+    const hit = map.value?.hasFeatureAtPixel(event.pixel)
+    const target = map.value?.getTargetElement()
+    if (target) {
+      ;(target as HTMLElement).style.cursor = hit ? 'pointer' : ''
+    }
+  })
+
   emit('map-ready', map.value)
 
-  // Update markers
+  // Populate features
   updateMarkers()
 }
 
 /**
- * Update markers on the map based on study sites
+ * Update markers on the map based on map points
  */
 const updateMarkers = () => {
   if (!vectorSource.value) return
 
-  // Clear existing features
   vectorSource.value.clear()
 
-  // Add features for each study site
-  studySites.value.forEach((site) => {
-    // Get coordinates from the location object
-    if (!site.location || !site.location.latitude || !site.location.longitude) return
+  // Clear style cache when data changes
+  Object.keys(styleCache).forEach((key) => delete styleCache[key])
+
+  mapPoints.value.forEach((point) => {
+    if (!point.latitude || !point.longitude) return
 
     const feature = new Feature({
-      geometry: new Point(fromLonLat([site.location.longitude, site.location.latitude])),
-      studySite: site,
+      geometry: new Point(fromLonLat([point.longitude, point.latitude])),
+      mapPoint: point,
     })
-
-    feature.setStyle(createMarkerStyle(site))
-
-    // Add tooltip on hover
-    feature.set('name', site.item_title || 'Unknown')
 
     vectorSource.value?.addFeature(feature)
   })
@@ -242,37 +282,27 @@ const updateMarkers = () => {
 const clearSelection = () => {
   selectedSite.value = null
   editDialogOpen.value = false
-  if (selectInteraction.value) {
-    selectInteraction.value.getFeatures().clear()
-  }
 }
 
 /**
  * Handle marker click - open edit dialog
  */
-const handleMarkerClick = (studySite: StudySiteWithItem) => {
-  if (selectedSite.value?.id === studySite.id) {
+const handleMarkerClick = (point: MapPoint) => {
+  if (selectedSite.value?.id === point.id) {
     clearSelection()
     return
   }
-  if (!studySite) {
-    console.warn('Invalid study site clicked')
-    return
-  }
-  selectedSite.value = studySite
+  selectedSite.value = point
   editDialogOpen.value = true
-  emit('site-selected', studySite)
+  emit('site-selected', point)
 }
 
 /**
  * Handle map click (empty area) - open create dialog
  */
 const handleMapClick = (coords: [number, number]) => {
-  // For creating a new site, we need to know which item it belongs to
-  // For now, we'll open a dialog that lets the user select an item
-  // Or we can require an item to be selected before allowing creation
   createCoordinates.value = coords
-  createItemId.value = null // Will be selected in dialog
+  createItemId.value = null
   createDialogOpen.value = true
 }
 
@@ -301,11 +331,9 @@ const panTo = (lat: number, lon: number, zoom?: number, duration = 1500) => {
   const center = fromLonLat([lon, lat])
 
   if (zoom !== undefined) {
-    // Animate both center and zoom
-    view.animate({ center: center, zoom: zoom, duration: duration })
+    view.animate({ center, zoom, duration })
   } else {
-    // Just animate center, keep current zoom
-    view.animate({ center: center, duration: duration })
+    view.animate({ center, duration })
   }
 }
 
@@ -321,45 +349,33 @@ const resetView = () => {
 /**
  * Handle site saved from edit dialog
  */
-const handleSiteSaved = () => {
+const handleSiteSaved = async () => {
   clearSelection()
-  updateMarkers()
+  await studySitesStore.fetchMapPoints()
 }
 
 /**
  * Handle site deleted from edit dialog
  */
-const handleSiteDeleted = () => {
+const handleSiteDeleted = async () => {
   clearSelection()
-  updateMarkers()
+  await studySitesStore.fetchMapPoints()
 }
 
 /**
  * Handle site created from create dialog
  */
-const handleSiteCreated = () => {
+const handleSiteCreated = async () => {
   createDialogOpen.value = false
   createCoordinates.value = null
   createItemId.value = null
-  updateMarkers()
+  await studySitesStore.fetchMapPoints()
 }
 
-// Watch for changes in study sites
+// Single shallow watcher — the store replaces the whole array on fetch
 watch(
-  () => studySites.value,
-  () => {
-    updateMarkers()
-  },
-  { deep: true },
-)
-
-// Watch for changes in the sites prop
-watch(
-  () => props.sites,
-  () => {
-    updateMarkers()
-  },
-  { deep: true },
+  () => mapPoints.value,
+  () => updateMarkers(),
 )
 
 watch(editDialogOpen, (isOpen) => {
@@ -369,23 +385,19 @@ watch(editDialogOpen, (isOpen) => {
 })
 
 // Lifecycle
-onMounted(async () => {
-  // Fetch all study sites
-  await studySitesStore.fetchAllStudySites()
-
-  // Initialize map
+onMounted(() => {
+  // Initialize map (data is fetched by the parent Map.vue page)
   initMap()
 
   // Fit to markers after data loads
   setTimeout(() => {
-    if (studySites.value.length > 0) {
+    if (mapPoints.value.length > 0) {
       fitToMarkers()
     }
   }, 500)
 })
 
 onUnmounted(() => {
-  // Clean up map
   if (map.value) {
     map.value.setTarget(undefined)
     map.value = null

@@ -52,8 +52,20 @@ export interface StudySiteWithItem extends StudySite {
   item?: any
 }
 
+export interface MapPoint {
+  id: string
+  name: string | null
+  item_id: string
+  item_title: string | null
+  latitude: number
+  longitude: number
+  is_manual: boolean
+  confidence_score: number
+}
+
 export const useStudySitesStore = defineStore('studySites', () => {
   const studySites = ref<StudySiteWithItem[]>([])
+  const mapPoints = ref<MapPoint[]>([])
   const currentStudySite = ref<StudySite | null>(null)
   const loading = ref(false)
 
@@ -119,6 +131,25 @@ export const useStudySitesStore = defineStore('studySites', () => {
       console.error('Error fetching all study sites:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch study sites',
+        'error'
+      )
+    } finally {
+      loading.value = false
+    }
+  }
+
+  /**
+   * Fetch lightweight map points for the map view (uses dedicated endpoint)
+   */
+  const fetchMapPoints = async (): Promise<void> => {
+    loading.value = true
+    try {
+      const response = await api.get('/study-sites/map-points')
+      mapPoints.value = response.data.data || []
+    } catch (error: any) {
+      console.error('Error fetching map points:', error)
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to fetch map points',
         'error'
       )
     } finally {
@@ -284,6 +315,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
   return {
     // State
     studySites,
+    mapPoints,
     currentStudySite,
     loading,
 
@@ -294,6 +326,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
     // Actions
     fetchItemStudySites,
     fetchAllStudySites,
+    fetchMapPoints,
     fetchStudySite,
     createStudySite,
     updateStudySite,
