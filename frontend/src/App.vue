@@ -5,10 +5,18 @@
     <v-main>
         <router-view />
     </v-main>
-    <v-footer app class="text-center text-medium-emphasis text-body-2">
-      <v-spacer />
-      <span>MaRESS &mdash; Marine Research &amp; Study Sites &copy; {{ new Date().getFullYear() }}</span>
-      <v-spacer />
+    <v-footer app class="text-center text-medium-emphasis text-body-2 flex-column pa-4" style="gap: 4px;">
+      <div class="d-flex align-center justify-center flex-wrap" style="gap: 12px;">
+        <span>MaRESS &mdash; Mapping Research in Earth System Sciences &copy; {{ new Date().getFullYear() }}</span>
+        <v-divider vertical class="mx-1" style="max-height: 16px;" />
+        <span class="d-inline-flex align-center" style="gap: 6px;">
+          Funded by
+          <a href="https://www.nfdi4earth.de/" target="_blank" rel="noopener noreferrer">
+            <v-img src="/logo.png" alt="NFDI4Earth" width="120" inline />
+          </a>
+          (DFG)
+        </span>
+      </div>
     </v-footer>
   </v-app>
 </template>

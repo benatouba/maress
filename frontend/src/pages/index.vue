@@ -84,6 +84,40 @@
           </v-card-text>
         </v-card>
 
+        <!-- Funding Acknowledgement -->
+        <v-card
+          class="mx-auto mb-8"
+          elevation="1">
+          <v-card-text class="text-center pa-6">
+            <div class="d-flex flex-column align-center">
+              <a
+                href="https://www.nfdi4earth.de/"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mb-4">
+                <v-img
+                  src="/logo.png"
+                  alt="NFDI4Earth Logo"
+                  max-width="280"
+                  contain />
+              </a>
+              <p class="text-body-1 text-medium-emphasis mb-2">
+                Funded by the German National Research Data Infrastructure
+              </p>
+              <p class="text-body-2 text-medium-emphasis">
+                This project was developed as part of the
+                <a
+                  href="https://www.nfdi4earth.de/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-decoration-none font-weight-medium">NFDI4Earth</a>
+                Incubator Programme, funded by the Deutsche Forschungsgemeinschaft (DFG)
+                within the framework of the German National Research Data Infrastructure (NFDI).
+              </p>
+            </div>
+          </v-card-text>
+        </v-card>
+
         <!-- Feature Cards for Authenticated Users -->
         <v-row
           v-if="authStore.isAuthenticated"

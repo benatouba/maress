@@ -6,6 +6,7 @@ import Vue from '@vitejs/plugin-vue'
 import VueRouter from 'vue-router/vite'
 import { VueRouterAutoImports } from 'vue-router/unplugin'
 import Vuetify, { transformAssetUrls } from 'vite-plugin-vuetify'
+import { ViteImageOptimizer } from 'vite-plugin-image-optimizer';
 
 // Utilities
 import { defineConfig } from 'vite'
@@ -30,6 +31,11 @@ export default defineConfig({
         enabled: true,
       },
       vueTemplate: true,
+    }),
+    ViteImageOptimizer({
+      png: { quality: 85 },
+      webp: { lossless: false, quality: 85 },
+      avif: { lossless: false, quality: 70 },
     }),
     Components({
       dts: 'src/components.d.ts',
