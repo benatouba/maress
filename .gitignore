@@ -248,3 +248,10 @@ ssl/
 
 # nvim files
 .exrc
+
+documents/Subset_Montane_Grass_*
+marcos-custom-data
+bens_todos.md
+TODO.md
+**/*.pdf
+ecolog.toml
