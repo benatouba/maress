@@ -117,12 +117,15 @@
                 Additional Information
               </v-expansion-panel-title>
               <v-expansion-panel-text>
-                <div class="text-caption">
-                  <div><strong>Extraction Method:</strong> {{ studySite.extraction_method }}</div>
-                  <div><strong>Source Type:</strong> {{ studySite.source_type }}</div>
-                  <div><strong>Section:</strong> {{ studySite.section }}</div>
-                  <div><strong>Created:</strong> {{ formatDate(studySite.created_at) }}</div>
-                  <div><strong>Updated:</strong> {{ formatDate(studySite.updated_at) }}</div>
+                <div v-if="fullSite" class="text-caption">
+                  <div><strong>Extraction Method:</strong> {{ fullSite.extraction_method }}</div>
+                  <div><strong>Source Type:</strong> {{ fullSite.source_type }}</div>
+                  <div><strong>Section:</strong> {{ fullSite.section }}</div>
+                  <div><strong>Created:</strong> {{ formatDate(fullSite.created_at) }}</div>
+                  <div><strong>Updated:</strong> {{ formatDate(fullSite.updated_at) }}</div>
+                </div>
+                <div v-else class="text-caption text-medium-emphasis">
+                  Loading details...
                 </div>
               </v-expansion-panel-text>
             </v-expansion-panel>
@@ -166,12 +169,13 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { useStudySitesStore, type StudySiteWithItem, type StudySiteUpdate } from '../../stores/studySites'
+import { useStudySitesStore, type StudySiteUpdate, type MapPoint } from '../../stores/studySites'
 import { useNotificationStore } from '../../stores/notification';
+import api from '@/services/api'
 
 interface Props {
   modelValue: boolean
-  studySite: StudySiteWithItem | null
+  studySite: MapPoint | null
 }
 
 const props = defineProps<Props>()
@@ -180,6 +184,10 @@ const emit = defineEmits(['update:modelValue', 'saved', 'deleted'])
 // Store
 const studySitesStore = useStudySitesStore()
 const notificationStore = useNotificationStore()
+
+// Full study site data fetched on dialog open
+const fullSite = ref<any>(null)
+const loadingFull = ref(false)
 
 // Form state
 const formRef = ref()
@@ -205,37 +213,53 @@ const rules = {
 }
 
 /**
- * Initialize form with study site data
+ * Fetch full study site data and initialize form
  */
-const initializeForm = () => {
+const initializeForm = async () => {
   if (!props.studySite) return
 
+  // Populate form immediately from MapPoint data
   form.value = {
     name: props.studySite.name || '',
-    latitude: props.studySite.location.latitude,
-    longitude: props.studySite.location.longitude,
-    context: props.studySite.context || '',
+    latitude: props.studySite.latitude,
+    longitude: props.studySite.longitude,
     confidence_score: props.studySite.confidence_score || 1.0,
-    validation_score: props.studySite.validation_score || 1.0
+  }
+
+  // Fetch full study site for extra fields (context, validation_score, metadata)
+  loadingFull.value = true
+  try {
+    const full = await studySitesStore.fetchStudySite(props.studySite.id)
+    if (full) {
+      fullSite.value = full
+      form.value.context = full.context || ''
+      form.value.validation_score = full.validation_score ?? 1.0
+    }
+  } finally {
+    loadingFull.value = false
   }
 }
 
 /**
  * View attachment in new tab
  */
-const viewPaper = () => {
+const viewPaper = async () => {
   if (!props.studySite?.item_id) {
-    // give notification from notification store
     notificationStore.showNotification('No associated item to view.', 'error')
     return
   }
 
-  if (props.studySite.item.attachment) {
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
-    const fileName = props.studySite.item.attachment.split('/').pop()
-    const fileUrl = `${baseUrl}/api/v1/items/files/${fileName}`
-    window.open(fileUrl, '_blank', 'noopener,noreferrer')
-    return
+  try {
+    const response = await api.get(`/items/${props.studySite.item_id}`)
+    const item = response.data
+    if (item?.attachment) {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || ''
+      const fileName = item.attachment.split('/').pop()
+      const fileUrl = `${baseUrl}/api/v1/items/files/${fileName}`
+      window.open(fileUrl, '_blank', 'noopener,noreferrer')
+    }
+  } catch {
+    notificationStore.showNotification('Could not load paper info.', 'error')
   }
 }
 
@@ -309,6 +333,7 @@ const formatDate = (dateString: string) => {
 // Watch for changes in studySite prop
 watch(() => props.studySite, (newSite) => {
   if (newSite) {
+    fullSite.value = null
     initializeForm()
   }
 }, { immediate: true })

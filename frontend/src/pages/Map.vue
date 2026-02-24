@@ -234,46 +234,50 @@
             </div>
           </v-alert>
 
-          <!-- Sites List -->
+          <!-- Sites List (virtualized) -->
           <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
-            <v-list
-              density="compact"
-              v-if="filteredSites.length > 0">
-              <v-list-item
-                v-for="site in filteredSites"
-                :key="site.id"
-                :active="selectedSite?.id === site.id"
-                @click="handleSiteClick(site)"
-                class="cursor-pointer">
-                <template #prepend>
-                  <v-avatar
-                    :color="site.is_manual ? 'success' : 'info'"
-                    size="32">
-                    <v-icon
-                      size="16"
-                      color="white">
-                      {{ site.is_manual ? 'mdi-account' : 'mdi-robot' }}
-                    </v-icon>
-                  </v-avatar>
-                </template>
+            <v-virtual-scroll
+              v-if="filteredSites.length > 0"
+              :items="filteredSites"
+              :item-height="64"
+              item-key="id"
+              class="fill-height">
+              <template #default="{ item: site }">
+                <v-list-item
+                  :active="selectedSite?.id === site.id"
+                  @click="handleSiteClick(site)"
+                  density="compact"
+                  class="cursor-pointer">
+                  <template #prepend>
+                    <v-avatar
+                      :color="site.is_manual ? 'success' : 'info'"
+                      size="32">
+                      <v-icon
+                        size="16"
+                        color="white">
+                        {{ site.is_manual ? 'mdi-account' : 'mdi-robot' }}
+                      </v-icon>
+                    </v-avatar>
+                  </template>
 
-                <v-list-item-title class="text-wrap">
-                  {{ site.name || 'Unnamed Site' }}
-                </v-list-item-title>
+                  <v-list-item-title class="text-wrap">
+                    {{ site.name || 'Unnamed Site' }}
+                  </v-list-item-title>
 
-                <v-list-item-subtitle class="text-wrap">
-                  {{ site.item_title || 'Unknown Paper' }}
-                </v-list-item-subtitle>
+                  <v-list-item-subtitle class="text-wrap">
+                    {{ site.item_title || 'Unknown Paper' }}
+                  </v-list-item-subtitle>
 
-                <template #append>
-                  <v-chip
-                    size="x-small"
-                    :color="site.is_manual ? 'success' : 'info'">
-                    {{ site.is_manual ? 'Manual' : 'Auto' }}
-                  </v-chip>
-                </template>
-              </v-list-item>
-            </v-list>
+                  <template #append>
+                    <v-chip
+                      size="x-small"
+                      :color="site.is_manual ? 'success' : 'info'">
+                      {{ site.is_manual ? 'Manual' : 'Auto' }}
+                    </v-chip>
+                  </template>
+                </v-list-item>
+              </template>
+            </v-virtual-scroll>
 
             <v-empty-state
               v-else
@@ -457,7 +461,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { useStudySitesStore, type StudySiteWithItem } from '../stores/studySites'
+import { useStudySitesStore, type StudySiteWithItem, type MapPoint } from '../stores/studySites'
 import { useZoteroStore } from '../stores/zotero'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
 
@@ -467,11 +471,11 @@ const route = useRoute()
 // Stores
 const studySitesStore = useStudySitesStore()
 const zoteroStore = useZoteroStore()
-const { studySites, loading } = storeToRefs(studySitesStore)
+const { mapPoints, loading } = storeToRefs(studySitesStore)
 const { items, loading: papersLoading } = storeToRefs(zoteroStore)
 
 // State - Study Sites
-const selectedSite = ref<StudySiteWithItem | null>(null)
+const selectedSite = ref<MapPoint | null>(null)
 const searchQuery = ref('')
 const filterType = ref('all')
 const mapReady = ref(false)
@@ -527,11 +531,11 @@ const filteredPapers = computed(() => {
   return result
 })
 
-// Computed - Study Sites
-const totalSites = computed(() => studySites.value.length)
+// Computed - Study Sites (uses lightweight MapPoint[])
+const totalSites = computed(() => mapPoints.value.length)
 
 const filteredSites = computed(() => {
-  let sites = studySites.value
+  let sites = mapPoints.value
 
   // Filter by selected paper
   if (selectedPaper.value) {
@@ -551,8 +555,7 @@ const filteredSites = computed(() => {
     sites = sites.filter(
       (s) =>
         s.name?.toLowerCase().includes(query) ||
-        s.item_title?.toLowerCase().includes(query) ||
-        s.context?.toLowerCase().includes(query),
+        s.item_title?.toLowerCase().includes(query),
     )
   }
 
@@ -562,8 +565,8 @@ const filteredSites = computed(() => {
 /**
  * Handle site selection from map
  */
-const handleSiteSelected = (site: StudySiteWithItem) => {
-  if (selectedSite.value.id === site.id) {
+const handleSiteSelected = (site: MapPoint) => {
+  if (selectedSite.value?.id === site.id) {
     selectedSite.value = null
     return
   }
@@ -573,7 +576,7 @@ const handleSiteSelected = (site: StudySiteWithItem) => {
 /**
  * Handle site click from list - Pan map to location
  */
-const handleSiteClick = (site: StudySiteWithItem) => {
+const handleSiteClick = (site: MapPoint) => {
   if (!site) {
     console.warn('Invalid site clicked')
     return
@@ -586,30 +589,18 @@ const handleSiteClick = (site: StudySiteWithItem) => {
     selectedSite.value = site
   }
 
-  if (!site.location) {
-    console.warn(`Site "${site.name}" has no location object`)
-    return
-  }
-
-  // Check if map component is ready
   if (!mapComponent.value) {
     console.warn('Map component not initialized yet')
     return
   }
 
-  // Check if site has valid location data
-  if (!site.location?.latitude || !site.location?.longitude) {
+  if (!site.latitude || !site.longitude) {
     console.warn(`Site "${site.name}" has no valid location data`)
     return
   }
 
   // Pan to site location with zoom level 12
-  mapComponent.value.panTo(
-    site.location.latitude,
-    site.location.longitude,
-    12, // zoom level
-    1500, // animation duration in milliseconds
-  )
+  mapComponent.value.panTo(site.latitude, site.longitude, 12, 1500)
 }
 
 /**
@@ -624,7 +615,7 @@ const handleMapReady = (map: any) => {
  * Refresh data
  */
 const refreshData = async () => {
-  await studySitesStore.fetchAllStudySites()
+  await studySitesStore.fetchMapPoints()
 }
 
 /**
@@ -685,21 +676,15 @@ const panToStudySite = (site: any) => {
     return
   }
 
-  if (!site.location?.latitude || !site.location?.longitude) {
+  const lat = site.location?.latitude ?? site.latitude
+  const lon = site.location?.longitude ?? site.longitude
+
+  if (!lat || !lon) {
     console.warn(`Site "${site.name}" has no valid location data`)
     return
   }
 
-  // Pan to site location with zoom level 12
-  mapComponent.value.panTo(
-    site.location.latitude,
-    site.location.longitude,
-    12,
-    1500,
-  )
-
-  // Select the site
-  selectedSite.value = site
+  mapComponent.value.panTo(lat, lon, 12, 1500)
 }
 
 /**
@@ -757,7 +742,7 @@ const formatExtractionMethod = (method: string): string => {
 // Lifecycle
 onMounted(async () => {
   await Promise.all([
-    studySitesStore.fetchAllStudySites(),
+    studySitesStore.fetchMapPoints(),
     zoteroStore.fetchItems(),
   ])
 
