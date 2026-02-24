@@ -60,7 +60,6 @@ def parse_authors(authors_year: str) -> list[dict[str, str]]:
     return authors
 
 
-
 def read_publications(path: Path) -> dict[int, dict]:
     """Read publications.xlsx and return {pub_id: {title, doi, abstract, year,
     authors_year}}."""
@@ -219,10 +218,7 @@ def main() -> None:  # noqa: PLR0912, PLR0915
 
     if args.dry_run:
         print("\n--- DRY RUN: No database changes will be made ---")
-        total_sites = sum(
-            len(pub_to_sites.get(pid, []))
-            for pid in pub_ids_with_sites
-        )
+        total_sites = sum(len(pub_to_sites.get(pid, [])) for pid in pub_ids_with_sites)
         print(f"  Would import {len(pub_ids_with_sites)} items (only those with sites)")
         print(f"  Would create up to {total_sites} study sites")
         # Show a sample
@@ -279,7 +275,9 @@ def main() -> None:  # noqa: PLR0912, PLR0915
                 has_manual = any(s.is_manual for s in (existing.study_sites or []))
                 if has_manual:
                     items_skipped += 1
-                    print(f"  SKIP (has manual sites): {pub.get('doi') or pub.get('title', '')[:60]}")
+                    print(
+                        f"  SKIP (has manual sites): {pub.get('doi') or pub.get('title', '')[:60]}"
+                    )
                     continue
                 # Replace: delete existing (cascades to study sites)
                 session.delete(existing)
