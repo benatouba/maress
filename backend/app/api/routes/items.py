@@ -16,6 +16,7 @@ from app.api.deps import CurrentUser, SessionDep
 from app.celery_app import celery
 from app.models import (
     Creator,
+    EnrichItemsRequest,
     ExtractionResult,
     ExtractionResultPublic,
     ExtractionResultsPublic,
@@ -33,6 +34,7 @@ from app.models import (
     TasksAccepted,
 )
 from app.services import Zotero
+from app.tasks.enrich import enrich_item_task
 from app.tasks.extract import extract_study_site_task
 from maress_types import ZoteroItemList
 
@@ -481,6 +483,51 @@ def start_extract_study_site(
                 task_id=async_result.id,
                 status="queued",
                 message="Task is queued",
+            ),
+        )
+
+    return TasksAccepted(data=enqueued, count=len(enqueued))  # type: ignore
+
+
+@router.post("/enrich/", status_code=status.HTTP_202_ACCEPTED)
+def start_enrich_items(
+    session: SessionDep,
+    current_user: CurrentUser,
+    request: EnrichItemsRequest,
+    skip: int = 0,
+    limit: int = 500,
+) -> TasksAccepted:
+    """Enrich items with missing metadata via CrossRef API.
+
+    If item_ids is None, fetches all user items missing title, abstract, or DOI.
+    """
+    items: list[Item] = []
+    if request.item_ids:
+        for item_id in request.item_ids:
+            item = read_item(session, current_user, item_id)
+            items.append(item)
+    else:
+        # Fetch all items missing title, abstract, or DOI
+        all_items = list(read_db_items(session, current_user, skip, limit)[0])
+        items = [
+            item for item in all_items
+            if not item.title or not item.abstractNote or not item.doi
+        ]
+
+    enqueued: list[TaskRef] = []
+    for item in items:
+        async_result = enrich_item_task.delay(
+            item_id=str(item.id),
+            user_id=str(current_user.id),
+            is_superuser=bool(current_user.is_superuser),
+            email=current_user.email,
+        )
+        enqueued.append(
+            TaskRef(
+                item_id=item.id,
+                task_id=async_result.id,
+                status="queued",
+                message="Enrichment task queued",
             ),
         )
 
