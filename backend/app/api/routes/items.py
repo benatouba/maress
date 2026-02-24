@@ -243,11 +243,17 @@ def import_zotero_items(
     if reload:
         [delete_item(session, current_user, id=item.id) for item in local_items]
         local_items = []
-    local_keys = [item.key for item in local_items]
+    local_keys = {item.key for item in local_items}
+    local_dois = {item.doi.lower() for item in local_items if item.doi}
     new_items = []
     i =0
     for item_data in zot_items_data:
         if item_data["key"] in local_keys or item_data.get("parentItem", None) is not None:
+            continue
+        # Skip items whose DOI already exists locally (e.g. imported via other sources)
+        zot_doi = item_data.get("DOI") or ""
+        if zot_doi and zot_doi.lower() in local_dois:
+            logger.info("Skipping Zotero item (DOI already exists): %s", zot_doi)
             continue
         i += 1
         logger.info("Processing Zotero item %d/%d: %s", i, len(zot_items_data), item_data.get("title", "No Title"))
@@ -271,6 +277,9 @@ def import_zotero_items(
             session.add(creator)
 
         new_items.append(item)
+        # Track DOI so duplicates within the same Zotero batch are caught
+        if zot_doi:
+            local_dois.add(zot_doi.lower())
 
     session.commit()
     for item in new_items:
