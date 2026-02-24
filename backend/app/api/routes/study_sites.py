@@ -19,9 +19,12 @@ from app.api.deps import CurrentUser, SessionDep
 from app.crud import create_location_if_needed
 from app.models import (
     Item,
+    Location,
     StudySite,
     StudySiteManualCreate,
     StudySiteManualUpdate,
+    StudySiteMapPoint,
+    StudySiteMapPointsPublic,
     StudySitePublic,
     StudySitesPublic,
 )
@@ -32,6 +35,52 @@ from maress_types import (
 )
 
 router = APIRouter(prefix="/study-sites", tags=["study-sites"])
+
+
+@router.get("/map-points", response_model=StudySiteMapPointsPublic)
+def get_map_points(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> StudySiteMapPointsPublic:
+    """Return lightweight study-site data for the map.
+
+    Joins StudySite → Location (lat/lon) and Item (title only).
+    No pagination — returns all sites the user owns in a single flat list.
+    """
+    statement = (
+        select(
+            StudySite.id,
+            StudySite.name,
+            StudySite.item_id,
+            Item.title.label("item_title"),  # type: ignore[union-attr]
+            Location.latitude,
+            Location.longitude,
+            StudySite.is_manual,
+            StudySite.confidence_score,
+        )
+        .join(Location, StudySite.location_id == Location.id)
+        .join(Item, StudySite.item_id == Item.id)
+        .where(Item.owner_id == current_user.id)
+        .order_by(StudySite.confidence_score.desc())
+    )
+    rows = session.exec(statement).all()
+
+    points = [
+        StudySiteMapPoint(
+            id=row.id,
+            name=row.name,
+            item_id=row.item_id,
+            item_title=row.item_title,
+            latitude=float(row.latitude),
+            longitude=float(row.longitude),
+            is_manual=row.is_manual,
+            confidence_score=row.confidence_score,
+        )
+        for row in rows
+    ]
+
+    return StudySiteMapPointsPublic(data=points, count=len(points))
 
 
 def study_site_to_public(study_site: StudySite) -> StudySitePublic:

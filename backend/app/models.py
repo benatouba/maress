@@ -443,6 +443,26 @@ class StudySitesPublic(SQLModel):
     count: int
 
 
+class StudySiteMapPoint(SQLModel):
+    """Lightweight model for map display — only coordinates and minimal metadata."""
+
+    id: uuid.UUID
+    name: str | None = None
+    item_id: uuid.UUID
+    item_title: str | None = None
+    latitude: float
+    longitude: float
+    is_manual: bool
+    confidence_score: float
+
+
+class StudySiteMapPointsPublic(SQLModel):
+    """Collection of lightweight map points."""
+
+    data: list[StudySiteMapPoint]
+    count: int
+
+
 # Extraction Results - store all candidates found during extraction
 class ExtractionResultBase(SQLModel):
     """Base model for extraction results (all candidates found)."""
