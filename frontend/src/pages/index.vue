@@ -98,7 +98,8 @@
                 <v-img
                   src="/logo.png"
                   alt="NFDI4Earth Logo"
-                  max-width="280"
+                  width="280"
+                  height="72"
                   contain />
               </a>
               <p class="text-body-1 text-medium-emphasis mb-2">
