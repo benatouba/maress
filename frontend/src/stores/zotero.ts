@@ -33,6 +33,7 @@ export interface ZoteroStore {
   importFileFromZotero: (itemId: string) => Promise<any | null>
   getExtractionResults: (itemId: string) => Promise<any | null>
   extractStudySites: (itemId?: string | null, force?: boolean) => Promise<any | null>
+  enrichItems: (itemIds?: string[]) => Promise<any | null>
 }
 export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   const collections = ref([])
@@ -405,6 +406,43 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     }
   }
 
+  // Enrich items via CrossRef
+  const enrichItems = async (itemIds?: string[]): Promise<any | null> => {
+    const notificationStore = useNotificationStore()
+    loading.value = true
+
+    try {
+      const requestBody: { item_ids?: string[] | null } = {
+        item_ids: itemIds || null,
+      }
+
+      const response = await axios.post('/items/enrich/', requestBody)
+      const count = response.data.count || 0
+      const taskData = response.data.data || []
+
+      const message = itemIds
+        ? `CrossRef enrichment queued for ${itemIds.length} item(s)`
+        : `CrossRef enrichment queued for ${count} item(s)`
+
+      notificationStore.showNotification(message, 'info')
+
+      return {
+        count,
+        tasks: taskData,
+      }
+    } catch (error) {
+      const errorDetail = error.response?.data?.detail
+      let errorMessage = 'Failed to start enrichment'
+      if (typeof errorDetail === 'string') {
+        errorMessage = errorDetail
+      }
+      notificationStore.showNotification(errorMessage, 'error')
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   // Add it to the return statement
   return {
     collections,
@@ -427,5 +465,6 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     importFileFromZotero,
     getExtractionResults,
     extractStudySites,
+    enrichItems,
   }
 })

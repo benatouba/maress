@@ -60,6 +60,16 @@
           {{ hasSelectedItems ? `Extract ${selectedItems.length} Selected` : 'Extract All Sites' }}
         </v-btn>
         <v-btn
+          color="info"
+          prepend-icon="mdi-database-search"
+          @click="handleEnrichAll"
+          :loading="isProcessing"
+          :disabled="isProcessing"
+          class="mr-2"
+        >
+          {{ hasSelectedItems ? `Enrich ${selectedItems.length} Selected` : 'Enrich All' }}
+        </v-btn>
+        <v-btn
           color="secondary"
           prepend-icon="mdi-refresh"
           @click="handleRefresh"
@@ -335,6 +345,12 @@
                   <v-icon size="small">mdi-map-marker-plus</v-icon>
                 </template>
                 <v-list-item-title>Extract Study Sites</v-list-item-title>
+              </v-list-item>
+              <v-list-item @click="handleEnrichItem(item)">
+                <template #prepend>
+                  <v-icon size="small">mdi-database-search</v-icon>
+                </template>
+                <v-list-item-title>Enrich via CrossRef</v-list-item-title>
               </v-list-item>
               <v-divider />
               <v-list-item @click="handleEdit(item)">
@@ -716,6 +732,44 @@ const handleExtractStudySites = async (item: any) => {
     }
   } catch (error) {
     console.error('Extraction error:', error)
+  }
+}
+
+const handleEnrichAll = async () => {
+  try {
+    if (hasSelectedItems.value) {
+      const itemIds = selectedItems.value
+      const result = await zoteroStore.enrichItems(itemIds)
+      if (result && result.tasks) {
+        taskStore.addTasks(result.tasks)
+      }
+      clearSelection()
+    } else {
+      const result = await zoteroStore.enrichItems()
+      if (result && result.tasks) {
+        taskStore.addTasks(result.tasks)
+      }
+    }
+    // Refresh items after a delay to pick up enriched data
+    setTimeout(() => {
+      zoteroStore.fetchItems()
+    }, 5000)
+  } catch (error) {
+    console.error('Enrichment error:', error)
+  }
+}
+
+const handleEnrichItem = async (item: any) => {
+  try {
+    const result = await zoteroStore.enrichItems([item.id])
+    if (result && result.tasks) {
+      taskStore.addTasks(result.tasks)
+      setTimeout(() => {
+        zoteroStore.fetchItems()
+      }, 5000)
+    }
+  } catch (error) {
+    console.error('Enrichment error:', error)
   }
 }
 
