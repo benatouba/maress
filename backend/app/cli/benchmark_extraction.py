@@ -6,6 +6,7 @@ import argparse
 import csv
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 from geopy.distance import geodesic
@@ -14,7 +15,7 @@ from sqlmodel import select
 
 from app import crud
 from app.core.db import SessionLocal
-from app.models import ExtractionResult, Item, StudySite
+from app.models import Item, StudySite
 from app.nlp.adapters import StudySiteResultAdapter
 from app.nlp.factories import PipelineFactory
 from app.nlp.model_config import ModelConfig
@@ -179,11 +180,14 @@ def compute_distances(manual_sites: list[SiteCoord], auto_sites: list[SiteCoord]
     )
 
 
-def run_extraction(session, item: Item, *, force: bool = False) -> None:  # noqa: ANN001
-    """Run NLP extraction on an item synchronously (no Celery)."""
+def run_extraction(item: Item) -> list[SiteCoord]:
+    """Run NLP extraction on an item in-memory (no DB writes).
+
+    Returns list of SiteCoord from the extraction pipeline.
+    """
     if not item.attachment:
         print(f"  WARNING: Item {item.id} has no attachment, skipping extraction")
-        return
+        return []
 
     path = Path(item.attachment).resolve(strict=True)
 
@@ -201,33 +205,16 @@ def run_extraction(session, item: Item, *, force: bool = False) -> None:  # noqa
 
     if not study_sites:
         print(f"  No study sites found for item {item.id}")
-        return
+        return []
 
-    # Save extraction results
-    for rank, site in enumerate(study_sites, start=1):
-        is_saved = rank <= config.MAX_STUDY_SITES
-        extraction_result = ExtractionResult(
-            item_id=item.id,
-            name=site.name,
-            latitude=site.latitude,
-            longitude=site.longitude,
-            context=site.context,
-            confidence_score=site.confidence_score or 0.0,
-            extraction_method=site.extraction_method,
-            source_type=site.source_type,
-            section=site.section,
-            rank=rank,
-            is_saved=is_saved,
-        )
-        session.add(extraction_result)
-
-    # Save top study sites
     top_sites = study_sites[: config.MAX_STUDY_SITES]
-    for site in top_sites:
-        crud.create_study_site(session=session, study_site_data=site)
+    print(f"  Found {len(top_sites)} study sites ({len(study_sites)} total candidates)")
 
-    session.commit()
-    print(f"  Created {len(top_sites)} study sites ({len(study_sites)} total candidates)")
+    return [
+        SiteCoord(name=site.name, lat=float(site.latitude), lon=float(site.longitude))
+        for site in top_sites
+        if site.latitude is not None and site.longitude is not None
+    ]
 
 
 def print_report(results: list[PaperResult]) -> None:
@@ -296,6 +283,103 @@ def print_report(results: list[PaperResult]) -> None:
     print(f"  Equal count:           {equal} papers")
 
 
+def write_markdown_report(
+    results: list[PaperResult],
+    output_path: str,
+    *,
+    doi_filter: list[str] | None = None,
+) -> None:
+    """Write benchmark results as a markdown report."""
+    lines: list[str] = []
+
+    # Header
+    lines.append("# Benchmark Report: NLP Extraction vs Manual Ground Truth")
+    lines.append("")
+    lines.append(f"**Date:** {date.today().isoformat()}")
+    lines.append(f"**Papers evaluated:** {len(results)}")
+    if doi_filter:
+        lines.append(f"**DOI filter:** {', '.join(doi_filter)}")
+    lines.append("")
+
+    if not results:
+        lines.append("No results to report.")
+        Path(output_path).write_text("\n".join(lines))
+        print(f"\nMarkdown report written to: {output_path}")
+        return
+
+    # Per-paper table
+    lines.append("## Per-Paper Results")
+    lines.append("")
+    lines.append("| DOI | Title | Manual | Auto | Exact | <1km | <5km | <10km | Mean dist (km) |")
+    lines.append("|-----|-------|-------:|-----:|------:|-----:|-----:|------:|---------------:|")
+
+    for r in results:
+        doi_short = (r.doi[:35] + "...") if len(r.doi) > 38 else r.doi
+        title_short = ((r.title[:40] + "...") if len(r.title) > 43 else r.title) if r.title else ""
+        mean_d = f"{r.mean_min_distance:.1f}" if r.mean_min_distance != float("inf") else "N/A"
+        lines.append(
+            f"| {doi_short} | {title_short} | {r.manual_count} | {r.auto_count} "
+            f"| {r.exact_matches} | {r.close_1km} | {r.close_5km} | {r.close_10km} | {mean_d} |"
+        )
+
+    lines.append("")
+
+    # Aggregate statistics
+    total_manual = sum(r.manual_count for r in results)
+    total_auto = sum(r.auto_count for r in results)
+    total_exact = sum(r.exact_matches for r in results)
+    total_close_1 = sum(r.close_1km for r in results)
+    total_close_5 = sum(r.close_5km for r in results)
+    total_close_10 = sum(r.close_10km for r in results)
+
+    all_dists = [d for r in results for d in r.min_distances if d != float("inf")]
+
+    lines.append("## Aggregate Statistics")
+    lines.append("")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|------:|")
+    lines.append(f"| Papers evaluated | {len(results)} |")
+    lines.append(f"| Total manual sites | {total_manual} |")
+    lines.append(f"| Total auto sites | {total_auto} |")
+    delta = total_auto - total_manual
+    lines.append(f"| Count delta | {delta:+d} ({'over' if delta > 0 else 'under'}-detection) |")
+
+    if total_manual > 0:
+        lines.append(f"| Recall @ <0.1 km | {total_exact}/{total_manual} ({100 * total_exact / total_manual:.1f}%) |")
+        lines.append(f"| Recall @ <1 km | {total_close_1}/{total_manual} ({100 * total_close_1 / total_manual:.1f}%) |")
+        lines.append(f"| Recall @ <5 km | {total_close_5}/{total_manual} ({100 * total_close_5 / total_manual:.1f}%) |")
+        lines.append(f"| Recall @ <10 km | {total_close_10}/{total_manual} ({100 * total_close_10 / total_manual:.1f}%) |")
+
+    if all_dists:
+        sorted_dists = sorted(all_dists)
+        n = len(sorted_dists)
+        mean_d = sum(sorted_dists) / n
+        median_d = sorted_dists[n // 2] if n % 2 == 1 else (sorted_dists[n // 2 - 1] + sorted_dists[n // 2]) / 2
+        lines.append(f"| Mean min distance | {mean_d:.2f} km |")
+        lines.append(f"| Median min distance | {median_d:.2f} km |")
+        lines.append(f"| Min distance | {sorted_dists[0]:.2f} km |")
+        lines.append(f"| Max distance | {sorted_dists[-1]:.2f} km |")
+
+    lines.append("")
+
+    # Detection balance
+    over = sum(1 for r in results if r.auto_count > r.manual_count)
+    under = sum(1 for r in results if r.auto_count < r.manual_count)
+    equal = sum(1 for r in results if r.auto_count == r.manual_count)
+
+    lines.append("## Detection Balance")
+    lines.append("")
+    lines.append("| Category | Count |")
+    lines.append("|----------|------:|")
+    lines.append(f"| Over-detection | {over} papers |")
+    lines.append(f"| Under-detection | {under} papers |")
+    lines.append(f"| Equal count | {equal} papers |")
+    lines.append("")
+
+    Path(output_path).write_text("\n".join(lines))
+    print(f"\nMarkdown report written to: {output_path}")
+
+
 def write_csv(results: list[PaperResult], output_path: str) -> None:
     """Write per-paper results to CSV."""
     with open(output_path, "w", newline="") as f:  # noqa: PTH123
@@ -352,14 +436,32 @@ def main() -> None:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Re-run extraction even if auto sites already exist.",
+        help="Re-run extraction even if auto sites already exist in DB.",
     )
     parser.add_argument(
         "--output",
         default=None,
-        help="Path to write CSV output (optional).",
+        help="Path to write output file (CSV or markdown). Default: benchmark_report_YYYY-MM-DD.md",
+    )
+    parser.add_argument(
+        "--doi",
+        nargs="+",
+        metavar="DOI",
+        help="Only benchmark specific papers (one or more DOIs).",
     )
     args = parser.parse_args()
+
+    # Determine output paths
+    default_md_path = f"benchmark_report_{date.today().isoformat()}.md"
+    md_output = default_md_path
+    csv_output: str | None = None
+
+    if args.output:
+        if args.output.endswith(".csv"):
+            csv_output = args.output
+            # Also write markdown to default path
+        else:
+            md_output = args.output
 
     with SessionLocal() as session:
         # Look up user
@@ -378,6 +480,25 @@ def main() -> None:
             print("No matched papers found. Ensure Marcos data is imported and Zotero items share DOIs.")
             sys.exit(0)
 
+        # Filter by DOI if requested
+        if args.doi:
+            requested_dois = {d.strip().lower() for d in args.doi}
+            matched_dois = {(m.doi or "").strip().lower() for m, _ in matched}
+            missing = requested_dois - matched_dois
+            for d in missing:
+                print(f"  WARNING: Requested DOI not found in matched set: {d}")
+
+            matched = [
+                (m, z)
+                for m, z in matched
+                if (m.doi or "").strip().lower() in requested_dois
+            ]
+            print(f"Filtered to {len(matched)} papers matching requested DOIs")
+
+            if not matched:
+                print("No papers match the requested DOIs.")
+                sys.exit(0)
+
         # Process each matched pair
         results: list[PaperResult] = []
 
@@ -387,44 +508,23 @@ def main() -> None:
             print(f"\n[{i}/{len(matched)}] DOI: {doi}")
             print(f"  Title: {title}")
 
-            # Check if zotero item already has auto-extracted sites
-            auto_sites = get_site_coords(session, zotero_item, manual_only=False)
+            # Get existing auto sites from DB
+            existing_auto_sites = get_site_coords(session, zotero_item, manual_only=False)
 
-            if not auto_sites and not args.no_extract:
-                if args.force or not auto_sites:
-                    print("  Running NLP extraction...")
-                    try:
-                        run_extraction(session, zotero_item, force=args.force)
-                    except Exception as e:
-                        print(f"  ERROR during extraction: {e}")
-                        continue
-                    # Re-fetch auto sites after extraction
-                    auto_sites = get_site_coords(session, zotero_item, manual_only=False)
-            elif args.force and not args.no_extract:
-                # Force re-extraction: delete existing auto sites first
-                print("  Force re-extraction: deleting existing auto sites...")
-                existing_auto = session.exec(
-                    select(StudySite).where(
-                        StudySite.item_id == zotero_item.id,
-                        StudySite.is_manual.is_(False),  # noqa: FBT003
-                    )
-                ).all()
-                for site in existing_auto:
-                    session.delete(site)
-
-                existing_results = session.exec(
-                    select(ExtractionResult).where(ExtractionResult.item_id == zotero_item.id)
-                ).all()
-                for er in existing_results:
-                    session.delete(er)
-                session.flush()
-
+            if args.no_extract:
+                # Use only existing DB auto-sites
+                auto_sites = existing_auto_sites
+            elif args.force or not existing_auto_sites:
+                # Run extraction in-memory (no DB writes)
+                print("  Running NLP extraction...")
                 try:
-                    run_extraction(session, zotero_item, force=True)
+                    auto_sites = run_extraction(zotero_item)
                 except Exception as e:
                     print(f"  ERROR during extraction: {e}")
                     continue
-                auto_sites = get_site_coords(session, zotero_item, manual_only=False)
+            else:
+                # Auto sites exist and no --force, use DB sites
+                auto_sites = existing_auto_sites
 
             manual_sites = get_site_coords(session, manual_item, manual_only=True)
 
@@ -450,12 +550,15 @@ def main() -> None:
                 f"Exact: {paper_result.exact_matches}, <1km: {paper_result.close_1km}"
             )
 
-        # Print report
+        # Print report to stdout
         print_report(results)
 
+        # Write markdown report (always)
+        write_markdown_report(results, md_output, doi_filter=args.doi)
+
         # Write CSV if requested
-        if args.output:
-            write_csv(results, args.output)
+        if csv_output:
+            write_csv(results, csv_output)
 
 
 if __name__ == "__main__":
