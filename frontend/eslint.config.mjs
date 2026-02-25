@@ -1,9 +1,9 @@
 // eslint.config.mjs
 import pluginJs from '@eslint/js'
 import pluginVue from 'eslint-plugin-vue'
-import prettier from 'eslint-config-prettier'
 import globals from 'globals'
 import typescriptEslint from 'typescript-eslint'
+import pluginOxlint from 'eslint-plugin-oxlint'
 
 export default [
   {
@@ -17,6 +17,8 @@ export default [
   pluginJs.configs.recommended,
   ...typescriptEslint.configs.recommended,
   ...pluginVue.configs['flat/recommended'],
+  // Oxlint MUST be last to override conflicting JS/TS/Vue rules
+  ...pluginOxlint.buildFromOxlintConfigFile('./.oxlintrc.json'),
   {
     files: ['**/*.vue', '**/*.js', '**/*.ts'],
     rules: {
@@ -49,9 +51,6 @@ export default [
       quotes: [2, 'single'],
       indent: ['warn', 2],
       'space-before-function-paren': 0,
-      // Prettier integration
-      'prettier/prettier': ['error'],
     },
-  },
-  prettier,
+  }
 ]
