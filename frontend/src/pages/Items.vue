@@ -8,7 +8,7 @@
           Manage your research papers and study sites
         </p>
       </v-col>
-      <v-col cols="12" md="6" class="d-flex justify-end align-center flex-wrap">
+      <v-col v-if="authStore.isAuthenticated" cols="12" md="6" class="d-flex justify-end align-center flex-wrap">
         <v-switch
           v-model="forceReload"
           color="warning"
@@ -36,7 +36,7 @@
           :disabled="isProcessing && !downloading"
           class="mr-2"
         >
-          {{ downloading ? 'Downloading...' : 'Download Files' }}
+          {{ downloading ? 'Downloading...' : hasSelectedItems ? `Download ${selectedItems.length} Selected` : 'Download Files' }}
         </v-btn>
         <v-btn
           v-if="hasSelectedItems"
@@ -82,7 +82,7 @@
     </v-row>
 
     <!-- Zotero Collections -->
-    <v-card class="mb-4" elevation="1" v-if="zoteroCollections.length > 0">
+    <v-card class="mb-4" elevation="1" v-if="authStore.isAuthenticated && zoteroCollections.length > 0">
       <v-card-title class="text-subtitle-1">
         <v-icon class="mr-2">mdi-folder-multiple</v-icon>
         Zotero Collections
@@ -95,7 +95,7 @@
           column
         >
           <v-chip
-            value="-1"
+            :value="-1"
             prepend-icon="mdi-library"
             variant="outlined"
           >
@@ -223,7 +223,7 @@
         :items-length="totalItems"
         :search="search"
         item-value="id"
-        show-select
+        :show-select="authStore.isAuthenticated"
         class="elevation-0"
         hover
         @click:row="handleRowClick"
@@ -232,7 +232,7 @@
         <template #item.title="{ item }">
           <div class="d-flex align-center">
             <v-icon
-              v-if="item.attachment"
+              v-if="authStore.isAuthenticated && item.attachment"
               color="primary"
               size="small"
               class="mr-2"
@@ -468,6 +468,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useZoteroStore } from '@/stores/zotero'
+import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notification'
 import { useTaskStore } from '@/stores/tasks'
 import { debounce } from 'lodash'
@@ -475,6 +476,7 @@ import ExtractionResults from '@/components/papers/ExtractionResults.vue'
 
 // Stores
 const router = useRouter()
+const authStore = useAuthStore()
 const zoteroStore = useZoteroStore()
 const notificationStore = useNotificationStore()
 const taskStore = useTaskStore()
@@ -509,16 +511,21 @@ const studySiteOptions = [
 ]
 
 // Headers configuration
-const headers = computed(() => [
-  { key: 'title', title: 'Title', sortable: true, width: '25%' },
-  { key: 'abstractNote', title: 'Abstract', sortable: false, width: '30%' },
-  { key: 'publicationTitle', title: 'Journal', sortable: true },
-  { key: 'date', title: 'Date', sortable: true, width: '100px' },
-  { key: 'study_sites_count', title: 'Sites', sortable: false, align: 'center', width: '80px' },
-  { key: 'doi', title: 'DOI', sortable: false, align: 'center', width: '60px' },
-  { key: 'url', title: 'URL', sortable: false, align: 'center', width: '60px' },
-  { key: 'actions', title: '', sortable: false, align: 'center', width: '60px' },
-])
+const headers = computed(() => {
+  const cols: any[] = [
+    { key: 'title', title: 'Title', sortable: true, width: '25%' },
+    { key: 'abstractNote', title: 'Abstract', sortable: false, width: '30%' },
+    { key: 'publicationTitle', title: 'Journal', sortable: true },
+    { key: 'date', title: 'Date', sortable: true, width: '100px' },
+    { key: 'study_sites_count', title: 'Sites', sortable: false, align: 'center', width: '80px' },
+    { key: 'doi', title: 'DOI', sortable: false, align: 'center', width: '60px' },
+    { key: 'url', title: 'URL', sortable: false, align: 'center', width: '60px' },
+  ]
+  if (authStore.isAuthenticated) {
+    cols.push({ key: 'actions', title: '', sortable: false, align: 'center', width: '60px' })
+  }
+  return cols
+})
 
 // Computed
 const filteredItems = computed(() => {
@@ -604,8 +611,11 @@ const handleSync = async () => {
 
 const handleDownloadAttachments = async () => {
   try {
-    await zoteroStore.downloadAttachments()
-    // Note: The store already handles fetching items and showing notifications
+    const itemIds = hasSelectedItems.value ? selectedItems.value : undefined
+    await zoteroStore.downloadAttachments(itemIds)
+    if (hasSelectedItems.value) {
+      clearSelection()
+    }
   } catch (error) {
     console.error('Download error:', error)
   }
@@ -838,10 +848,10 @@ const getStudySitesColor = (studySites: any[]): string => {
 
 // Lifecycle
 onMounted(async () => {
-  await Promise.all([
-    zoteroStore.fetchItems(),
-    zoteroStore.fetchZoteroCollections('group')
-  ])
+  await zoteroStore.fetchItems()
+  if (authStore.isAuthenticated) {
+    await zoteroStore.fetchZoteroCollections('group')
+  }
 })
 </script>
 

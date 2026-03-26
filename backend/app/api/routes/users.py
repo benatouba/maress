@@ -87,6 +87,12 @@ def update_user_me(
                 detail="User with this email already exists",
             )
     user_data = user_in.model_dump(exclude_unset=True)
+    # Encrypt API key before storing (validators don't run on sqlmodel_update)
+    if "enc_zotero_api_key" in user_data and user_data["enc_zotero_api_key"]:
+        from app.core.security import cipher_suite
+        raw_key = user_data["enc_zotero_api_key"]
+        if not raw_key.startswith("gAAAAAB"):
+            user_data["enc_zotero_api_key"] = cipher_suite.encrypt(raw_key.encode()).decode()
     current_user.sqlmodel_update(user_data)
     session.add(current_user)
     session.commit()

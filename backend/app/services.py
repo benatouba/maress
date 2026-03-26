@@ -24,9 +24,8 @@ class Zotero(Zotero):
             user: User model with Zotero credentials
             library_type: Library type ("user" or "group")
         """
-        user_json = user.model_dump()
         super().__init__(
-            library_id=user_json["zotero_id"],
+            library_id=user.zotero_id,
             library_type=library_type,
-            api_key=user_json["enc_zotero_api_key"],
+            api_key=user.get_zotero_api_key(),
         )

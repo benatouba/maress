@@ -12,11 +12,12 @@ from sqlalchemy import BinaryExpression, ColumnElement
 from sqlmodel import col, func, or_, select
 
 from app import crud
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, OptionalCurrentUser, SessionDep
 from app.celery_app import celery
 from app.models import (
     Creator,
     EnrichItemsRequest,
+    User,
     ExtractionResult,
     ExtractionResultPublic,
     ExtractionResultsPublic,
@@ -45,14 +46,14 @@ router = APIRouter(prefix="/items", tags=["items"])
 
 def read_db_items(
     session: SessionDep,
-    current_user: CurrentUser,
+    current_user: User | None,
     skip: int = 0,
     limit: int = 500,
 ) -> tuple[Sequence[Item], int]:
     """Helper function to retrieve items with pagination."""
     from sqlalchemy.orm import joinedload, selectinload
 
-    if current_user.is_superuser:
+    if current_user is None or current_user.is_superuser:
         count_statement = select(func.count()).select_from(Item)
         count = session.exec(count_statement).one()
         statement = (
@@ -87,20 +88,29 @@ def read_db_items(
     return items, count
 
 
+def _strip_attachments(items: Sequence[Item]) -> Sequence[Item]:
+    """Null out attachment field on items for anonymous access."""
+    for item in items:
+        item.attachment = None
+    return items
+
+
 @router.get("/")
 def read_items(
     session: SessionDep,
-    current_user: CurrentUser,
+    current_user: OptionalCurrentUser,
     skip: int = 0,
     limit: int = 10,
 ) -> ItemsPublic:
     """Retrieve items."""
     items, count = read_db_items(session, current_user, skip, limit)
+    if current_user is None:
+        _strip_attachments(items)
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
 
 
 @router.get("/{id}", response_model=ItemPublic)
-def read_item(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> Item:
+def read_item(session: SessionDep, current_user: OptionalCurrentUser, id: uuid.UUID) -> Item:
     """Get item by ID."""
     from sqlalchemy.orm import joinedload, selectinload
 
@@ -116,15 +126,17 @@ def read_item(session: SessionDep, current_user: CurrentUser, id: uuid.UUID) -> 
     item = session.exec(statement).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if not current_user.is_superuser and (item.owner_id != current_user.id):
+    if current_user is not None and not current_user.is_superuser and (item.owner_id != current_user.id):
         raise HTTPException(status_code=400, detail="Not enough permissions")
+    if current_user is None:
+        item.attachment = None
     return item
 
 
 @router.get("/search/")
 def search_items(
     session: SessionDep,
-    current_user: CurrentUser,
+    current_user: OptionalCurrentUser,
     title: Annotated[str | None, Query(description="Search by title")] = None,
     tag: Annotated[str | None, Query(description="Search by tag")] = None,
     skip: Annotated[int, Query(ge=0)] = 0,
@@ -135,7 +147,7 @@ def search_items(
     statement = select(Item)
 
     # Apply user permission filter
-    if not current_user.is_superuser:
+    if current_user is not None and not current_user.is_superuser:
         statement = statement.where(Item.owner_id == current_user.id)
 
     filters: list[BinaryExpression[bool] | ColumnElement[bool]] = []
@@ -157,6 +169,8 @@ def search_items(
 
     # Execute query
     items = session.exec(statement).all()
+    if current_user is None:
+        _strip_attachments(items)
 
     count = len(items)
 
@@ -191,7 +205,14 @@ def get_zotero_collections(
         user=db_user,
         library_type=library_type,
     )
-    return zot.collections()
+    try:
+        return zot.collections()
+    except Exception as e:
+        logger.warning("Failed to fetch Zotero collections: %s", e)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not fetch collections from Zotero: {e}",
+        )
 
 
 @router.get("/import_from_zotero/")
@@ -360,10 +381,12 @@ def import_files_from_zotero(
     current_user: CurrentUser,
     skip: int = 0,
     limit: int = 10000,
+    item_ids: Annotated[list[uuid.UUID] | None, Query()] = None,
 ) -> Any:
     """Start background task to download attachments from Zotero.
 
     Returns immediately with task ID. Use /tasks/{task_id} to check status.
+    If item_ids is provided, only downloads attachments for those items.
     """
     from app.tasks.download import download_attachments_task
 
@@ -373,6 +396,7 @@ def import_files_from_zotero(
         is_superuser=current_user.is_superuser,
         skip=skip,
         limit=limit,
+        item_ids=[str(id) for id in item_ids] if item_ids else None,
     )
     # NOTE: random uuid for item_id since this is a batch task
     return TasksAccepted(
@@ -389,7 +413,7 @@ def import_files_from_zotero(
 
 
 @router.get("/files/{filename}")
-async def get_file(filename: str) -> Any:
+async def get_file(filename: str, current_user: CurrentUser) -> Any:
     file_path = Path.cwd() / "zotero_files" / filename
     if file_path.exists():
         return FileResponse(file_path)

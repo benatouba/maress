@@ -24,6 +24,7 @@ def _download_attachments_impl(
     is_superuser: bool,
     skip: int = 0,
     limit: int = 10000,
+    item_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Core download logic - separated for testability."""
     from app.services import Zotero
@@ -41,7 +42,17 @@ def _download_attachments_impl(
     zot = Zotero(user=user, library_type="group")
 
     # Get items that need attachments
-    if is_superuser:
+    if item_ids:
+        # Download for specific items only
+        item_uuids = [uuid.UUID(id) for id in item_ids]
+        statement = (
+            select(Item)
+            .where(Item.id.in_(item_uuids))
+            .where(Item.attachment.is_(None))
+        )
+        if not is_superuser:
+            statement = statement.where(Item.owner_id == user_uuid)
+    elif is_superuser:
         statement = (
             select(Item)
             .where(Item.attachment.is_(None))
@@ -215,6 +226,7 @@ def download_attachments_task(
     is_superuser: bool,
     skip: int = 0,
     limit: int = 10000,
+    item_ids: list[str] | None = None,
     _test_session: Session | None = None,
 ) -> dict[str, Any]:
     """Download attachments from Zotero in the background.
@@ -224,6 +236,7 @@ def download_attachments_task(
         is_superuser: Whether user is superuser
         skip: Pagination offset
         limit: Max items to process
+        item_ids: Optional list of specific item IDs to download
         _test_session: Optional session for testing (bypasses SessionLocal)
     """
     try:
@@ -235,6 +248,7 @@ def download_attachments_task(
                 is_superuser,
                 skip,
                 limit,
+                item_ids,
             )
 
         # Production mode - create new session
@@ -245,6 +259,7 @@ def download_attachments_task(
                 is_superuser,
                 skip,
                 limit,
+                item_ids,
             )
 
     except ValueError as e:

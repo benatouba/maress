@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from sqlmodel import func, select
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, OptionalCurrentUser, SessionDep
 from app.crud import create_location_if_needed
 from app.models import (
     Item,
@@ -41,12 +41,13 @@ router = APIRouter(prefix="/study-sites", tags=["study-sites"])
 def get_map_points(
     *,
     session: SessionDep,
-    current_user: CurrentUser,
+    current_user: OptionalCurrentUser,
 ) -> StudySiteMapPointsPublic:
     """Return lightweight study-site data for the map.
 
     Joins StudySite → Location (lat/lon) and Item (title only).
     No pagination — returns all sites the user owns in a single flat list.
+    Anonymous users see all sites.
     """
     statement = (
         select(
@@ -61,9 +62,10 @@ def get_map_points(
         )
         .join(Location, StudySite.location_id == Location.id)
         .join(Item, StudySite.item_id == Item.id)
-        .where(Item.owner_id == current_user.id)
-        .order_by(StudySite.confidence_score.desc())
     )
+    if current_user is not None and not current_user.is_superuser:
+        statement = statement.where(Item.owner_id == current_user.id)
+    statement = statement.order_by(StudySite.confidence_score.desc())
     rows = session.exec(statement).all()
 
     points = [

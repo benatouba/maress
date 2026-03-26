@@ -9,9 +9,9 @@ def main():
     print("Hello from maress!")
 
     zot = zotero.Zotero(
-        config["PERSONAL_LIBRARY_ID"],
-        config["ZOTERO"]["LIBRARY_TYPE"],
-        config["ZOTERO_API_KEY"],
+        str(config["PERSONAL_LIBRARY_ID"]),
+        str(config["ZOTERO_LIBRARY_TYPE"]),
+        str(config["ZOTERO_API_KEY"]),
     )
 
     collection = zot.collections()[0]

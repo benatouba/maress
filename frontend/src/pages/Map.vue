@@ -461,6 +461,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import { useAuthStore } from '../stores/auth'
 import { useStudySitesStore, type StudySiteWithItem, type MapPoint } from '../stores/studySites'
 import { useZoteroStore } from '../stores/zotero'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
@@ -469,6 +470,7 @@ import StudySiteMap from '../components/maps/StudySiteMap.vue'
 const route = useRoute()
 
 // Stores
+const authStore = useAuthStore()
 const studySitesStore = useStudySitesStore()
 const zoteroStore = useZoteroStore()
 const { mapPoints, loading } = storeToRefs(studySitesStore)

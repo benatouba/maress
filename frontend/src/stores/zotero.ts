@@ -27,7 +27,7 @@ export interface ZoteroStore {
   fetchZoteroCollections: (libraryType?: 'user' | 'group') => Promise<void>
   fetchItems: (limit?: number, silent?: boolean) => Promise<void>
   syncLibrary: (reload?: boolean, collectionId?: string | null) => Promise<boolean>
-  downloadAttachments: () => Promise<any | null>
+  downloadAttachments: (itemIds?: string[]) => Promise<any | null>
   importItem: (itemId: string) => Promise<any | null>
   updateStudySite: (studySiteId: string, updateData: object) => Promise<any>
   importFileFromZotero: (itemId: string) => Promise<any | null>
@@ -146,13 +146,13 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       syncing.value = false
     }
   }
-  const downloadAttachments = async () => {
+  const downloadAttachments = async (itemIds?: string[]) => {
     const notificationStore = useNotificationStore()
     downloading.value = true
     loading.value = true
     downloadProgress.value = null // Reset progress
 
-    // Start polling to refresh items every 2 seconds during download
+    // Poll items periodically during download to reflect progress
     pollingInterval = setInterval(async () => {
       try {
         await fetchItems(500, true) // silent = true to avoid interfering with loading state
@@ -163,15 +163,19 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
           'error'
         )
       }
-    }, 2000)
+    }, 10000)
 
     try {
       notificationStore.showNotification('Starting background download...', 'info')
 
       // Start background task - POST now returns task IDs
-      const response = await axios.post('/items/import_file_zotero/', null, {
-        params: { skip: 0, limit: 10000 }
-      })
+      const queryParams = new URLSearchParams()
+      queryParams.append('skip', '0')
+      queryParams.append('limit', '10000')
+      if (itemIds && itemIds.length > 0) {
+        itemIds.forEach(id => queryParams.append('item_ids', id))
+      }
+      const response = await axios.post(`/items/import_file_zotero/?${queryParams.toString()}`, null)
 
       // Get task ID from response
       const tasks = response.data.data

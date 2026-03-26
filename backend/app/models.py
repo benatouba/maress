@@ -642,9 +642,9 @@ class UserBase(SQLModel):
         """Encrypt API key before storing."""
         if v is None or v == "":
             return None
-        if v.startswith("gAAAAAB"):  # Not already encrypted
-            return cipher_suite.encrypt(v.encode()).decode()
-        return v
+        if v.startswith("gAAAAAB"):  # Already encrypted
+            return v
+        return cipher_suite.encrypt(v.encode()).decode()
 
     @field_serializer("enc_zotero_api_key", when_used="json")
     def serialize_api_key(self, value: str | None) -> str | None:
@@ -658,7 +658,8 @@ class UserBase(SQLModel):
         try:
             return cipher_suite.decrypt(self.enc_zotero_api_key.encode()).decode()
         except Exception:
-            return None
+            # Key may be stored unencrypted (legacy data)
+            return self.enc_zotero_api_key
 
 
 # Properties to receive via API on creation
@@ -689,7 +690,10 @@ class UserUpdateMe(SQLModel):
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = Field(default=None, max_length=255)
     zotero_id: str | None = Field(default=None, max_length=32)
-    enc_zotero_api_key: str | None = Field(default=None)
+    enc_zotero_api_key: str | None = Field(
+        default=None,
+        alias="zotero_api_key",
+    )
 
 
 class UpdatePassword(SQLModel):
