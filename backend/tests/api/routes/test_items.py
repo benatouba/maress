@@ -141,13 +141,15 @@ def test_read_search_non_owner_cannot_see_attachments(
     normal_user_token_headers: dict[str, str],
 ) -> None:
     item = create_random_item(db_session)
+    item.title = "Visibility Search Item"
     item.attachment = "/tmp/licensed.pdf"
     db_session.add(item)
     db_session.commit()
 
     response = client.get(
-        f"{settings.API_V1_STR}/items/search/?title={item.title}",
+        f"{settings.API_V1_STR}/items/search/",
         headers=normal_user_token_headers,
+        params={"title": "Visibility Search Item"},
     )
     assert response.status_code == 200
     content = response.json()
