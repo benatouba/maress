@@ -49,14 +49,15 @@ services:
       dockerfile: Dockerfile.prod
     restart: unless-stopped
 
-  nginx:
-    image: nginx:alpine
+  caddy:
+    image: caddy:2-alpine
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - frontend
       - backend
@@ -65,3 +66,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:

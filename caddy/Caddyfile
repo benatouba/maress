@@ -1,0 +1,10 @@
+{$CADDY_SITE_ADDRESS:localhost} {
+  encode zstd gzip
+
+  # Route API traffic to FastAPI
+  @api path /api/*
+  reverse_proxy @api backend:8000
+
+  # Everything else goes to the frontend app
+  reverse_proxy frontend:80
+}

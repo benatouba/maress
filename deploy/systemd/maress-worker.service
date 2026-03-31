@@ -1,0 +1,16 @@
+[Unit]
+Description=MaRESS Celery worker
+After=network.target
+
+[Service]
+Type=simple
+User=ben
+Group=ben
+WorkingDirectory=/home/ben/projects/maress/backend
+Environment="PATH=/home/ben/projects/maress/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/ben/projects/maress/backend/.venv/bin/celery -A app.celery_app.celery worker --loglevel=info --concurrency=2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

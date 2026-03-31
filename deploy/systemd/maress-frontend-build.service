@@ -1,0 +1,16 @@
+[Unit]
+Description=MaRESS frontend production build
+After=network.target
+
+[Service]
+Type=oneshot
+User=ben
+Group=ben
+WorkingDirectory=/home/ben/projects/maress/frontend
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="VITE_API_V1_URL=/api/v1"
+ExecStart=/usr/bin/pnpm install --frozen-lockfile
+ExecStart=/usr/bin/pnpm run build
+
+[Install]
+WantedBy=multi-user.target
