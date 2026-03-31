@@ -10,6 +10,7 @@ from pydantic import (  # noqa: TC002
     field_validator,
 )
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
+from sqlalchemy import Index
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
 from app.core.security import cipher_suite
@@ -238,6 +239,19 @@ class ItemSummary(SQLModel):
     title: str | None = None
 
 
+class MapItemSummary(SQLModel):
+    id: uuid.UUID
+    title: str | None = None
+    publicationTitle: str | None = None
+    date: str | None = None
+    study_site_count: int = 0
+
+
+class MapItemsPublic(SQLModel):
+    data: list[MapItemSummary]
+    count: int
+
+
 class LocationBase(SQLModel):
     """Database model (base) for geographic locations."""
 
@@ -249,6 +263,8 @@ class LocationBase(SQLModel):
 
 
 class Location(LocationBase, table=True):
+    __table_args__ = (Index("ix_location_lon_lat", "longitude", "latitude"),)
+
     id: uuid.UUID = Field(
         default_factory=uuid.uuid4,
         primary_key=True,

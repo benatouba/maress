@@ -62,34 +62,50 @@ const mockStudySiteAuto = {
   updated_at: '2024-01-01T00:00:00Z'
 }
 
+const mockMapPoint = {
+  id: 'site-1',
+  item_id: 'paper-1',
+  name: 'Test Site 1',
+  item_title: 'Test Paper 1',
+  latitude: 45.5,
+  longitude: -122.3,
+  is_manual: true,
+  confidence_score: 0.85,
+}
+
+const mockMapPointAuto = {
+  id: 'site-2',
+  item_id: 'paper-2',
+  name: 'Auto Site',
+  item_title: 'Test Paper 2',
+  latitude: 40.7,
+  longitude: -74.0,
+  is_manual: false,
+  confidence_score: 0.72,
+}
+
 const mockPaper1 = {
   id: 'paper-1',
   title: 'Test Paper 1',
-  abstractNote: 'This is a test abstract',
   publicationTitle: 'Test Journal',
   date: '2024-01-15',
-  itemType: 'journalArticle',
-  study_sites: [mockStudySite]
+  study_site_count: 1,
 }
 
 const mockPaper2 = {
   id: 'paper-2',
   title: 'Test Paper 2',
-  abstractNote: 'Another test abstract',
   publicationTitle: 'Science Journal',
   date: '2024-02-20',
-  itemType: 'journalArticle',
-  study_sites: [mockStudySiteAuto]
+  study_site_count: 1,
 }
 
 const mockPaperWithoutSites = {
   id: 'paper-3',
   title: 'Paper Without Sites',
-  abstractNote: 'No study sites',
   publicationTitle: 'Empty Journal',
   date: '2024-03-10',
-  itemType: 'journalArticle',
-  study_sites: []
+  study_site_count: 0,
 }
 
 // Create mock router
@@ -173,25 +189,26 @@ describe('Map Page', () => {
 
     // Mock Study Sites store
     studySitesStore = useStudySitesStore()
-    studySitesStore.studySites = [mockStudySite, mockStudySiteAuto]
+    studySitesStore.mapPoints = [mockMapPoint, mockMapPointAuto]
     studySitesStore.loading = false
-    vi.spyOn(studySitesStore, 'fetchAllStudySites').mockImplementation(async () => {
-      studySitesStore.studySites = [mockStudySite, mockStudySiteAuto]
+    vi.spyOn(studySitesStore, 'fetchMapPointsForBounds').mockImplementation(async () => {
+      studySitesStore.mapPoints = [mockMapPoint, mockMapPointAuto]
+    })
+    vi.spyOn(studySitesStore, 'fetchItemStudySites').mockImplementation(async (itemId: string) => {
+      if (itemId === mockPaper1.id) return [mockStudySite]
+      if (itemId === mockPaper2.id) return [mockStudySiteAuto]
+      return []
     })
 
     // Mock Zotero store
     zoteroStore = useZoteroStore()
-    zoteroStore.items = {
-      data: [mockPaper1, mockPaper2, mockPaperWithoutSites],
-      count: 3
-    }
-    zoteroStore.loading = false
-    vi.spyOn(zoteroStore, 'fetchItems').mockImplementation(async () => {
-      zoteroStore.items = {
+    vi.spyOn(zoteroStore, 'fetchMapItems').mockImplementation(async () => {
+      return {
         data: [mockPaper1, mockPaper2, mockPaperWithoutSites],
-        count: 3
+        count: 3,
       }
     })
+    zoteroStore.loading = false
   })
 
   afterEach(() => {
@@ -240,26 +257,42 @@ describe('Map Page', () => {
   })
 
   describe('Data Loading', () => {
-    it('should fetch study sites on mount', async () => {
+    it('should fetch viewport map points after viewport event', async () => {
       wrapper = createWrapper()
       await flushPromises()
+      await wrapper.vm.handleViewportChanged({
+        minLon: -20,
+        minLat: -10,
+        maxLon: 20,
+        maxLat: 10,
+      })
 
-      expect(studySitesStore.fetchAllStudySites).toHaveBeenCalled()
+      expect(studySitesStore.fetchMapPointsForBounds).toHaveBeenCalled()
+      expect(studySitesStore.fetchMapPointsForBounds).toHaveBeenCalledWith(
+        {
+          minLon: -20,
+          minLat: -10,
+          maxLon: 20,
+          maxLat: 10,
+        },
+        25000,
+        true,
+      )
     })
 
     it('should fetch papers on mount', async () => {
       wrapper = createWrapper()
       await flushPromises()
 
-      expect(zoteroStore.fetchItems).toHaveBeenCalled()
+      expect(zoteroStore.fetchMapItems).toHaveBeenCalled()
     })
 
     it('should load both papers and study sites in parallel', async () => {
       wrapper = createWrapper()
       await flushPromises()
 
-      expect(studySitesStore.fetchAllStudySites).toHaveBeenCalled()
-      expect(zoteroStore.fetchItems).toHaveBeenCalled()
+      expect(zoteroStore.fetchMapItems).toHaveBeenCalled()
+      expect(studySitesStore.fetchMapPointsForBounds).not.toHaveBeenCalled()
     })
   })
 
@@ -278,9 +311,9 @@ describe('Map Page', () => {
       await flushPromises()
 
       const papers = wrapper.vm.filteredPapers
-      expect(papers[0].study_sites.length).toBe(1)
-      expect(papers[1].study_sites.length).toBe(1)
-      expect(papers[2].study_sites.length).toBe(0)
+      expect(papers[0].study_site_count).toBe(1)
+      expect(papers[1].study_site_count).toBe(1)
+      expect(papers[2].study_site_count).toBe(0)
     })
 
     it('should display publication info as subtitle', async () => {
@@ -311,7 +344,7 @@ describe('Map Page', () => {
       await wrapper.vm.$nextTick()
 
       expect(wrapper.vm.filteredPapers).toHaveLength(2)
-      expect(wrapper.vm.filteredPapers.every((p: any) => p.study_sites.length > 0)).toBe(true)
+      expect(wrapper.vm.filteredPapers.every((p: any) => p.study_site_count > 0)).toBe(true)
     })
 
     it('should filter papers without study sites', async () => {
@@ -319,7 +352,7 @@ describe('Map Page', () => {
       await wrapper.vm.$nextTick()
 
       expect(wrapper.vm.filteredPapers).toHaveLength(1)
-      expect(wrapper.vm.filteredPapers[0].study_sites.length).toBe(0)
+      expect(wrapper.vm.filteredPapers[0].study_site_count).toBe(0)
     })
 
     it('should search in title, abstract, and publication', async () => {
@@ -377,12 +410,12 @@ describe('Map Page', () => {
       await wrapper.vm.showPaperStudySites(mockPaper1)
 
       expect(wrapper.vm.studySitesDialog).toBe(true)
-      expect(wrapper.vm.dialogPaper).toEqual(mockPaper1)
+      expect(wrapper.vm.dialogPaper.id).toBe(mockPaper1.id)
     })
 
     it('should display study sites information in dialog', async () => {
       await wrapper.vm.showPaperStudySites(mockPaper1)
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       expect(wrapper.text()).toContain('Test Site 1')
       expect(wrapper.text()).toContain('Portland')
@@ -390,14 +423,14 @@ describe('Map Page', () => {
 
     it('should show confidence score in dialog', async () => {
       await wrapper.vm.showPaperStudySites(mockPaper1)
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       expect(wrapper.text()).toContain('85.0%')
     })
 
     it('should display location coordinates', async () => {
       await wrapper.vm.showPaperStudySites(mockPaper1)
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       expect(wrapper.text()).toContain('45.5000')
       expect(wrapper.text()).toContain('-122.3000')
@@ -405,14 +438,14 @@ describe('Map Page', () => {
 
     it('should display context text', async () => {
       await wrapper.vm.showPaperStudySites(mockPaper1)
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       expect(wrapper.text()).toContain('Study site in Portland')
     })
 
     it('should show extraction method', async () => {
       await wrapper.vm.showPaperStudySites(mockPaper1)
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       expect(wrapper.text()).toContain('Manual')
     })
@@ -428,7 +461,7 @@ describe('Map Page', () => {
       await wrapper.vm.showPaperStudySites(mockPaper1)
       await wrapper.vm.filterByDialogPaper()
 
-      expect(wrapper.vm.selectedPaper).toEqual(mockPaper1)
+      expect(wrapper.vm.selectedPaper.id).toEqual(mockPaper1.id)
       expect(wrapper.vm.studySitesDialog).toBe(false)
     })
   })
@@ -473,7 +506,6 @@ describe('Map Page', () => {
       await wrapper.vm.panToStudySite(mockStudySite)
 
       expect(panToSpy).toHaveBeenCalledWith(45.5, -122.3, 12, 1500)
-      expect(wrapper.vm.selectedSite).toEqual(mockStudySite)
     })
 
     it('should close dialog when panning to site', async () => {
@@ -504,6 +536,37 @@ describe('Map Page', () => {
       expect(consoleWarnSpy).toHaveBeenCalled()
     })
 
+    it('should pan to zero coordinates from dialog', async () => {
+      const panToSpy = vi.fn()
+      wrapper.vm.mapComponent = { panTo: panToSpy }
+      const zeroSite = {
+        ...mockStudySite,
+        location: {
+          ...mockLocation,
+          latitude: 0,
+          longitude: 0,
+        },
+      }
+
+      await wrapper.vm.panToStudySite(zeroSite)
+
+      expect(panToSpy).toHaveBeenCalledWith(0, 0, 12, 1500)
+    })
+
+    it('should pan to zero coordinates from site list click', async () => {
+      const panToSpy = vi.fn()
+      wrapper.vm.mapComponent = { panTo: panToSpy }
+      const zeroPoint = {
+        ...mockMapPoint,
+        latitude: 0,
+        longitude: 0,
+      }
+
+      await wrapper.vm.handleSiteClick(zeroPoint)
+
+      expect(panToSpy).toHaveBeenCalledWith(0, 0, 12, 1500)
+    })
+
     it('should fit map to markers when paper selection changes', async () => {
       const fitToMarkersSpy = vi.fn()
       wrapper.vm.mapComponent = { fitToMarkers: fitToMarkersSpy }
@@ -527,13 +590,29 @@ describe('Map Page', () => {
     it('should refresh papers', async () => {
       await wrapper.vm.refreshPapers()
 
-      expect(zoteroStore.fetchItems).toHaveBeenCalledTimes(2) // Once on mount, once on refresh
+      expect(zoteroStore.fetchMapItems).toHaveBeenCalledTimes(2) // Once on mount, once on refresh
     })
 
     it('should refresh study sites', async () => {
+      await wrapper.vm.handleViewportChanged({
+        minLon: -20,
+        minLat: -10,
+        maxLon: 20,
+        maxLat: 10,
+      })
       await wrapper.vm.refreshData()
 
-      expect(studySitesStore.fetchAllStudySites).toHaveBeenCalledTimes(2)
+      expect(studySitesStore.fetchMapPointsForBounds).toHaveBeenCalledTimes(2)
+      expect(studySitesStore.fetchMapPointsForBounds).toHaveBeenLastCalledWith(
+        {
+          minLon: -20,
+          minLat: -10,
+          maxLon: 20,
+          maxLat: 10,
+        },
+        25000,
+        false,
+      )
     })
   })
 
@@ -553,21 +632,6 @@ describe('Map Page', () => {
       const paperWithoutInfo = { ...mockPaper1, publicationTitle: null, date: null }
       const subtitle = wrapper.vm.formatPaperSubtitle(paperWithoutInfo)
       expect(subtitle).toBe('No publication info')
-    })
-
-    it('should get correct study sites color for manual sites', () => {
-      const color = wrapper.vm.getStudySitesColor([mockStudySite])
-      expect(color).toBe('success')
-    })
-
-    it('should get correct study sites color for auto sites', () => {
-      const color = wrapper.vm.getStudySitesColor([mockStudySiteAuto])
-      expect(color).toBe('info')
-    })
-
-    it('should get default color for empty sites', () => {
-      const color = wrapper.vm.getStudySitesColor([])
-      expect(color).toBe('default')
     })
 
     it('should get confidence color based on score', () => {
@@ -623,7 +687,7 @@ describe('Map Page', () => {
 
   describe('Empty States', () => {
     it('should show empty state when no papers found', async () => {
-      zoteroStore.items = { data: [], count: 0 }
+      vi.spyOn(zoteroStore, 'fetchMapItems').mockResolvedValueOnce({ data: [], count: 0 })
       wrapper = createWrapper()
       await flushPromises()
 
@@ -645,7 +709,7 @@ describe('Map Page', () => {
       await flushPromises()
 
       await wrapper.vm.showPaperStudySites(mockPaperWithoutSites)
-      await wrapper.vm.$nextTick()
+      await flushPromises()
 
       expect(wrapper.text()).toContain('No study sites have been extracted')
     })
@@ -665,12 +729,12 @@ describe('Map Page', () => {
       expect(wrapper.vm.totalSites).toBe(2)
     })
 
-    it('should extract papers from items data', () => {
+    it('should expose fetched map papers', () => {
       expect(wrapper.vm.papers).toEqual([mockPaper1, mockPaper2, mockPaperWithoutSites])
     })
 
-    it('should handle missing items data', async () => {
-      zoteroStore.items = {}
+    it('should handle missing map papers response', async () => {
+      vi.spyOn(zoteroStore, 'fetchMapItems').mockResolvedValueOnce(null)
       wrapper = createWrapper()
       await flushPromises()
 

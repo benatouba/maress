@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sqlmodel import func, select
 
 from app.api.deps import CurrentUser, OptionalCurrentUser, SessionDep
@@ -37,11 +37,37 @@ from maress_types import (
 router = APIRouter(prefix="/study-sites", tags=["study-sites"])
 
 
+def _parse_bbox(bbox: str) -> tuple[float, float, float, float]:
+    parts = [part.strip() for part in bbox.split(",")]
+    if len(parts) != 4:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid bbox format. Expected 'minLon,minLat,maxLon,maxLat'",
+        )
+
+    try:
+        min_lon, min_lat, max_lon, max_lat = [float(v) for v in parts]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid bbox coordinates") from exc
+
+    if min_lon >= max_lon or min_lat >= max_lat:
+        raise HTTPException(status_code=400, detail="Invalid bbox extents")
+
+    min_lon = max(-180.0, min_lon)
+    max_lon = min(180.0, max_lon)
+    min_lat = max(-90.0, min_lat)
+    max_lat = min(90.0, max_lat)
+
+    return min_lon, min_lat, max_lon, max_lat
+
+
 @router.get("/map-points", response_model=StudySiteMapPointsPublic)
 def get_map_points(
     *,
     session: SessionDep,
     current_user: OptionalCurrentUser,
+    bbox: str | None = Query(default=None, description="minLon,minLat,maxLon,maxLat"),
+    limit: int = Query(default=25000, ge=1, le=200000),
 ) -> StudySiteMapPointsPublic:
     """Return lightweight study-site data for the map.
 
@@ -60,10 +86,21 @@ def get_map_points(
             StudySite.is_manual,
             StudySite.confidence_score,
         )
-        .join(Location, StudySite.location_id == Location.id)
+        .select_from(Location)
+        .join(StudySite, StudySite.location_id == Location.id)
         .join(Item, StudySite.item_id == Item.id)
     )
-    statement = statement.order_by(StudySite.confidence_score.desc())
+
+    if bbox:
+        min_lon, min_lat, max_lon, max_lat = _parse_bbox(bbox)
+        statement = statement.where(
+            Location.longitude >= min_lon,
+            Location.longitude <= max_lon,
+            Location.latitude >= min_lat,
+            Location.latitude <= max_lat,
+        )
+
+    statement = statement.limit(limit)
     rows = session.exec(statement).all()
 
     points = [
@@ -101,7 +138,7 @@ def study_site_to_public(study_site: StudySite) -> StudySitePublic:
 def get_item_study_sites(
     *,
     session: SessionDep,
-    current_user: CurrentUser,
+    current_user: OptionalCurrentUser,
     item_id: uuid.UUID,
 ) -> StudySitesPublic:
     """Get all study sites for a specific item.
@@ -112,9 +149,6 @@ def get_item_study_sites(
     item = session.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-
-    if not current_user.is_superuser and item.owner_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions")
 
     # Get all study sites for this item with location relationship loaded
     from sqlalchemy.orm import joinedload

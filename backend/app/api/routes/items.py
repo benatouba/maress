@@ -22,6 +22,8 @@ from app.models import (
     ExtractionResultsPublic,
     ExtractStudySitesRequest,
     Item,
+    MapItemSummary,
+    MapItemsPublic,
     ItemCreate,
     ItemPublic,
     ItemsPublic,
@@ -129,6 +131,55 @@ def read_items(
     items, count = read_db_items(session, current_user, skip, limit, include_all=True)
     _strip_attachments(items, current_user)
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
+
+
+@router.get("/map-summary", response_model=MapItemsPublic)
+def read_items_map_summary(
+    session: SessionDep,
+    current_user: OptionalCurrentUser,
+    skip: int = 0,
+    limit: int = 500,
+) -> MapItemsPublic:
+    """Retrieve lightweight item summaries for map sidebars."""
+
+    study_site_count = func.count(StudySite.id)
+
+    statement = (
+        select(
+            Item.id,
+            Item.title,
+            Item.publicationTitle,
+            Item.date,
+            study_site_count.label("study_site_count"),
+        )
+        .select_from(Item)
+        .outerjoin(StudySite, StudySite.item_id == Item.id)
+        .group_by(Item.id, Item.title, Item.publicationTitle, Item.date)
+        .offset(skip)
+        .limit(limit)
+    )
+
+    count_statement = select(func.count()).select_from(Item)
+
+    if current_user is not None and not current_user.is_superuser:
+        statement = statement.where(Item.owner_id == current_user.id)
+        count_statement = count_statement.where(Item.owner_id == current_user.id)
+
+    rows = session.exec(statement).all()
+    total_count = session.exec(count_statement).one()
+
+    data = [
+        MapItemSummary(
+            id=row.id,
+            title=row.title,
+            publicationTitle=row.publicationTitle,
+            date=row.date,
+            study_site_count=int(row.study_site_count or 0),
+        )
+        for row in rows
+    ]
+
+    return MapItemsPublic(data=data, count=total_count)
 
 
 @router.get("/{id}", response_model=ItemPublic)

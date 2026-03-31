@@ -86,6 +86,20 @@ def test_anonymous_can_read_map_points(client: TestClient) -> None:
     assert "count" in content
 
 
+def test_anonymous_can_read_map_item_summary(client: TestClient) -> None:
+    response = client.get(f"{settings.API_V1_STR}/items/map-summary")
+    assert response.status_code == 200
+    content = response.json()
+
+    assert "data" in content
+    assert "count" in content
+    if content["data"]:
+        sample = content["data"][0]
+        assert "id" in sample
+        assert "title" in sample
+        assert "study_site_count" in sample
+
+
 def test_non_owner_can_read_map_points(
     client: TestClient,
     db_session: Session,
@@ -117,6 +131,64 @@ def test_non_owner_can_read_map_points(
 
     assert "data" in content
     assert any(point["item_id"] == str(item.id) for point in content["data"])
+
+
+def test_map_points_supports_bbox_filter(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    item = create_random_item(db_session)
+
+    inside = StudySiteCreate(
+        name="Inside viewport",
+        latitude=Latitude(10.0),
+        longitude=Longitude(20.0),
+        confidence_score=0.9,
+        context="inside",
+        extraction_method=CoordinateExtractionMethod.REGEX,
+        section=PaperSections.METHODS,
+        source_type=CoordinateSourceType.TEXT,
+        validation_score=0.8,
+        item_id=item.id,
+    )
+
+    outside = StudySiteCreate(
+        name="Outside viewport",
+        latitude=Latitude(-45.0),
+        longitude=Longitude(120.0),
+        confidence_score=0.7,
+        context="outside",
+        extraction_method=CoordinateExtractionMethod.REGEX,
+        section=PaperSections.METHODS,
+        source_type=CoordinateSourceType.TEXT,
+        validation_score=0.6,
+        item_id=item.id,
+    )
+
+    create_study_site(db_session, inside)
+    create_study_site(db_session, outside)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/study-sites/map-points",
+        params={"bbox": "15,5,25,15"},
+    )
+
+    assert response.status_code == 200
+    content = response.json()
+
+    names = [point["name"] for point in content["data"]]
+    assert "Inside viewport" in names
+    assert "Outside viewport" not in names
+
+
+def test_map_points_rejects_invalid_bbox(client: TestClient) -> None:
+    response = client.get(
+        f"{settings.API_V1_STR}/study-sites/map-points",
+        params={"bbox": "not-a-bbox"},
+    )
+
+    assert response.status_code == 400
 
 
 def test_manual_study_site_creation_requires_authentication(

@@ -79,14 +79,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Map, View } from 'ol'
 import { Tile as TileLayer, Vector as VectorLayer } from 'ol/layer'
 import { OSM, Vector as VectorSource, Cluster } from 'ol/source'
 import { Feature } from 'ol'
 import { Point } from 'ol/geom'
-import { fromLonLat, toLonLat } from 'ol/proj'
+import { fromLonLat, toLonLat, transformExtent } from 'ol/proj'
 import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
 import { boundingExtent } from 'ol/extent'
 import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
@@ -106,7 +106,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['site-selected', 'map-ready'])
+const emit = defineEmits(['site-selected', 'map-ready', 'viewport-changed'])
 
 // Store
 const studySitesStore = useStudySitesStore()
@@ -119,9 +119,47 @@ const mapPoints = computed(() => props.sites || allMapPoints.value)
 // Map refs
 const mapContainer = ref<HTMLDivElement | null>(null)
 const map = ref<Map | null>(null)
+const mapInitialized = ref(false)
 const vectorSource = ref<VectorSource | null>(null)
 const clusterSource = ref<Cluster | null>(null)
 const clusterLayer = ref<VectorLayer<Cluster> | null>(null)
+const resizeObserver = ref<ResizeObserver | null>(null)
+const viewportEmitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+
+const emitViewportChanged = () => {
+  if (!map.value) return
+
+  const size = map.value.getSize()
+  if (!size) return
+
+  const extent3857 = map.value.getView().calculateExtent(size)
+  const [minLon, minLat, maxLon, maxLat] = transformExtent(extent3857, 'EPSG:3857', 'EPSG:4326')
+
+  emit('viewport-changed', {
+    minLon: Math.max(-180, minLon),
+    minLat: Math.max(-90, minLat),
+    maxLon: Math.min(180, maxLon),
+    maxLat: Math.min(90, maxLat),
+  })
+}
+
+const scheduleViewportEmit = () => {
+  if (viewportEmitTimer.value) {
+    clearTimeout(viewportEmitTimer.value)
+  }
+  viewportEmitTimer.value = setTimeout(() => {
+    emitViewportChanged()
+    viewportEmitTimer.value = null
+  }, 120)
+}
+
+const handleWindowResize = () => {
+  if (!mapInitialized.value) {
+    initMap()
+  }
+  updateMapSize()
+  scheduleViewportEmit()
+}
 
 // Dialog state
 const editDialogOpen = ref(false)
@@ -186,7 +224,10 @@ const clusterStyleFunction = (feature: Feature): Style => {
  * Initialize the OpenLayers map
  */
 const initMap = () => {
-  if (!mapContainer.value) return
+  if (!mapContainer.value || mapInitialized.value) return
+
+  const { clientWidth, clientHeight } = mapContainer.value
+  if (clientWidth === 0 || clientHeight === 0) return
 
   // Create vector source for individual point features
   vectorSource.value = new VectorSource()
@@ -251,10 +292,28 @@ const initMap = () => {
     }
   })
 
+  map.value.on('moveend', () => {
+    scheduleViewportEmit()
+  })
+
   emit('map-ready', map.value)
+  mapInitialized.value = true
 
   // Populate features
   updateMarkers()
+  scheduleViewportEmit()
+}
+
+/**
+ * Ensure OpenLayers recomputes its viewport size after layout changes
+ */
+const updateMapSize = () => {
+  if (!mapInitialized.value || !map.value || !mapContainer.value) return
+  const { clientWidth, clientHeight } = mapContainer.value
+  if (clientWidth > 0 && clientHeight > 0) {
+    map.value.updateSize()
+    scheduleViewportEmit()
+  }
 }
 
 /**
@@ -268,16 +327,19 @@ const updateMarkers = () => {
   // Clear style cache when data changes
   Object.keys(styleCache).forEach((key) => delete styleCache[key])
 
+  const features: Feature[] = []
   mapPoints.value.forEach((point) => {
-    if (!point.latitude || !point.longitude) return
+    if (point.latitude == null || point.longitude == null) return
 
-    const feature = new Feature({
+    features.push(new Feature({
       geometry: new Point(fromLonLat([point.longitude, point.latitude])),
       mapPoint: point,
-    })
-
-    vectorSource.value?.addFeature(feature)
+    }))
   })
+
+  if (features.length > 0) {
+    vectorSource.value.addFeatures(features)
+  }
 }
 
 /**
@@ -380,7 +442,14 @@ const handleSiteCreated = async () => {
 // Single shallow watcher — the store replaces the whole array on fetch
 watch(
   () => mapPoints.value,
-  () => updateMarkers(),
+  () => {
+    if (!mapInitialized.value) {
+      nextTick(() => initMap())
+      return
+    }
+    updateMarkers()
+    nextTick(() => updateMapSize())
+  },
 )
 
 watch(editDialogOpen, (isOpen) => {
@@ -391,18 +460,44 @@ watch(editDialogOpen, (isOpen) => {
 
 // Lifecycle
 onMounted(() => {
-  // Initialize map (data is fetched by the parent Map.vue page)
-  initMap()
+  if (mapContainer.value) {
+    resizeObserver.value = new ResizeObserver(() => {
+      if (!mapInitialized.value) {
+        initMap()
+      }
+      updateMapSize()
+    })
+    resizeObserver.value.observe(mapContainer.value)
+  }
+
+  window.addEventListener('resize', handleWindowResize)
+
+  // Initialize map only when container has non-zero size
+  nextTick(() => {
+    initMap()
+    requestAnimationFrame(() => initMap())
+    setTimeout(() => initMap(), 150)
+  })
 
   // Fit to markers after data loads
   setTimeout(() => {
-    if (mapPoints.value.length > 0) {
+    if (mapInitialized.value && mapPoints.value.length > 0) {
       fitToMarkers()
     }
   }, 500)
 })
 
 onUnmounted(() => {
+  if (viewportEmitTimer.value) {
+    clearTimeout(viewportEmitTimer.value)
+    viewportEmitTimer.value = null
+  }
+
+  window.removeEventListener('resize', handleWindowResize)
+  resizeObserver.value?.disconnect()
+  resizeObserver.value = null
+  mapInitialized.value = false
+
   if (map.value) {
     map.value.setTarget(undefined)
     map.value = null
@@ -415,14 +510,16 @@ defineExpose({ panTo, fitToMarkers, resetView, map })
 <style scoped>
 .study-site-map {
   position: relative;
+  display: flex;
   width: 100%;
   height: 100%;
   min-height: 600px;
 }
 
 .map-container {
+  flex: 1 1 auto;
   width: 100%;
-  height: 100%;
+  min-height: 600px;
 }
 
 .map-controls {

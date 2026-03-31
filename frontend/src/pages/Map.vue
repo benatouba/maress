@@ -23,7 +23,7 @@
                 icon
                 size="small"
                 variant="text"
-                :loading="papersLoading"
+                :loading="mapPapersLoading"
                 @click="refreshPapers"
                 >
                 <v-icon>mdi-refresh</v-icon>
@@ -69,56 +69,60 @@
 
           <!-- Papers List -->
           <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
-            <v-list
-              density="compact"
-              v-if="filteredPapers.length > 0">
-              <v-list-item
-                v-for="paper in filteredPapers"
-                :key="paper.id"
-                :active="selectedPaper?.id === paper.id"
-                @click="handlePaperClick(paper)"
-                class="cursor-pointer">
-                <template #prepend>
-                  <v-avatar
-                    color="primary"
-                    size="32">
-                    <v-icon
-                      size="16"
-                      color="white">
-                      mdi-file-document
-                    </v-icon>
-                  </v-avatar>
-                </template>
+            <v-virtual-scroll
+              v-if="filteredPapers.length > 0"
+              :items="filteredPapers"
+              :item-height="72"
+              item-key="id"
+              class="fill-height">
+              <template #default="{ item: paper }">
+                <v-list-item
+                  :active="selectedPaper?.id === paper.id"
+                  @click="handlePaperClick(paper)"
+                  class="cursor-pointer"
+                  density="compact">
+                  <template #prepend>
+                    <v-avatar
+                      color="primary"
+                      size="32">
+                      <v-icon
+                        size="16"
+                        color="white">
+                        mdi-file-document
+                      </v-icon>
+                    </v-avatar>
+                  </template>
 
-                <v-list-item-title class="text-wrap">
-                  {{ paper.title || 'Untitled Paper' }}
-                </v-list-item-title>
+                  <v-list-item-title class="text-wrap">
+                    {{ paper.title || 'Untitled Paper' }}
+                  </v-list-item-title>
 
-                <v-list-item-subtitle class="text-wrap">
-                  {{ formatPaperSubtitle(paper) }}
-                </v-list-item-subtitle>
+                  <v-list-item-subtitle class="text-wrap">
+                    {{ formatPaperSubtitle(paper) }}
+                  </v-list-item-subtitle>
 
-                <template #append>
-                  <div class="d-flex flex-column align-end gap-1">
-                    <v-chip
-                      v-if="paper.study_sites && paper.study_sites.length > 0"
-                      :color="getStudySitesColor(paper.study_sites)"
-                      size="x-small"
-                      @click.stop="showPaperStudySites(paper)">
-                      <v-icon start size="x-small">mdi-map-marker</v-icon>
-                      {{ paper.study_sites.length }}
-                    </v-chip>
-                    <v-chip
-                      v-else
-                      size="x-small"
-                      color="default"
-                      variant="outlined">
-                      <v-icon size="x-small">mdi-minus</v-icon>
-                    </v-chip>
-                  </div>
-                </template>
-              </v-list-item>
-            </v-list>
+                  <template #append>
+                    <div class="d-flex flex-column align-end gap-1">
+                      <v-chip
+                        v-if="paper.study_site_count > 0"
+                        color="primary"
+                        size="x-small"
+                        @click.stop="showPaperStudySites(paper)">
+                        <v-icon start size="x-small">mdi-map-marker</v-icon>
+                        {{ paper.study_site_count }}
+                      </v-chip>
+                      <v-chip
+                        v-else
+                        size="x-small"
+                        color="default"
+                        variant="outlined">
+                        <v-icon size="x-small">mdi-minus</v-icon>
+                      </v-chip>
+                    </div>
+                  </template>
+                </v-list-item>
+              </template>
+            </v-virtual-scroll>
 
             <v-empty-state
               v-else
@@ -146,7 +150,7 @@
               color="primary"
               prepend-icon="mdi-refresh"
               @click="refreshPapers"
-              :loading="papersLoading">
+              :loading="mapPapersLoading">
               Refresh
             </v-btn>
           </v-card-actions>
@@ -164,6 +168,7 @@
           :initial-zoom="2"
           :sites="filteredSites"
           @site-selected="handleSiteSelected"
+          @viewport-changed="handleViewportChanged"
           @map-ready="handleMapReady" />
       </v-col>
 
@@ -354,7 +359,15 @@
 
         <v-card-text class="pa-4">
           <v-alert
-            v-if="!dialogPaper.study_sites || dialogPaper.study_sites.length === 0"
+            v-if="paperStudySitesLoading"
+            type="info"
+            variant="tonal"
+            class="mb-4">
+            Loading study sites...
+          </v-alert>
+
+          <v-alert
+            v-else-if="!dialogPaper.study_sites || dialogPaper.study_sites.length === 0"
             type="info"
             variant="tonal"
             class="mb-4">
@@ -473,6 +486,21 @@ import { useStudySitesStore, type MapPoint } from '../stores/studySites'
 import { useZoteroStore } from '../stores/zotero'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
 
+interface MapPaperSummary {
+  id: string
+  title: string | null
+  publicationTitle?: string | null
+  date?: string | null
+  study_site_count: number
+}
+
+interface ViewportBounds {
+  minLon: number
+  minLat: number
+  maxLon: number
+  maxLat: number
+}
+
 // Route
 const route = useRoute()
 
@@ -481,7 +509,6 @@ const authStore = useAuthStore()
 const studySitesStore = useStudySitesStore()
 const zoteroStore = useZoteroStore()
 const { mapPoints, loading } = storeToRefs(studySitesStore)
-const { items, loading: papersLoading } = storeToRefs(zoteroStore)
 
 // State - Study Sites
 const selectedSite = ref<MapPoint | null>(null)
@@ -496,6 +523,10 @@ const paperSearchQuery = ref('')
 const paperFilterType = ref('all')
 const studySitesDialog = ref(false)
 const dialogPaper = ref<any | null>(null)
+const mapPapers = ref<MapPaperSummary[]>([])
+const mapPapersLoading = ref(false)
+const paperStudySitesLoading = ref(false)
+const activeViewport = ref<ViewportBounds | null>(null)
 
 // Filter options - Study Sites
 const filterOptions = [
@@ -512,7 +543,7 @@ const paperFilterOptions = [
 ]
 
 // Computed - Papers
-const papers = computed(() => items.value?.data || [])
+const papers = computed(() => mapPapers.value)
 
 const totalPapers = computed(() => papers.value.length)
 
@@ -521,9 +552,9 @@ const filteredPapers = computed(() => {
 
   // Filter by type
   if (paperFilterType.value === 'with_sites') {
-    result = result.filter((p: any) => p.study_sites && p.study_sites.length > 0)
+    result = result.filter((p: any) => (p.study_site_count || 0) > 0)
   } else if (paperFilterType.value === 'without_sites') {
-    result = result.filter((p: any) => !p.study_sites || p.study_sites.length === 0)
+    result = result.filter((p: any) => (p.study_site_count || 0) === 0)
   }
 
   // Filter by search query
@@ -571,6 +602,25 @@ const filteredSites = computed(() => {
   return sites
 })
 
+const fetchMapPapers = async () => {
+  mapPapersLoading.value = true
+  try {
+    const response = await zoteroStore.fetchMapItems(500)
+    mapPapers.value = response?.data || []
+  } finally {
+    mapPapersLoading.value = false
+  }
+}
+
+const fetchMapPointsForViewport = async (bounds: ViewportBounds) => {
+  activeViewport.value = bounds
+  await studySitesStore.fetchMapPointsForBounds(bounds, 25000, true)
+}
+
+const handleViewportChanged = async (bounds: ViewportBounds) => {
+  await fetchMapPointsForViewport(bounds)
+}
+
 /**
  * Handle site selection from map
  */
@@ -603,7 +653,7 @@ const handleSiteClick = (site: MapPoint) => {
     return
   }
 
-  if (!site.latitude || !site.longitude) {
+  if (site.latitude == null || site.longitude == null) {
     console.warn(`Site "${site.name}" has no valid location data`)
     return
   }
@@ -617,14 +667,15 @@ const handleSiteClick = (site: MapPoint) => {
  */
 const handleMapReady = (map: any) => {
   mapReady.value = true
-  console.log('Map ready:', map)
 }
 
 /**
  * Refresh data
  */
 const refreshData = async () => {
-  await studySitesStore.fetchMapPoints()
+  if (activeViewport.value) {
+    await studySitesStore.fetchMapPointsForBounds(activeViewport.value, 25000, false)
+  }
 }
 
 /**
@@ -636,8 +687,7 @@ const refreshSites = refreshData
  * Refresh papers
  */
 const refreshPapers = async () => {
-  if (!authStore.isAuthenticated) return
-  await zoteroStore.fetchItems()
+  await fetchMapPapers()
 }
 
 /**
@@ -663,8 +713,26 @@ const clearPaperSelection = () => {
  * Show paper study sites dialog
  */
 const showPaperStudySites = (paper: any) => {
-  dialogPaper.value = paper
+  dialogPaper.value = {
+    ...paper,
+    study_sites: [],
+  }
   studySitesDialog.value = true
+
+  paperStudySitesLoading.value = true
+  studySitesStore.fetchItemStudySites(paper.id)
+    .then((sites) => {
+      if (!dialogPaper.value || dialogPaper.value.id !== paper.id) return
+      dialogPaper.value = {
+        ...dialogPaper.value,
+        study_sites: sites,
+      }
+    })
+    .finally(() => {
+      if (dialogPaper.value?.id === paper.id) {
+        paperStudySitesLoading.value = false
+      }
+    })
 }
 
 /**
@@ -689,7 +757,7 @@ const panToStudySite = (site: any) => {
   const lat = site.location?.latitude ?? site.latitude
   const lon = site.location?.longitude ?? site.longitude
 
-  if (!lat || !lon) {
+  if (lat == null || lon == null) {
     console.warn(`Site "${site.name}" has no valid location data`)
     return
   }
@@ -718,16 +786,6 @@ const formatPaperSubtitle = (paper: any): string => {
 }
 
 /**
- * Get study sites color based on manual/auto
- */
-const getStudySitesColor = (studySites: any[]): string => {
-  if (!studySites || studySites.length === 0) return 'default'
-
-  const hasManual = studySites.some((site) => site.is_manual)
-  return hasManual ? 'success' : 'info'
-}
-
-/**
  * Get confidence color
  */
 const getConfidenceColor = (score: number): string => {
@@ -751,10 +809,7 @@ const formatExtractionMethod = (method: string): string => {
 
 // Lifecycle
 onMounted(async () => {
-  await Promise.all([
-    studySitesStore.fetchMapPoints(),
-    zoteroStore.fetchItems(),
-  ])
+  await fetchMapPapers()
 
   // Read query params for initial item selection
   if (route.query.itemTitle) {
@@ -774,7 +829,7 @@ watch(
 // Watch for paper selection changes and fit map to filtered sites
 watch(
   () => selectedPaper.value,
-  (newVal) => {
+  () => {
     // Wait for the map to update markers, then fit to them
     setTimeout(() => {
       if (mapComponent.value && filteredSites.value.length > 0) {
@@ -783,11 +838,18 @@ watch(
     }, 300)
   },
 )
+
+watch(studySitesDialog, (open) => {
+  if (!open) {
+    paperStudySitesLoading.value = false
+  }
+})
 </script>
 
 <style scoped>
 .fill-height {
   height: 100%;
+  min-height: 0;
 }
 
 .cursor-pointer {

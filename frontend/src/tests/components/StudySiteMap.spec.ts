@@ -1,216 +1,205 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import StudySiteMap from '@/components/maps/StudySiteMap.vue'
 import { useStudySitesStore } from '@/stores/studySites'
-import { mockStudySite, mockStudySiteAuto, mockLocation, mockLocation2 } from '../mocks/api-mocks'
+import StudySiteMap from '@/components/maps/StudySiteMap.vue'
 
-// Mock OpenLayers modules
-vi.mock('ol/Map', () => ({
-  default: vi.fn(() => ({
-    setTarget: vi.fn(),
-    addLayer: vi.fn(),
-    getView: vi.fn(() => ({
-      fit: vi.fn(),
-      setCenter: vi.fn(),
-      setZoom: vi.fn()
-    })),
-    on: vi.fn(),
-    getLayers: vi.fn(() => ({
-      getArray: vi.fn(() => [])
-    })),
-    setView: vi.fn()
-  }))
-}))
+let pinia: ReturnType<typeof createPinia>
 
-vi.mock('ol/View', () => ({
-  default: vi.fn(() => ({
-    fit: vi.fn(),
-    setCenter: vi.fn(),
-    setZoom: vi.fn()
-  }))
+const vectorSourceInstance = {
+  clear: vi.fn(),
+  addFeature: vi.fn(),
+  getExtent: vi.fn(() => [0, 0, 10, 10]),
+}
+
+const clusterSourceInstance = {
+  setSource: vi.fn(),
+}
+
+const mapViewInstance = {
+  fit: vi.fn(),
+  setCenter: vi.fn(),
+  setZoom: vi.fn(),
+  animate: vi.fn(),
+}
+
+const mapInstance = {
+  on: vi.fn(),
+  hasFeatureAtPixel: vi.fn(() => false),
+  getTargetElement: vi.fn(() => ({ style: {} })),
+  forEachFeatureAtPixel: vi.fn(() => undefined),
+  getView: vi.fn(() => mapViewInstance),
+  setTarget: vi.fn(),
+}
+
+vi.mock('ol', () => ({
+  Map: vi.fn(() => mapInstance),
+  View: vi.fn(() => mapViewInstance),
+  Feature: vi.fn((data) => ({
+    get: (key: string) => data[key],
+    getGeometry: () => ({ getCoordinates: () => [0, 0] }),
+  })),
 }))
 
 vi.mock('ol/layer', () => ({
-  Tile: vi.fn(),
-  Vector: vi.fn(() => ({
-    getSource: vi.fn(() => ({
-      clear: vi.fn(),
-      addFeature: vi.fn(),
-      getFeatures: vi.fn(() => [])
-    }))
-  }))
+  Tile: vi.fn(() => ({})),
+  Vector: vi.fn(() => ({})),
 }))
 
 vi.mock('ol/source', () => ({
-  OSM: vi.fn(),
-  Vector: vi.fn(() => ({
-    clear: vi.fn(),
-    addFeature: vi.fn(),
-    getFeatures: vi.fn(() => [])
-  }))
-}))
-
-vi.mock('ol/Feature', () => ({
-  default: vi.fn((config) => ({
-    ...config,
-    setStyle: vi.fn(),
-    get: vi.fn((key) => config[key]),
-    getGeometry: vi.fn(() => ({
-      getCoordinates: vi.fn(() => [0, 0])
-    }))
-  }))
+  OSM: vi.fn(() => ({})),
+  Vector: vi.fn(() => vectorSourceInstance),
+  Cluster: vi.fn(() => clusterSourceInstance),
 }))
 
 vi.mock('ol/geom', () => ({
-  Point: vi.fn()
+  Point: vi.fn((coords) => ({ coords })),
 }))
 
 vi.mock('ol/proj', () => ({
   fromLonLat: vi.fn((coords) => coords),
-  toLonLat: vi.fn((coords) => coords)
+  toLonLat: vi.fn((coords) => coords),
 }))
 
 vi.mock('ol/style', () => ({
-  Style: vi.fn(),
-  Circle: vi.fn(),
-  Fill: vi.fn(),
-  Stroke: vi.fn(),
-  Text: vi.fn()
+  Style: vi.fn(() => ({})),
+  Circle: vi.fn(() => ({})),
+  Fill: vi.fn(() => ({})),
+  Stroke: vi.fn(() => ({})),
+  Text: vi.fn(() => ({})),
 }))
 
-vi.mock('ol/interaction', () => ({
-  Select: vi.fn(() => ({
-    on: vi.fn()
-  }))
+vi.mock('ol/extent', () => ({
+  boundingExtent: vi.fn(() => [0, 0, 10, 10]),
 }))
 
-vi.mock('ol/events/condition', () => ({
-  click: vi.fn()
-}))
-
-describe('StudySiteMap - Pin Display', () => {
-  let studySitesStore: ReturnType<typeof useStudySitesStore>
-
+describe('StudySiteMap', () => {
   beforeEach(() => {
-    setActivePinia(createPinia())
-    studySitesStore = useStudySitesStore()
+    pinia = createPinia()
+    setActivePinia(pinia)
+    vi.clearAllMocks()
   })
 
-  it('should display pins for study sites with valid location data', async () => {
-    // Setup study sites with location data
-    studySitesStore.studySites = [
-      mockStudySite,
-      mockStudySiteAuto
+  const mountComponent = (sites?: any[]) => {
+    return mount(StudySiteMap, {
+      props: sites ? { sites } : {},
+      global: {
+        plugins: [pinia],
+        stubs: {
+          StudySiteEditDialog: { template: '<div />' },
+          StudySiteCreateDialog: { template: '<div />' },
+          VOverlay: { template: '<div><slot /></div>' },
+          VProgressCircular: { template: '<div />' },
+          VCard: { template: '<div><slot /></div>' },
+          VCardText: { template: '<div><slot /></div>' },
+          VBtn: { template: '<button><slot /></button>' },
+        },
+      },
+    })
+  }
+
+  it('adds one feature per valid map point from store', async () => {
+    const studySitesStore = useStudySitesStore()
+    studySitesStore.mapPoints = [
+      {
+        id: 'site-1',
+        name: 'A',
+        item_id: 'item-1',
+        item_title: 'Paper A',
+        latitude: 45.5,
+        longitude: -122.3,
+        is_manual: true,
+        confidence_score: 0.9,
+      },
+      {
+        id: 'site-2',
+        name: 'B',
+        item_id: 'item-2',
+        item_title: 'Paper B',
+        latitude: 40.7,
+        longitude: -74,
+        is_manual: false,
+        confidence_score: 0.8,
+      },
     ]
 
-    const wrapper = mount(StudySiteMap, {
-      global: {
-        plugins: [createPinia()]
-      }
-    })
+    mountComponent()
+    await Promise.resolve()
 
-    await wrapper.vm.$nextTick()
-
-    // Verify study sites are loaded
-    expect(studySitesStore.studySites).toHaveLength(2)
-
-    // Verify first study site has location with coordinates
-    expect(studySitesStore.studySites[0].location).toBeDefined()
-    expect(studySitesStore.studySites[0].location.latitude).toBe(mockLocation.latitude)
-    expect(studySitesStore.studySites[0].location.longitude).toBe(mockLocation.longitude)
-
-    // Verify second study site has location with coordinates
-    expect(studySitesStore.studySites[1].location).toBeDefined()
-    expect(studySitesStore.studySites[1].location.latitude).toBe(mockLocation2.latitude)
-    expect(studySitesStore.studySites[1].location.longitude).toBe(mockLocation2.longitude)
+    expect(vectorSourceInstance.clear).toHaveBeenCalled()
+    expect(vectorSourceInstance.addFeature).toHaveBeenCalledTimes(2)
   })
 
-  it('should not display pins for study sites without location data', async () => {
-    // Setup study site without location
-    const siteWithoutLocation = {
-      ...mockStudySite,
-      id: 'site-no-location',
-      location: null as any
-    }
+  it('skips points with null coordinates', async () => {
+    const studySitesStore = useStudySitesStore()
+    studySitesStore.mapPoints = [
+      {
+        id: 'site-1',
+        name: 'A',
+        item_id: 'item-1',
+        item_title: 'Paper A',
+        latitude: null,
+        longitude: -122.3,
+        is_manual: true,
+        confidence_score: 0.9,
+      } as any,
+      {
+        id: 'site-2',
+        name: 'B',
+        item_id: 'item-2',
+        item_title: 'Paper B',
+        latitude: 40.7,
+        longitude: null,
+        is_manual: false,
+        confidence_score: 0.8,
+      } as any,
+    ]
 
-    studySitesStore.studySites = [siteWithoutLocation]
+    mountComponent()
+    await Promise.resolve()
 
-    const wrapper = mount(StudySiteMap, {
-      global: {
-        plugins: [createPinia()]
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    // Study site exists but has no location
-    expect(studySitesStore.studySites).toHaveLength(1)
-    expect(studySitesStore.studySites[0].location).toBeNull()
+    expect(vectorSourceInstance.addFeature).not.toHaveBeenCalled()
   })
 
-  it('should handle study sites with missing latitude or longitude in location', async () => {
-    // Setup study site with incomplete location data
-    const incompleteLocation = {
-      ...mockLocation,
-      latitude: null as any
-    }
+  it('keeps valid zero coordinates (0, 0)', async () => {
+    const studySitesStore = useStudySitesStore()
+    studySitesStore.mapPoints = [
+      {
+        id: 'site-0',
+        name: 'Null Island',
+        item_id: 'item-0',
+        item_title: 'Paper 0',
+        latitude: 0,
+        longitude: 0,
+        is_manual: false,
+        confidence_score: 0.5,
+      },
+    ]
 
-    const siteWithIncompleteLocation = {
-      ...mockStudySite,
-      id: 'site-incomplete',
-      location: incompleteLocation
-    }
+    mountComponent()
+    await Promise.resolve()
 
-    studySitesStore.studySites = [siteWithIncompleteLocation]
-
-    const wrapper = mount(StudySiteMap, {
-      global: {
-        plugins: [createPinia()]
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    // Site has location but coordinates are invalid
-    expect(studySitesStore.studySites[0].location).toBeDefined()
-    expect(studySitesStore.studySites[0].location.latitude).toBeNull()
+    expect(vectorSourceInstance.addFeature).toHaveBeenCalledTimes(1)
   })
 
-  it('should correctly access coordinates via location object', () => {
-    // Verify our mock data structure is correct
-    expect(mockStudySite.location.latitude).toBe(45.5)
-    expect(mockStudySite.location.longitude).toBe(-122.3)
+  it('uses props.sites instead of store mapPoints when provided', async () => {
+    const studySitesStore = useStudySitesStore()
+    studySitesStore.mapPoints = []
 
-    expect(mockStudySiteAuto.location.latitude).toBe(40.7)
-    expect(mockStudySiteAuto.location.longitude).toBe(-74.0)
+    mountComponent([
+      {
+        id: 'site-prop',
+        name: 'From props',
+        item_id: 'item-prop',
+        item_title: 'Paper prop',
+        latitude: 10,
+        longitude: 20,
+        is_manual: true,
+        confidence_score: 1,
+      },
+    ])
+    await Promise.resolve()
 
-    // Verify location IDs match
-    expect(mockStudySite.location_id).toBe(mockStudySite.location.id)
-    expect(mockStudySiteAuto.location_id).toBe(mockStudySiteAuto.location.id)
-  })
-
-  it('should differentiate between manual and automatic study sites', async () => {
-    studySitesStore.studySites = [mockStudySite, mockStudySiteAuto]
-
-    const wrapper = mount(StudySiteMap, {
-      global: {
-        plugins: [createPinia()]
-      }
-    })
-
-    await wrapper.vm.$nextTick()
-
-    // Check manual site
-    expect(studySitesStore.studySites[0].is_manual).toBe(true)
-    expect(studySitesStore.studySites[0].extraction_method).toBe('manual')
-
-    // Check automatic site
-    expect(studySitesStore.studySites[1].is_manual).toBe(false)
-    expect(studySitesStore.studySites[1].extraction_method).toBe('regex')
-
-    // Both should have valid locations
-    expect(studySitesStore.studySites[0].location.latitude).toBeTruthy()
-    expect(studySitesStore.studySites[1].location.latitude).toBeTruthy()
+    expect(vectorSourceInstance.addFeature).toHaveBeenCalledTimes(1)
   })
 })

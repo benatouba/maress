@@ -26,6 +26,7 @@ export interface ZoteroStore {
   fetchCollections: () => Promise<void>
   fetchZoteroCollections: (libraryType?: 'user' | 'group') => Promise<void>
   fetchItems: (limit?: number, silent?: boolean) => Promise<void>
+  fetchMapItems: (limit?: number) => Promise<{ data: any[]; count: number } | null>
   syncLibrary: (reload?: boolean, collectionId?: string | null) => Promise<boolean>
   downloadAttachments: (itemIds?: string[]) => Promise<any | null>
   importItem: (itemId: string) => Promise<any | null>
@@ -113,6 +114,20 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       if (!silent && !downloading.value) {
         loading.value = false
       }
+    }
+  }
+
+  const fetchMapItems = async (limit = 500): Promise<{ data: any[]; count: number } | null> => {
+    try {
+      const response = await axios.get('/items/map-summary', { params: { limit } })
+      return response.data
+    } catch (error) {
+      const notificationStore = useNotificationStore()
+      notificationStore.showNotification(
+        'Failed to fetch map papers, with error:' + (error.response?.data?.detail || error.message),
+        'error'
+      )
+      return null
     }
   }
 
@@ -461,6 +476,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     fetchCollections,
     fetchZoteroCollections,
     fetchItems,
+    fetchMapItems,
     downloadAttachments,
     getLocations,
     syncLibrary,

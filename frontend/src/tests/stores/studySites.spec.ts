@@ -45,6 +45,10 @@ describe('StudySites Store', () => {
       expect(store.studySites).toEqual([])
     })
 
+    it('should have empty mapPoints array', () => {
+      expect(store.mapPoints).toEqual([])
+    })
+
     it('should have null currentStudySite', () => {
       expect(store.currentStudySite).toBeNull()
     })
@@ -150,6 +154,95 @@ describe('StudySites Store', () => {
 
       expect(store.studySites).toEqual([])
       expect(notificationStore.showNotification).toHaveBeenCalled()
+    })
+  })
+
+  describe('fetchMapPoints', () => {
+    const mockMapPointsResponse = {
+      data: [
+        {
+          id: 'site-1',
+          name: 'Site 1',
+          item_id: 'item-1',
+          item_title: 'Paper 1',
+          latitude: 0,
+          longitude: 0,
+          is_manual: true,
+          confidence_score: 1,
+        },
+      ],
+      count: 1,
+    }
+
+    it('should fetch lightweight map points', async () => {
+      const mockGet = vi.mocked(api.get)
+      mockGet.mockResolvedValueOnce({ data: mockMapPointsResponse })
+
+      await store.fetchMapPoints()
+
+      expect(mockGet).toHaveBeenCalledWith('/study-sites/map-points')
+      expect(store.mapPoints).toEqual(mockMapPointsResponse.data)
+    })
+
+    it('should keep zero coordinates from API response', async () => {
+      const mockGet = vi.mocked(api.get)
+      mockGet.mockResolvedValueOnce({ data: mockMapPointsResponse })
+
+      await store.fetchMapPoints()
+
+      expect(store.mapPoints[0].latitude).toBe(0)
+      expect(store.mapPoints[0].longitude).toBe(0)
+    })
+
+    it('should handle errors when fetching map points', async () => {
+      const mockGet = vi.mocked(api.get)
+      mockGet.mockRejectedValueOnce(new Error('API Error'))
+
+      vi.spyOn(notificationStore, 'showNotification')
+
+      await store.fetchMapPoints()
+
+      expect(store.mapPoints).toEqual([])
+      expect(notificationStore.showNotification).toHaveBeenCalled()
+    })
+
+    it('should fetch viewport-scoped map points with bbox', async () => {
+      const mockGet = vi.mocked(api.get)
+      mockGet.mockResolvedValueOnce({ data: mockMapPointsResponse })
+
+      await store.fetchMapPointsForBounds({
+        minLon: -10,
+        minLat: -5,
+        maxLon: 15,
+        maxLat: 20,
+      })
+
+      expect(mockGet).toHaveBeenCalledWith('/study-sites/map-points', {
+        params: {
+          bbox: '-10,-5,15,20',
+          limit: 25000,
+        },
+      })
+      expect(store.mapPoints).toEqual(mockMapPointsResponse.data)
+    })
+
+    it('should support visible loading state for explicit refresh', async () => {
+      const mockGet = vi.mocked(api.get)
+      mockGet.mockImplementation(
+        () => new Promise((resolve) => {
+          expect(store.loading).toBe(true)
+          resolve({ data: mockMapPointsResponse })
+        })
+      )
+
+      await store.fetchMapPointsForBounds({
+        minLon: -10,
+        minLat: -5,
+        maxLon: 15,
+        maxLat: 20,
+      }, 25000, false)
+
+      expect(store.loading).toBe(false)
     })
   })
 

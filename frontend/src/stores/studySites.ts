@@ -63,6 +63,13 @@ export interface MapPoint {
   confidence_score: number
 }
 
+export interface ViewportBounds {
+  minLon: number
+  minLat: number
+  maxLon: number
+  maxLat: number
+}
+
 export const useStudySitesStore = defineStore('studySites', () => {
   const studySites = ref<StudySiteWithItem[]>([])
   const mapPoints = ref<MapPoint[]>([])
@@ -154,6 +161,36 @@ export const useStudySitesStore = defineStore('studySites', () => {
       )
     } finally {
       loading.value = false
+    }
+  }
+
+  /**
+   * Fetch lightweight map points limited to current viewport bounds
+   */
+  const fetchMapPointsForBounds = async (
+    bounds: ViewportBounds,
+    limit = 25000,
+    silent = true,
+  ): Promise<void> => {
+    if (!silent) {
+      loading.value = true
+    }
+    try {
+      const bbox = `${bounds.minLon},${bounds.minLat},${bounds.maxLon},${bounds.maxLat}`
+      const response = await api.get('/study-sites/map-points', {
+        params: { bbox, limit },
+      })
+      mapPoints.value = response.data.data || []
+    } catch (error: any) {
+      console.error('Error fetching viewport map points:', error)
+      notificationStore.showNotification(
+        error.response?.data?.detail || 'Failed to fetch map points for viewport',
+        'error'
+      )
+    } finally {
+      if (!silent) {
+        loading.value = false
+      }
     }
   }
 
@@ -327,6 +364,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
     fetchItemStudySites,
     fetchAllStudySites,
     fetchMapPoints,
+    fetchMapPointsForBounds,
     fetchStudySite,
     createStudySite,
     updateStudySite,
