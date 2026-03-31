@@ -57,8 +57,8 @@
                 <v-list-item-subtitle v-if="item.publicationTitle">
                   {{ item.publicationTitle }}
                 </v-list-item-subtitle>
-                <template
-                  v-if="isEditing"
+              <template
+                  v-if="isEditing && authStore.isAuthenticated"
                   #append>
                   <v-btn
                     icon="mdi-close"
@@ -74,9 +74,9 @@
               No items connected to this tag
             </p>
 
-            <!-- Add Item to Tag (when editing) -->
+          <!-- Add Item to Tag (when editing) -->
             <v-autocomplete
-              v-if="isEditing"
+              v-if="isEditing && authStore.isAuthenticated"
               v-model="selectedItemToAdd"
               :items="availableItems"
               item-title="title"
@@ -169,7 +169,7 @@
                 size="small"
                 color="success"
                 variant="outlined"
-                :closable="isEditing"
+                :closable="isEditing && authStore.isAuthenticated"
                 @click:close="removeTagFromItem(tag.id)">
                 {{ tag.name }}
               </v-chip>
@@ -184,7 +184,7 @@
 
             <!-- Add Existing Tag (when editing) -->
             <v-autocomplete
-              v-if="isEditing"
+              v-if="isEditing && authStore.isAuthenticated"
               v-model="selectedTagToAdd"
               :items="availableTags"
               item-title="name"
@@ -202,7 +202,7 @@
 
             <!-- Create New Tag (when editing) -->
             <div
-              v-if="isEditing"
+              v-if="isEditing && authStore.isAuthenticated"
               class="mt-3">
               <v-text-field
                 v-model="newTagName"
@@ -267,6 +267,7 @@
         <!-- Edit/Save/Cancel -->
         <v-btn
           v-if="!isEditing"
+          :disabled="!authStore.isAuthenticated"
           color="primary"
           variant="text"
           @click="startEditing">
@@ -300,7 +301,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTagStore } from '@/stores/tags'
-import { useNotificationStore } from '@/stores/notification'
+import { useAuthStore } from '@/stores/auth'
 
 interface Props {
   modelValue: boolean
@@ -322,7 +323,7 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const tagStore = useTagStore()
-const notificationStore = useNotificationStore()
+const authStore = useAuthStore()
 
 const isOpen = computed({
   get: () => props.modelValue,
@@ -385,6 +386,10 @@ watch(() => newTagName.value, () => {
 })
 
 const startEditing = () => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   if (isTag.value && props.nodeData) {
     editedName.value = props.nodeData.name
   }
@@ -409,6 +414,10 @@ const cancelEditing = () => {
 }
 
 const saveChanges = async () => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   if (isTag.value && props.nodeData) {
     const success = await tagStore.updateTag(props.nodeData.id, {
       name: editedName.value
@@ -421,6 +430,10 @@ const saveChanges = async () => {
 }
 
 const addItemToTag = async (itemId: string | null) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   if (!itemId || !props.nodeData) return
 
   const success = await tagStore.addItemToTag(props.nodeData.id, itemId)
@@ -431,6 +444,10 @@ const addItemToTag = async (itemId: string | null) => {
 }
 
 const removeItemFromTag = async (itemId: string) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   if (!props.nodeData) return
 
   const success = await tagStore.removeItemFromTag(props.nodeData.id, itemId)
@@ -441,6 +458,10 @@ const removeItemFromTag = async (itemId: string) => {
 
 // Add existing tag to item
 const addTagToItem = async (tagId: number | null) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   if (!tagId || !props.nodeData) return
 
   const success = await tagStore.addItemToTag(tagId, props.nodeData.id)
@@ -452,6 +473,10 @@ const addTagToItem = async (tagId: number | null) => {
 
 // Remove tag from item
 const removeTagFromItem = async (tagId: number) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   if (!props.nodeData) return
 
   const success = await tagStore.removeItemFromTag(tagId, props.nodeData.id)
@@ -462,6 +487,10 @@ const removeTagFromItem = async (tagId: number) => {
 
 // Create new tag and add to item
 const createAndAddTag = async () => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   if (!newTagName.value.trim() || !props.nodeData) return
 
   // Check if tag already exists

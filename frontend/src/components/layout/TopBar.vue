@@ -9,7 +9,7 @@
     <v-btn variant="text" to="/items">Papers</v-btn>
     <v-btn variant="text" to="/map">Map</v-btn>
     <v-btn variant="text" to="/graph">Graph</v-btn>
-    <v-btn variant="text" to="/tasks">
+    <v-btn v-if="authStore.isAuthenticated" variant="text" to="/tasks">
       Tasks
       <v-badge
         v-if="taskStore.hasTasks"
@@ -97,7 +97,7 @@ const userInitial = computed(() => {
 // Handle logout
 const handleLogout = () => {
   authStore.logout()
-  router.push('/login')
+  router.push('/')
 }
 </script>
 

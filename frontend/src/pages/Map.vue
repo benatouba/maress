@@ -19,11 +19,13 @@
             <span>Papers</span>
             <div class="d-flex align-center gap-2">
               <v-btn
+                v-if="authStore.isAuthenticated"
                 icon
                 size="small"
                 variant="text"
                 :loading="papersLoading"
-                @click="refreshPapers">
+                @click="refreshPapers"
+                >
                 <v-icon>mdi-refresh</v-icon>
                 <v-tooltip
                   activator="parent"
@@ -122,7 +124,7 @@
               v-else
               icon="mdi-file-document-off"
               title="No papers found"
-              text="Try adjusting your filters or sync your library" />
+              :text="authStore.isAuthenticated ? 'Try adjusting your filters or sync your library' : 'Try adjusting your filters'" />
           </v-card-text>
 
           <v-divider />
@@ -139,6 +141,7 @@
             </v-btn>
             <v-btn
               v-else
+              v-if="authStore.isAuthenticated"
               block
               color="primary"
               prepend-icon="mdi-refresh"
@@ -176,6 +179,7 @@
             <span>Study Sites</span>
             <div class="d-flex align-center gap-2">
               <v-btn
+                v-if="authStore.isAuthenticated"
                 icon
                 size="small"
                 variant="text"
@@ -230,7 +234,9 @@
             class="ma-3 mb-2">
             <div class="text-caption">
               <v-icon size="small" class="mr-1">mdi-information</v-icon>
-              Study sites appear after extraction tasks complete. Click refresh to see new sites.
+              {{ authStore.isAuthenticated
+                ? 'Study sites appear after extraction tasks complete. Click refresh to see new sites.'
+                : 'Browse extracted study sites and map output. Sign in to run extraction tasks.' }}
             </div>
           </v-alert>
 
@@ -283,7 +289,7 @@
               v-else
               icon="mdi-map-marker-off"
               title="No study sites found"
-              text="Try adjusting your filters or create a new study site by clicking on the map" />
+              text="Try adjusting your filters" />
           </v-card-text>
 
           <v-divider />
@@ -291,6 +297,7 @@
           <!-- Actions -->
           <v-card-actions class="flex-grow-0">
             <v-btn
+              v-if="authStore.isAuthenticated"
               block
               color="primary"
               prepend-icon="mdi-refresh"
@@ -462,7 +469,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '../stores/auth'
-import { useStudySitesStore, type StudySiteWithItem, type MapPoint } from '../stores/studySites'
+import { useStudySitesStore, type MapPoint } from '../stores/studySites'
 import { useZoteroStore } from '../stores/zotero'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
 
@@ -629,6 +636,7 @@ const refreshSites = refreshData
  * Refresh papers
  */
 const refreshPapers = async () => {
+  if (!authStore.isAuthenticated) return
   await zoteroStore.fetchItems()
 }
 

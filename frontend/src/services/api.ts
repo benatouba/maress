@@ -31,19 +31,17 @@ api.interceptors.response.use(
         detail.includes('token') ||
         detail.includes('authenticate')
       ) {
-        // Token is invalid/expired - clear auth and redirect to login
+        // Token is invalid/expired - clear auth and notify app
+        const hadToken = !!localStorage.getItem('token')
         localStorage.removeItem('token')
 
-        // Only redirect if not already on login page
-        if (window.location.pathname !== '/login') {
-          // Show notification before redirect (if notification store is available)
+        // Do not force navigation for public/anonymous views.
+        // Show notification only if there was an authenticated session.
+        if (hadToken) {
           const event = new CustomEvent('auth:expired', {
             detail: { message: 'Your session has expired. Please log in again.' }
           })
           window.dispatchEvent(event)
-
-          // Redirect to login
-          window.location.href = '/login'
         }
       }
     }

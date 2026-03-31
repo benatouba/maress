@@ -13,7 +13,6 @@ declare module 'vue' {
   export interface GlobalComponents {
     BaseMap: typeof import('./components/common/BaseMap.vue')['default']
     ExtractionResults: typeof import('./components/papers/ExtractionResults.vue')['default']
-    Footer: typeof import('./components/layout/Footer.vue')['default']
     GraphView: typeof import('./components/GraphView.vue')['default']
     LoadingSpinner: typeof import('./components/common/LoadingSpinner.vue')['default']
     NodeInfoDialog: typeof import('./components/NodeInfoDialog.vue')['default']

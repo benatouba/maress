@@ -1,7 +1,7 @@
 <template>
   <v-expand-transition>
     <v-banner
-      v-if="taskStore.hasTasks && dismissed !== true"
+      v-if="authStore.isAuthenticated && taskStore.hasTasks && dismissed !== true"
       color="info"
       icon="mdi-cog-sync"
       elevation="1"
@@ -135,9 +135,11 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore } from '@/stores/tasks'
+import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
 const taskStore = useTaskStore()
+const authStore = useAuthStore()
 const cancelling = ref<boolean>(false)
 const dismissed = ref<boolean>(false)
 
@@ -161,15 +163,20 @@ const handleCancelPending = async () => {
 
 // Ensure polling is active when banner is visible
 onMounted(() => {
-  if (taskStore.hasTasks && !taskStore.isPolling) {
+  if (authStore.isAuthenticated && taskStore.hasTasks && !taskStore.isPolling) {
     taskStore.startPolling()
   }
 })
 
 // Watch for task changes and ensure polling continues
 watch(
-  () => taskStore.hasTasks,
-  (hasTasks) => {
+  () => ({ hasTasks: taskStore.hasTasks, isAuthenticated: authStore.isAuthenticated }),
+  ({ hasTasks, isAuthenticated }) => {
+    if (!isAuthenticated && taskStore.isPolling) {
+      taskStore.stopPolling()
+      return
+    }
+
     if (hasTasks && !taskStore.isPolling) {
       taskStore.startPolling()
     }

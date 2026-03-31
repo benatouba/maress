@@ -5,6 +5,7 @@
         <div class="d-flex justify-space-between align-center mb-4">
           <h1 class="text-h4">Research Network Graph</h1>
           <v-btn
+            v-if="authStore.isAuthenticated"
             color="primary"
             variant="elevated"
             prepend-icon="mdi-tag-plus"
@@ -16,7 +17,7 @@
           <v-chip
             v-for="tag in tags"
             :key="tag.id"
-            closable
+            :closable="authStore.isAuthenticated"
             variant="elevated"
             color="success"
             class="mr-2 mb-2"
@@ -56,9 +57,11 @@ import { ref, onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useTagStore } from '@/stores/tags'
 import { useZoteroStore } from '@/stores/zotero'
+import { useAuthStore } from '@/stores/auth'
 import GraphView from '@/components/GraphView.vue'
 import TagCreateDialog from '@/components/TagCreateDialog.vue'
 
+const authStore = useAuthStore()
 const tagStore = useTagStore()
 const { tags } = storeToRefs(tagStore)
 const selectedTag = ref('')
@@ -79,6 +82,10 @@ const handleTagCreated = async (newTag: any) => {
 }
 
 const handleDeleteTag = async (tagId: number) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   await tagStore.deleteTag(tagId)
 }
 

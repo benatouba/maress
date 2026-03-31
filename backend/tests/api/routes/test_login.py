@@ -1,4 +1,3 @@
-# pyright: reportAny=false, reportUnusedParameter=false
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -45,6 +44,11 @@ def test_get_access_token_incorrect_password(client: TestClient) -> None:
     }
     r = client.post(f"{settings.API_V1_STR}/login/access-token", data=login_data)
     assert r.status_code == 400
+
+
+def test_test_token_requires_authentication(client: TestClient) -> None:
+    r = client.post(f"{settings.API_V1_STR}/login/test-token")
+    assert r.status_code == 401
 
 
 def test_use_access_token(

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUser, SessionDep
+from app.api.deps import CurrentUser, OptionalCurrentUser, SessionDep
 from app.crud import create_tag, delete_tag, get_tag, get_tags, update_tag
 from app.models import Item, TagCreate, TagPublic, TagsPublic
 
@@ -16,11 +16,11 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 @router.get("/", response_model=TagsPublic)
 def read_tags(  # noqa: D103
     session: SessionDep,
-    current_user: CurrentUser,
+    current_user: OptionalCurrentUser,
     skip: int = 0,
     limit: int = 100,
 ):
-    if current_user.is_superuser:
+    if current_user is None or current_user.is_superuser:
         tags, total = get_tags(session, skip=skip, limit=limit)
     else:
         tags, total = get_tags(
@@ -34,11 +34,11 @@ def read_tags(  # noqa: D103
 
 
 @router.get("/{tag_id}", response_model=TagPublic)
-def read_tag(tag_id: int, session: SessionDep, current_user: CurrentUser) -> TagPublic:  # noqa: D103
+def read_tag(tag_id: int, session: SessionDep, current_user: OptionalCurrentUser) -> TagPublic:  # noqa: D103
     tag = get_tag(session, tag_id)
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
-    if not current_user.is_superuser and tag.owner_id != current_user.id:
+    if current_user is not None and not current_user.is_superuser and tag.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions")
     return TagPublic.model_validate(tag)
 
@@ -134,8 +134,6 @@ def remove_item_from_tag(
     """Remove an item from a tag."""
     from uuid import UUID
 
-    from app.crud import get_item
-
     tag = get_tag(session, tag_id)
     if not tag:
         raise HTTPException(status_code=404, detail="Tag not found")
@@ -148,7 +146,7 @@ def remove_item_from_tag(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid item ID format")
 
-    item = get_item(session, item_uuid)
+    item = session.get(Item, item_uuid)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 

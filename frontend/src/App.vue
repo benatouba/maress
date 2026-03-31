@@ -27,18 +27,23 @@ import TopBar from '@/components/layout/TopBar.vue'
 import TaskProgressBanner from '@/components/common/TaskProgressBanner.vue'
 import { useTaskStore } from '@/stores/tasks'
 import { useNotificationStore } from '@/stores/notification'
+import { useAuthStore } from '@/stores/auth'
 
 const taskStore = useTaskStore()
 const notificationStore = useNotificationStore()
+const authStore = useAuthStore()
 
 // Handle authentication expiration
 const handleAuthExpired = (event: CustomEvent) => {
+  authStore.logout()
   notificationStore.showNotification(event.detail.message, 'warning', 5000)
 }
 
 // Start polling when app mounts (if there are active tasks)
 onMounted(() => {
-  if (taskStore.hasTasks && !taskStore.isPolling) {
+  authStore.initializeAuth().catch(() => undefined)
+
+  if (authStore.isAuthenticated && taskStore.hasTasks && !taskStore.isPolling) {
     taskStore.startPolling()
   }
 

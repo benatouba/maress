@@ -33,6 +33,11 @@ def test_get_users_normal_user_me(
     assert current_user["email"] == test_user.email
 
 
+def test_get_users_me_requires_authentication(client: TestClient) -> None:
+    r = client.get(f"{settings.API_V1_STR}/users/me")
+    assert r.status_code == 401
+
+
 def test_create_user_new_email(
     client: TestClient, superuser_token_headers: dict[str, str], db_session: Session
 ) -> None:

@@ -1,5 +1,14 @@
 <template>
   <v-container fluid>
+    <v-alert
+      v-if="!authStore.isAuthenticated"
+      type="info"
+      variant="tonal"
+      class="mb-4"
+    >
+      Sign in to monitor or manage extraction jobs.
+    </v-alert>
+
     <v-row>
       <v-col cols="12">
         <div class="d-flex justify-space-between align-center mb-4">
@@ -9,7 +18,7 @@
               Monitor and manage study site extraction tasks
             </p>
           </div>
-          <div class="d-flex gap-2">
+          <div v-if="authStore.isAuthenticated" class="d-flex gap-2">
             <v-btn
               color="primary"
               variant="outlined"
@@ -386,9 +395,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useTaskStore } from '@/stores/tasks'
+import { useAuthStore } from '@/stores/auth'
 import type { Task } from '@/stores/tasks'
 
 const taskStore = useTaskStore()
+const authStore = useAuthStore()
 const cancelling = ref(false)
 const retryingAll = ref(false)
 const retryingTasks = ref(new Set<string>())
@@ -492,6 +503,11 @@ const viewTaskDetails = async (task: Task) => {
 
 // Ensure polling is active when page loads
 onMounted(() => {
+  if (!authStore.isAuthenticated) {
+    taskStore.stopPolling()
+    return
+  }
+
   if (taskStore.hasTasks && !taskStore.isPolling) {
     taskStore.startPolling()
   }

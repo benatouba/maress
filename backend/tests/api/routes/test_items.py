@@ -1,4 +1,4 @@
-# pyright: reportAny=false
+# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false, reportUnknownVariableType=false
 from __future__ import annotations
 
 import uuid
@@ -109,6 +109,40 @@ def test_read_items(
     assert len(content["data"]) >= 2
 
 
+def test_read_items_anonymous_hides_attachment(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    item = create_random_item(db_session)
+    item.attachment = "/tmp/licensed.pdf"
+    db_session.add(item)
+    db_session.commit()
+
+    response = client.get(f"{settings.API_V1_STR}/items/")
+    assert response.status_code == 200
+    content = response.json()
+
+    target = next((entry for entry in content["data"] if entry["id"] == str(item.id)), None)
+    assert target is not None
+    assert target["attachment"] is None
+
+
+def test_read_item_anonymous_hides_attachment(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    item = create_random_item(db_session)
+    item.attachment = "/tmp/licensed.pdf"
+    db_session.add(item)
+    db_session.commit()
+
+    response = client.get(f"{settings.API_V1_STR}/items/{item.id}")
+    assert response.status_code == 200
+    content = response.json()
+    assert content["id"] == str(item.id)
+    assert content["attachment"] is None
+
+
 @pytest.mark.skip(reason="Requires valid Zotero API credentials - external service dependency")
 def test_import_zotero_items(
     client: TestClient,
@@ -127,7 +161,7 @@ def test_import_zotero_items(
     """
     user_in = UserUpdate(
         zotero_id=settings.ZOTERO_USER_ID,
-        enc_zotero_api_key=settings.ZOTERO_API_KEY,
+        zotero_api_key=settings.ZOTERO_API_KEY,
     )
     user = crud.update_user(
         session=db_session,
@@ -261,3 +295,24 @@ def test_delete_item_not_enough_permissions(
     assert response.status_code == 400
     content = response.json()
     assert content["detail"] == "Not enough permissions"
+
+
+def test_start_extract_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        f"{settings.API_V1_STR}/items/study_sites/",
+        json={"item_ids": None, "force": False},
+    )
+    assert response.status_code == 401
+
+
+def test_start_enrich_requires_authentication(client: TestClient) -> None:
+    response = client.post(
+        f"{settings.API_V1_STR}/items/enrich/",
+        json={"item_ids": None},
+    )
+    assert response.status_code == 401
+
+
+def test_download_attachments_requires_authentication(client: TestClient) -> None:
+    response = client.post(f"{settings.API_V1_STR}/items/import_file_zotero/")
+    assert response.status_code == 401

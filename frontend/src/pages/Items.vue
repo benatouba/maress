@@ -327,39 +327,39 @@
                 </template>
                 <v-list-item-title>View on Map</v-list-item-title>
               </v-list-item>
-              <v-list-item @click="viewExtractionResults(item)">
+              <v-list-item v-if="authStore.isAuthenticated" @click="viewExtractionResults(item)">
                 <template #prepend>
                   <v-icon size="small">mdi-format-list-bulleted</v-icon>
                 </template>
                 <v-list-item-title>View Extraction Results</v-list-item-title>
               </v-list-item>
-              <v-divider />
-              <v-list-item @click="handleImportFile(item)">
+              <v-divider v-if="authStore.isAuthenticated" />
+              <v-list-item v-if="authStore.isAuthenticated" @click="handleImportFile(item)">
                 <template #prepend>
                   <v-icon size="small">mdi-download</v-icon>
                 </template>
                 <v-list-item-title>Download File from Zotero</v-list-item-title>
               </v-list-item>
-              <v-list-item @click="handleExtractStudySites(item)">
+              <v-list-item v-if="authStore.isAuthenticated" @click="handleExtractStudySites(item)">
                 <template #prepend>
                   <v-icon size="small">mdi-map-marker-plus</v-icon>
                 </template>
                 <v-list-item-title>Extract Study Sites</v-list-item-title>
               </v-list-item>
-              <v-list-item @click="handleEnrichItem(item)">
+              <v-list-item v-if="authStore.isAuthenticated" @click="handleEnrichItem(item)">
                 <template #prepend>
                   <v-icon size="small">mdi-database-search</v-icon>
                 </template>
                 <v-list-item-title>Enrich via CrossRef</v-list-item-title>
               </v-list-item>
-              <v-divider />
-              <v-list-item @click="handleEdit(item)">
+              <v-divider v-if="authStore.isAuthenticated" />
+              <v-list-item v-if="authStore.isAuthenticated" @click="handleEdit(item)">
                 <template #prepend>
                   <v-icon size="small">mdi-pencil</v-icon>
                 </template>
                 <v-list-item-title>Edit</v-list-item-title>
               </v-list-item>
-              <v-list-item @click="handleDelete(item)" class="text-error">
+              <v-list-item v-if="authStore.isAuthenticated" @click="handleDelete(item)" class="text-error">
                 <template #prepend>
                   <v-icon size="small" color="error">mdi-delete</v-icon>
                 </template>
@@ -594,6 +594,10 @@ const clearSelection = () => {
 }
 
 const handleSync = async () => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   try {
     const collectionId = selectedCollection.value?.key || null
     const synced = await zoteroStore.syncLibrary(forceReload.value, collectionId)
@@ -610,6 +614,10 @@ const handleSync = async () => {
 }
 
 const handleDownloadAttachments = async () => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   try {
     const itemIds = hasSelectedItems.value ? selectedItems.value : undefined
     await zoteroStore.downloadAttachments(itemIds)
@@ -622,6 +630,10 @@ const handleDownloadAttachments = async () => {
 }
 
 const handleExtractAll = async () => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   try {
     if (hasSelectedItems.value) {
       // Extract for selected items only
@@ -718,6 +730,10 @@ const handleViewResultOnMap = (result: any) => {
 }
 
 const handleImportFile = async (item: any) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   try {
     const result = await zoteroStore.importFileFromZotero(item.id)
     if (result) {
@@ -729,6 +745,10 @@ const handleImportFile = async (item: any) => {
 }
 
 const handleExtractStudySites = async (item: any) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   try {
     const result = await zoteroStore.extractStudySites(item.id, forceReload.value)
     if (result && result.tasks) {
@@ -746,6 +766,10 @@ const handleExtractStudySites = async (item: any) => {
 }
 
 const handleEnrichAll = async () => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   try {
     if (hasSelectedItems.value) {
       const itemIds = selectedItems.value
@@ -770,6 +794,10 @@ const handleEnrichAll = async () => {
 }
 
 const handleEnrichItem = async (item: any) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   try {
     const result = await zoteroStore.enrichItems([item.id])
     if (result && result.tasks) {
@@ -784,11 +812,19 @@ const handleEnrichItem = async (item: any) => {
 }
 
 const handleEdit = (item: any) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   // Navigate to edit page or open edit dialog
   router.push(`/items/${item.id}/edit`)
 }
 
 const handleDelete = async (item: any) => {
+  if (!authStore.isAuthenticated) {
+    return
+  }
+
   const confirmed = confirm(`Are you sure you want to delete "${item.title}"?`)
   if (!confirmed) return
 

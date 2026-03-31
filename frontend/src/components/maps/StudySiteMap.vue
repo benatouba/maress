@@ -61,6 +61,7 @@
 
     <!-- Edit Dialog -->
     <StudySiteEditDialog
+      v-if="authStore.isAuthenticated"
       v-model="editDialogOpen"
       :study-site="selectedSite"
       @saved="handleSiteSaved"
@@ -69,6 +70,7 @@
 
     <!-- Create Dialog -->
     <StudySiteCreateDialog
+      v-if="authStore.isAuthenticated"
       v-model="createDialogOpen"
       :item-id="createItemId"
       :coordinates="createCoordinates"
@@ -88,6 +90,7 @@ import { fromLonLat, toLonLat } from 'ol/proj'
 import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
 import { boundingExtent } from 'ol/extent'
 import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
+import { useAuthStore } from '../../stores/auth'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
 import StudySiteCreateDialog from './StudySiteCreateDialog.vue'
 
@@ -107,6 +110,7 @@ const emit = defineEmits(['site-selected', 'map-ready'])
 
 // Store
 const studySitesStore = useStudySitesStore()
+const authStore = useAuthStore()
 const { mapPoints: allMapPoints, loading } = storeToRefs(studySitesStore)
 
 // Use filtered sites if provided, otherwise use all from store
@@ -301,6 +305,7 @@ const handleMarkerClick = (point: MapPoint) => {
  * Handle map click (empty area) - open create dialog
  */
 const handleMapClick = (coords: [number, number]) => {
+  if (!authStore.isAuthenticated) return
   createCoordinates.value = coords
   createItemId.value = null
   createDialogOpen.value = true
