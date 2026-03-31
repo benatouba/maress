@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic_extra_types.coordinate import Latitude, Longitude
+
 from app.core.config import settings
+from app.crud import create_study_site
+from app.models import StudySiteCreate
+from maress_types import CoordinateExtractionMethod, CoordinateSourceType, PaperSections
 from tests.utils.item import create_random_item, create_random_tag
 
 if TYPE_CHECKING:
@@ -79,6 +84,39 @@ def test_anonymous_can_read_map_points(client: TestClient) -> None:
 
     assert "data" in content
     assert "count" in content
+
+
+def test_non_owner_can_read_map_points(
+    client: TestClient,
+    db_session: Session,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    item = create_random_item(db_session)
+
+    site = StudySiteCreate(
+        name="Public map point",
+        latitude=Latitude(-10.5),
+        longitude=Longitude(-70.2),
+        confidence_score=0.9,
+        context="Public visibility test",
+        extraction_method=CoordinateExtractionMethod.REGEX,
+        section=PaperSections.METHODS,
+        source_type=CoordinateSourceType.TEXT,
+        validation_score=0.8,
+        item_id=item.id,
+    )
+    create_study_site(db_session, site)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/study-sites/map-points",
+        headers=normal_user_token_headers,
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    assert "data" in content
+    assert any(point["item_id"] == str(item.id) for point in content["data"])
 
 
 def test_manual_study_site_creation_requires_authentication(

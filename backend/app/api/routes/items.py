@@ -17,7 +17,6 @@ from app.celery_app import celery
 from app.models import (
     Creator,
     EnrichItemsRequest,
-    User,
     ExtractionResult,
     ExtractionResultPublic,
     ExtractionResultsPublic,
@@ -33,6 +32,7 @@ from app.models import (
     Tag,
     TaskRef,
     TasksAccepted,
+    User,
 )
 from app.services import Zotero
 from app.tasks.enrich import enrich_item_task
@@ -49,11 +49,17 @@ def read_db_items(
     current_user: User | None,
     skip: int = 0,
     limit: int = 500,
+    *,
+    include_all: bool = False,
 ) -> tuple[Sequence[Item], int]:
-    """Helper function to retrieve items with pagination."""
+    """Helper function to retrieve items with pagination.
+
+    By default, non-superusers only see their own items. Set include_all=True
+    to retrieve all items regardless of ownership.
+    """
     from sqlalchemy.orm import joinedload, selectinload
 
-    if current_user is None or current_user.is_superuser:
+    if include_all or current_user is None or current_user.is_superuser:
         count_statement = select(func.count()).select_from(Item)
         count = session.exec(count_statement).one()
         statement = (
@@ -88,11 +94,28 @@ def read_db_items(
     return items, count
 
 
-def _strip_attachments(items: Sequence[Item]) -> Sequence[Item]:
-    """Null out attachment field on items for anonymous access."""
-    for item in items:
+def _can_view_attachment(item: Item, current_user: User | None) -> bool:
+    if current_user is None:
+        return False
+    return current_user.is_superuser or item.owner_id == current_user.id
+
+
+def _strip_attachment(item: Item, current_user: User | None) -> Item:
+    if not _can_view_attachment(item, current_user):
         item.attachment = None
+    return item
+
+
+def _strip_attachments(items: Sequence[Item], current_user: User | None) -> Sequence[Item]:
+    """Null out attachment field unless caller is allowed to view it."""
+    for item in items:
+        _strip_attachment(item, current_user)
     return items
+
+
+def _assert_item_write_access(item: Item, current_user: User) -> None:
+    if not current_user.is_superuser and (item.owner_id != current_user.id):
+        raise HTTPException(status_code=400, detail="Not enough permissions")
 
 
 @router.get("/")
@@ -103,9 +126,8 @@ def read_items(
     limit: int = 10,
 ) -> ItemsPublic:
     """Retrieve items."""
-    items, count = read_db_items(session, current_user, skip, limit)
-    if current_user is None:
-        _strip_attachments(items)
+    items, count = read_db_items(session, current_user, skip, limit, include_all=True)
+    _strip_attachments(items, current_user)
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
 
 
@@ -126,10 +148,7 @@ def read_item(session: SessionDep, current_user: OptionalCurrentUser, id: uuid.U
     item = session.exec(statement).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if current_user is not None and not current_user.is_superuser and (item.owner_id != current_user.id):
-        raise HTTPException(status_code=400, detail="Not enough permissions")
-    if current_user is None:
-        item.attachment = None
+    _strip_attachment(item, current_user)
     return item
 
 
@@ -145,10 +164,6 @@ def search_items(
     """Search items by title or tag."""
     # Base query
     statement = select(Item)
-
-    # Apply user permission filter
-    if current_user is not None and not current_user.is_superuser:
-        statement = statement.where(Item.owner_id == current_user.id)
 
     filters: list[BinaryExpression[bool] | ColumnElement[bool]] = []
     if title:
@@ -169,8 +184,7 @@ def search_items(
 
     # Execute query
     items = session.exec(statement).all()
-    if current_user is None:
-        _strip_attachments(items)
+    _strip_attachments(items, current_user)
 
     count = len(items)
 
@@ -328,6 +342,7 @@ def import_file_from_zotero(
     )
 
     item: Item = read_item(session, current_user, id)
+    _assert_item_write_access(item, current_user)
     zot_item = zot.item(item.key)
     if not zot_item:
         raise HTTPException(status_code=404, detail="Zotero item not found")
@@ -413,8 +428,24 @@ def import_files_from_zotero(
 
 
 @router.get("/files/{filename}")
-async def get_file(filename: str, current_user: CurrentUser) -> Any:
-    file_path = Path.cwd() / "zotero_files" / filename
+async def get_file(
+    filename: str,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> Any:
+    safe_filename = Path(filename).name
+    if safe_filename != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    statement = select(Item).where(col(Item.attachment).like(f"%/{safe_filename}"))
+    if not current_user.is_superuser:
+        statement = statement.where(Item.owner_id == current_user.id)
+
+    item = session.exec(statement).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path = Path.cwd() / "zotero_files" / safe_filename
     if file_path.exists():
         return FileResponse(file_path)
     raise HTTPException(status_code=404, detail="File not found")
@@ -432,8 +463,7 @@ def update_item(
     item = session.get(Item, id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if not current_user.is_superuser and (item.owner_id != current_user.id):
-        raise HTTPException(status_code=400, detail="Not enough permissions")
+    _assert_item_write_access(item, current_user)
     update_dict = item_in.model_dump(exclude_unset=True)
     item.sqlmodel_update(update_dict)
     session.add(item)
@@ -452,8 +482,7 @@ def delete_item(
     item = session.get(Item, id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    if not current_user.is_superuser and (item.owner_id != current_user.id):
-        raise HTTPException(status_code=400, detail="Not enough permissions")
+    _assert_item_write_access(item, current_user)
     session.delete(item)
     session.commit()
     return Message(message="Item deleted successfully")
@@ -472,6 +501,7 @@ def start_extract_study_site(
         # Process only the specified items
         for item_id in request.item_ids:
             item = read_item(session, current_user, item_id)
+            _assert_item_write_access(item, current_user)
             items.append(item)
             logger.info("Queued item %s by %s for study site extraction", item.id, item.owner_id)
     else:
@@ -529,6 +559,7 @@ def start_enrich_items(
     if request.item_ids:
         for item_id in request.item_ids:
             item = read_item(session, current_user, item_id)
+            _assert_item_write_access(item, current_user)
             items.append(item)
     else:
         # Fetch all items missing title, abstract, or DOI

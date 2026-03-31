@@ -63,8 +63,6 @@ def get_map_points(
         .join(Location, StudySite.location_id == Location.id)
         .join(Item, StudySite.item_id == Item.id)
     )
-    if current_user is not None and not current_user.is_superuser:
-        statement = statement.where(Item.owner_id == current_user.id)
     statement = statement.order_by(StudySite.confidence_score.desc())
     rows = session.exec(statement).all()
 
@@ -119,8 +117,8 @@ def get_item_study_sites(
         raise HTTPException(status_code=403, detail="Not enough permissions")
 
     # Get all study sites for this item with location relationship loaded
-    from sqlmodel import select as sql_select
     from sqlalchemy.orm import joinedload
+    from sqlmodel import select as sql_select
 
     statement = (
         sql_select(StudySite)
@@ -144,8 +142,8 @@ def get_study_site(
     study_site_id: uuid.UUID,
 ) -> Any:
     """Get a specific study site by ID."""
-    from sqlmodel import select as sql_select
     from sqlalchemy.orm import joinedload
+    from sqlmodel import select as sql_select
 
     # Load study site with location relationship
     statement = (

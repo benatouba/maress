@@ -70,13 +70,16 @@ def test_read_item_not_found(
     assert content["detail"] == "Item not found"
 
 
-def test_read_item_not_enough_permissions(
+def test_read_item_non_owner_hides_attachment(
     client: TestClient,
     db_session: Session,
 ) -> None:
     from tests.utils.user import authentication_token_from_email, create_test_user
 
     item = create_random_item(db_session)
+    item.attachment = "/tmp/licensed.pdf"
+    db_session.add(item)
+    db_session.commit()
     other_user = create_test_user(db_session)
     token_headers = authentication_token_from_email(
         client=client,
@@ -88,9 +91,70 @@ def test_read_item_not_enough_permissions(
         f"{settings.API_V1_STR}/items/{item.id}",
         headers=token_headers,
     )
-    assert response.status_code == 400, response.text
+    assert response.status_code == 200, response.text
     content = response.json()
-    assert content["detail"] == "Not enough permissions"
+    assert content["id"] == str(item.id)
+    assert content["attachment"] is None
+
+
+def test_read_items_non_owner_cannot_see_attachments(
+    client: TestClient,
+    db_session: Session,
+    test_user: User,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    own_item_in = ItemFactory.build()
+    own_item = crud.create_item(
+        session=db_session,
+        item_in=own_item_in,
+        owner_id=test_user.id,
+    )
+    assert isinstance(own_item, Item)
+    own_item.attachment = "/tmp/own.pdf"
+
+    other_item = create_random_item(db_session)
+    other_item.attachment = "/tmp/foreign.pdf"
+
+    db_session.add(own_item)
+    db_session.add(other_item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=normal_user_token_headers,
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    own_response_item = next((entry for entry in content["data"] if entry["id"] == str(own_item.id)), None)
+    other_response_item = next((entry for entry in content["data"] if entry["id"] == str(other_item.id)), None)
+
+    assert own_response_item is not None
+    assert other_response_item is not None
+    assert own_response_item["attachment"] == "/tmp/own.pdf"
+    assert other_response_item["attachment"] is None
+
+
+def test_read_search_non_owner_cannot_see_attachments(
+    client: TestClient,
+    db_session: Session,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    item = create_random_item(db_session)
+    item.attachment = "/tmp/licensed.pdf"
+    db_session.add(item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/search/?title={item.title}",
+        headers=normal_user_token_headers,
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    target = next((entry for entry in content["data"] if entry["id"] == str(item.id)), None)
+    assert target is not None
+    assert target["attachment"] is None
 
 
 def test_read_items(
