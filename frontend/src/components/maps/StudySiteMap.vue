@@ -33,6 +33,14 @@
             prepend-icon="mdi-restore">
             Reset
           </v-btn>
+          <v-btn
+            @click="toggleBoxZoom"
+            size="small"
+            :variant="boxZoomActive ? 'tonal' : 'text'"
+            :color="boxZoomActive ? 'primary' : undefined"
+            prepend-icon="mdi-selection-drag">
+            Box Zoom
+          </v-btn>
         </v-card-text>
       </v-card>
     </div>
@@ -89,6 +97,8 @@ import { Point } from 'ol/geom'
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj'
 import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
 import { boundingExtent } from 'ol/extent'
+import { DragBox } from 'ol/interaction'
+import { always } from 'ol/events/condition'
 import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
 import { useAuthStore } from '../../stores/auth'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
@@ -125,6 +135,8 @@ const clusterSource = ref<Cluster | null>(null)
 const clusterLayer = ref<VectorLayer<Cluster> | null>(null)
 const resizeObserver = ref<ResizeObserver | null>(null)
 const viewportEmitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const boxZoomActive = ref(false)
+const dragBoxInteraction = ref<DragBox | null>(null)
 
 const emitViewportChanged = () => {
   if (!map.value) return
@@ -254,6 +266,7 @@ const initMap = () => {
 
   // Click handler — works for both clusters and single points
   map.value.on('click', (event) => {
+    if (boxZoomActive.value) return // Ignore clicks during box zoom
     const feature = map.value?.forEachFeatureAtPixel(event.pixel, (f) => f) as Feature | undefined
 
     if (!feature) {
@@ -285,6 +298,7 @@ const initMap = () => {
 
   // Pointer cursor on hover over features
   map.value.on('pointermove', (event) => {
+    if (boxZoomActive.value) return // Keep crosshair cursor during box zoom
     const hit = map.value?.hasFeatureAtPixel(event.pixel)
     const target = map.value?.getTargetElement()
     if (target) {
@@ -295,6 +309,19 @@ const initMap = () => {
   map.value.on('moveend', () => {
     scheduleViewportEmit()
   })
+
+  // Box zoom interaction
+  dragBoxInteraction.value = new DragBox({ condition: always })
+  dragBoxInteraction.value.setActive(false)
+
+  dragBoxInteraction.value.on('boxend', () => {
+    const extent = dragBoxInteraction.value!.getGeometry().getExtent()
+    map.value?.getView().fit(extent, { duration: 500 })
+    // Deactivate box zoom after use
+    toggleBoxZoom()
+  })
+
+  map.value.addInteraction(dragBoxInteraction.value)
 
   emit('map-ready', map.value)
   mapInitialized.value = true
@@ -405,6 +432,26 @@ const panTo = (lat: number, lon: number, zoom?: number, duration = 1500) => {
 }
 
 /**
+ * Toggle box zoom mode
+ */
+const toggleBoxZoom = () => {
+  boxZoomActive.value = !boxZoomActive.value
+  if (dragBoxInteraction.value) {
+    dragBoxInteraction.value.setActive(boxZoomActive.value)
+  }
+  // Update cursor and disable default drag-pan while box zoom is active
+  const target = map.value?.getTargetElement() as HTMLElement | undefined
+  if (target) {
+    target.style.cursor = boxZoomActive.value ? 'crosshair' : ''
+  }
+  map.value?.getInteractions().forEach((interaction) => {
+    if (interaction.constructor.name === 'DragPan') {
+      interaction.setActive(!boxZoomActive.value)
+    }
+  })
+}
+
+/**
  * Reset map view to initial state
  */
 const resetView = () => {
@@ -504,7 +551,7 @@ onUnmounted(() => {
   }
 })
 
-defineExpose({ panTo, fitToMarkers, resetView, map })
+defineExpose({ panTo, fitToMarkers, resetView, toggleBoxZoom, map })
 </script>
 
 <style scoped>
@@ -627,5 +674,10 @@ defineExpose({ panTo, fitToMarkers, resetView, map })
 
 .study-site-map .ol-attribution ul {
   padding: 2px 6px;
+}
+
+.study-site-map .ol-dragbox {
+  border: 2px solid rgb(var(--v-theme-primary));
+  background-color: rgba(var(--v-theme-primary), 0.15);
 }
 </style>
