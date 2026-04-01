@@ -97,9 +97,11 @@ import { Point } from 'ol/geom'
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj'
 import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
 import { boundingExtent } from 'ol/extent'
-import { DragBox, DragZoom } from 'ol/interaction'
+import { DragBox, DragZoom, DragPan } from 'ol/interaction'
 import { shiftKeyOnly } from 'ol/events/condition'
+import GeoJSON from 'ol/format/GeoJSON'
 import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
+import { useRegionsStore, type Region } from '../../stores/regions'
 import { useAuthStore } from '../../stores/auth'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
 import StudySiteCreateDialog from './StudySiteCreateDialog.vue'
@@ -114,9 +116,13 @@ const props = defineProps({
     type: Array as () => MapPoint[],
     default: null,
   },
+  regions: {
+    type: Array as () => Region[],
+    default: () => [],
+  },
 })
 
-const emit = defineEmits(['site-selected', 'map-ready', 'viewport-changed'])
+const emit = defineEmits(['site-selected', 'map-ready', 'viewport-changed', 'region-selected'])
 
 // Store
 const studySitesStore = useStudySitesStore()
@@ -137,6 +143,10 @@ const resizeObserver = ref<ResizeObserver | null>(null)
 const viewportEmitTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const boxZoomActive = ref(false)
 const dragBoxInteraction = ref<DragBox | null>(null)
+const dragPanInteraction = ref<DragPan | null>(null)
+const regionSource = ref<VectorSource | null>(null)
+const regionLayer = ref<VectorLayer | null>(null)
+const geojsonFormat = new GeoJSON()
 
 const emitViewportChanged = () => {
   if (!map.value) return
@@ -171,6 +181,25 @@ const handleWindowResize = () => {
   }
   updateMapSize()
   scheduleViewportEmit()
+}
+
+const setBoxZoomState = (active: boolean) => {
+  if (!map.value && active) return
+
+  boxZoomActive.value = active
+  const target = map.value?.getTargetElement() as HTMLElement | undefined
+  if (target) {
+    target.style.cursor = active ? 'crosshair' : ''
+  }
+  if (dragPanInteraction.value) {
+    dragPanInteraction.value.setActive(!active)
+  }
+}
+
+const handleWindowKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && boxZoomActive.value) {
+    setBoxZoomState(false)
+  }
 }
 
 // Dialog state
@@ -257,10 +286,20 @@ const initMap = () => {
     style: clusterStyleFunction as any,
   })
 
-  // Create map
+  // Region polygon layer (rendered between tiles and markers)
+  regionSource.value = new VectorSource()
+  regionLayer.value = new VectorLayer({
+    source: regionSource.value,
+    style: new Style({
+      fill: new Fill({ color: 'rgba(255, 152, 0, 0.1)' }),
+      stroke: new Stroke({ color: '#FF9800', width: 2 }),
+    }),
+  })
+
+  // Create map — layer order: tiles, regions, clusters
   map.value = new Map({
     target: mapContainer.value,
-    layers: [new TileLayer({ source: new OSM() }), clusterLayer.value],
+    layers: [new TileLayer({ source: new OSM() }), regionLayer.value, clusterLayer.value],
     view: new View({ center: fromLonLat(props.initialCenter), zoom: props.initialZoom }),
   })
 
@@ -277,7 +316,14 @@ const initMap = () => {
     }
 
     const clusterFeatures = feature.get('features') as Feature[] | undefined
-    if (!clusterFeatures) return
+    if (!clusterFeatures) {
+      // Could be a region polygon click
+      const regionId = feature.get('regionId') as string | undefined
+      if (regionId) {
+        emit('region-selected', regionId)
+      }
+      return
+    }
 
     if (clusterFeatures.length === 1) {
       // Single point — open edit dialog
@@ -315,6 +361,9 @@ const initMap = () => {
     if (interaction instanceof DragZoom) {
       map.value!.removeInteraction(interaction)
     }
+    if (interaction instanceof DragPan) {
+      dragPanInteraction.value = interaction
+    }
   })
 
   // Box zoom interaction — fires on button toggle OR shift+drag
@@ -327,7 +376,13 @@ const initMap = () => {
     map.value?.getView().fit(extent, { duration: 500 })
     // Only deactivate button mode if it was button-triggered
     if (boxZoomActive.value) {
-      toggleBoxZoom()
+      setBoxZoomState(false)
+    }
+  })
+
+  dragBoxInteraction.value.on('boxcancel', () => {
+    if (boxZoomActive.value) {
+      setBoxZoomState(false)
     }
   })
 
@@ -338,6 +393,7 @@ const initMap = () => {
 
   // Populate features
   updateMarkers()
+  updateRegions()
   scheduleViewportEmit()
 }
 
@@ -377,6 +433,57 @@ const updateMarkers = () => {
   if (features.length > 0) {
     vectorSource.value.addFeatures(features)
   }
+}
+
+/**
+ * Update region polygons on the map
+ */
+const updateRegions = () => {
+  if (!regionSource.value) return
+  regionSource.value.clear()
+
+  props.regions.forEach((region) => {
+    if (!region.geojson) return
+
+    const featureObj = {
+      type: 'Feature' as const,
+      geometry: region.geojson,
+      properties: { regionId: region.id, name: region.name },
+    }
+
+    const features = geojsonFormat.readFeatures(featureObj, {
+      dataProjection: 'EPSG:4326',
+      featureProjection: 'EPSG:3857',
+    })
+
+    features.forEach((f) => {
+      f.set('regionId', region.id)
+      f.set('regionName', region.name)
+    })
+
+    regionSource.value!.addFeatures(features)
+  })
+}
+
+/**
+ * Zoom map to fit a specific region's extent
+ */
+const fitToRegion = (regionId: string) => {
+  if (!regionSource.value || !map.value) return
+  const features = regionSource.value.getFeatures().filter(
+    (f) => f.get('regionId') === regionId,
+  )
+  if (features.length === 0) return
+
+  const extent = features[0].getGeometry()!.getExtent()
+  for (let i = 1; i < features.length; i++) {
+    const e = features[i].getGeometry()!.getExtent()
+    extent[0] = Math.min(extent[0], e[0])
+    extent[1] = Math.min(extent[1], e[1])
+    extent[2] = Math.max(extent[2], e[2])
+    extent[3] = Math.max(extent[3], e[3])
+  }
+  map.value.getView().fit(extent, { padding: [50, 50, 50, 50], maxZoom: 15, duration: 500 })
 }
 
 /**
@@ -445,17 +552,7 @@ const panTo = (lat: number, lon: number, zoom?: number, duration = 1500) => {
  * Toggle box zoom mode
  */
 const toggleBoxZoom = () => {
-  boxZoomActive.value = !boxZoomActive.value
-  // Update cursor and disable default drag-pan while button-toggled box zoom is active
-  const target = map.value?.getTargetElement() as HTMLElement | undefined
-  if (target) {
-    target.style.cursor = boxZoomActive.value ? 'crosshair' : ''
-  }
-  map.value?.getInteractions().forEach((interaction) => {
-    if (interaction.constructor.name === 'DragPan') {
-      interaction.setActive(!boxZoomActive.value)
-    }
-  })
+  setBoxZoomState(!boxZoomActive.value)
 }
 
 /**
@@ -506,6 +603,15 @@ watch(
   },
 )
 
+watch(
+  () => props.regions,
+  () => {
+    if (mapInitialized.value) {
+      updateRegions()
+    }
+  },
+)
+
 watch(editDialogOpen, (isOpen) => {
   if (!isOpen) {
     clearSelection()
@@ -525,6 +631,7 @@ onMounted(() => {
   }
 
   window.addEventListener('resize', handleWindowResize)
+  window.addEventListener('keydown', handleWindowKeydown)
 
   // Initialize map only when container has non-zero size
   nextTick(() => {
@@ -548,17 +655,19 @@ onUnmounted(() => {
   }
 
   window.removeEventListener('resize', handleWindowResize)
+  window.removeEventListener('keydown', handleWindowKeydown)
   resizeObserver.value?.disconnect()
   resizeObserver.value = null
   mapInitialized.value = false
 
   if (map.value) {
+    setBoxZoomState(false)
     map.value.setTarget(undefined)
     map.value = null
   }
 })
 
-defineExpose({ panTo, fitToMarkers, resetView, toggleBoxZoom, map })
+defineExpose({ panTo, fitToMarkers, fitToRegion, resetView, toggleBoxZoom, map })
 </script>
 
 <style scoped>

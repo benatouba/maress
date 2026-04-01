@@ -21,6 +21,7 @@ declare module 'vue' {
     PaperMap: typeof import('./components/papers/PaperMap.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    ShapefileUploadDialog: typeof import('./components/maps/ShapefileUploadDialog.vue')['default']
     StudySiteCreateDialog: typeof import('./components/maps/StudySiteCreateDialog.vue')['default']
     StudySiteEditDialog: typeof import('./components/maps/StudySiteEditDialog.vue')['default']
     StudySiteMap: typeof import('./components/maps/StudySiteMap.vue')['default']

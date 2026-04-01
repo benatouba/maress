@@ -167,12 +167,14 @@
           :initial-center="[0, 20]"
           :initial-zoom="2"
           :sites="filteredSites"
+          :regions="regionsStore.regions"
           @site-selected="handleSiteSelected"
           @viewport-changed="handleViewportChanged"
-          @map-ready="handleMapReady" />
+          @map-ready="handleMapReady"
+          @region-selected="handleRegionSelected" />
       </v-col>
 
-      <!-- Study Sites Sidebar (Right) -->
+      <!-- Right Sidebar (Study Sites / Regions) -->
       <v-col
         cols="12"
         md="3"
@@ -180,160 +182,311 @@
         <v-card
           class="fill-height d-flex flex-column"
           elevation="1">
-          <v-card-title class="d-flex align-center justify-space-between">
-            <span>Study Sites</span>
-            <div class="d-flex align-center gap-2">
+
+          <!-- Tabs -->
+          <v-tabs
+            v-model="rightTab"
+            density="compact"
+            grow>
+            <v-tab value="sites">
+              <v-icon start size="small">mdi-map-marker</v-icon>
+              Sites
+              <v-chip size="x-small" class="ml-1">{{ totalSites }}</v-chip>
+            </v-tab>
+            <v-tab value="regions">
+              <v-icon start size="small">mdi-shape-polygon-plus</v-icon>
+              Regions
+              <v-chip v-if="regionsStore.regionCount > 0" size="x-small" class="ml-1">{{ regionsStore.regionCount }}</v-chip>
+            </v-tab>
+          </v-tabs>
+
+          <v-divider />
+
+          <!-- Study Sites Tab -->
+          <template v-if="rightTab === 'sites'">
+            <!-- Filters -->
+            <v-card-text class="flex-grow-0">
+              <v-text-field
+                v-model="searchQuery"
+                label="Search sites or papers"
+                prepend-inner-icon="mdi-magnify"
+                clearable
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="mb-3" />
+
+              <v-select
+                v-model="filterType"
+                :items="filterOptions"
+                label="Filter by type"
+                prepend-inner-icon="mdi-filter"
+                density="compact"
+                variant="outlined"
+                hide-details />
+            </v-card-text>
+
+            <v-divider />
+
+            <!-- Info Banner -->
+            <v-alert
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="ma-3 mb-2">
+              <div class="text-caption">
+                <v-icon size="small" class="mr-1">mdi-information</v-icon>
+                {{ authStore.isAuthenticated
+                  ? 'Study sites appear after extraction tasks complete. Click refresh to see new sites.'
+                  : 'Browse extracted study sites and map output. Sign in to run extraction tasks.' }}
+              </div>
+            </v-alert>
+
+            <!-- Sites List (virtualized) -->
+            <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
+              <v-virtual-scroll
+                v-if="filteredSites.length > 0"
+                :items="filteredSites"
+                :item-height="64"
+                item-key="id"
+                class="fill-height">
+                <template #default="{ item: site }">
+                  <v-list-item
+                    :active="selectedSite?.id === site.id"
+                    @click="handleSiteClick(site)"
+                    density="compact"
+                    class="cursor-pointer">
+                    <template #prepend>
+                      <v-avatar
+                        :color="site.is_manual ? 'success' : 'info'"
+                        size="32">
+                        <v-icon
+                          size="16"
+                          color="white">
+                          {{ site.is_manual ? 'mdi-account' : 'mdi-robot' }}
+                        </v-icon>
+                      </v-avatar>
+                    </template>
+
+                    <v-list-item-title class="text-wrap">
+                      {{ site.name || 'Unnamed Site' }}
+                    </v-list-item-title>
+
+                    <v-list-item-subtitle class="text-wrap">
+                      {{ site.item_title || 'Unknown Paper' }}
+                    </v-list-item-subtitle>
+
+                    <template #append>
+                      <v-chip
+                        size="x-small"
+                        :color="site.is_manual ? 'success' : 'info'">
+                        {{ site.is_manual ? 'Manual' : 'Auto' }}
+                      </v-chip>
+                    </template>
+                  </v-list-item>
+                </template>
+              </v-virtual-scroll>
+
+              <v-empty-state
+                v-else
+                icon="mdi-map-marker-off"
+                title="No study sites found"
+                text="Try adjusting your filters" />
+            </v-card-text>
+
+            <v-divider />
+
+            <!-- Actions -->
+            <v-card-actions class="flex-grow-0">
               <v-btn
                 v-if="authStore.isAuthenticated"
-                icon
-                size="small"
-                variant="text"
-                :loading="loading"
-                @click="refreshSites">
-                <v-icon>mdi-refresh</v-icon>
-                <v-tooltip
-                  activator="parent"
-                  location="bottom">
-                  Refresh study sites
-                </v-tooltip>
+                block
+                color="primary"
+                prepend-icon="mdi-refresh"
+                @click="refreshData"
+                :loading="loading">
+                Refresh
               </v-btn>
-              <v-chip
-                :color="selectedSite ? 'primary' : 'default'"
-                size="small">
-                {{ totalSites }} sites
-              </v-chip>
-            </div>
-          </v-card-title>
+            </v-card-actions>
 
-          <v-divider />
+            <!-- Legend -->
+            <v-card-text class="flex-grow-0 pt-2 pb-3">
+              <div class="text-caption text-medium-emphasis mb-2">Legend:</div>
+              <div class="d-flex align-center mb-1">
+                <v-icon
+                  color="success"
+                  size="small"
+                  class="mr-2"
+                  >mdi-circle</v-icon
+                >
+                <span class="text-caption">Manual (Human-created)</span>
+              </div>
+              <div class="d-flex align-center mb-1">
+                <v-icon
+                  color="info"
+                  size="small"
+                  class="mr-2"
+                  >mdi-circle</v-icon
+                >
+                <span class="text-caption">Automatic (Algorithm-extracted)</span>
+              </div>
+              <div class="d-flex align-center">
+                <v-icon
+                  color="orange"
+                  size="small"
+                  class="mr-2"
+                  >mdi-square-rounded-outline</v-icon
+                >
+                <span class="text-caption">Uploaded Region</span>
+              </div>
+            </v-card-text>
+          </template>
 
-          <!-- Filters -->
-          <v-card-text class="flex-grow-0">
-            <v-text-field
-              v-model="searchQuery"
-              label="Search sites or papers"
-              prepend-inner-icon="mdi-magnify"
-              clearable
-              density="compact"
-              variant="outlined"
-              hide-details
-              class="mb-3" />
+          <!-- Regions Tab -->
+          <template v-if="rightTab === 'regions'">
+            <!-- Upload Button -->
+            <v-card-text class="flex-grow-0">
+              <v-btn
+                v-if="authStore.isAuthenticated"
+                block
+                color="primary"
+                variant="outlined"
+                prepend-icon="mdi-upload"
+                @click="uploadDialogOpen = true">
+                Upload Shapefile
+              </v-btn>
+              <v-alert
+                v-else
+                type="info"
+                variant="tonal"
+                density="compact"
+                class="mt-2">
+                Sign in to upload shapefiles
+              </v-alert>
+            </v-card-text>
 
-            <v-select
-              v-model="filterType"
-              :items="filterOptions"
-              label="Filter by type"
-              prepend-inner-icon="mdi-filter"
-              density="compact"
-              variant="outlined"
-              hide-details />
-          </v-card-text>
+            <v-divider />
 
-          <v-divider />
+            <!-- Region Stats Panel (shown when region selected) -->
+            <template v-if="regionsStore.selectedRegion && regionsStore.regionStats">
+              <v-card-text class="flex-grow-0">
+                <div class="d-flex align-center justify-space-between mb-2">
+                  <div class="text-subtitle-2 font-weight-bold">
+                    {{ regionsStore.selectedRegion.name }}
+                  </div>
+                  <v-btn
+                    icon
+                    size="x-small"
+                    variant="text"
+                    @click="regionsStore.selectRegion(null)">
+                    <v-icon size="small">mdi-close</v-icon>
+                  </v-btn>
+                </div>
 
-          <!-- Info Banner -->
-          <v-alert
-            type="info"
-            variant="tonal"
-            density="compact"
-            class="ma-3 mb-2">
-            <div class="text-caption">
-              <v-icon size="small" class="mr-1">mdi-information</v-icon>
-              {{ authStore.isAuthenticated
-                ? 'Study sites appear after extraction tasks complete. Click refresh to see new sites.'
-                : 'Browse extracted study sites and map output. Sign in to run extraction tasks.' }}
-            </div>
-          </v-alert>
+                <div class="d-flex gap-4 mb-3">
+                  <div class="stat-item">
+                    <div class="stat-value">{{ regionsStore.regionStats.study_site_count }}</div>
+                    <div class="stat-label">Sites</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-value">{{ regionsStore.regionStats.paper_count }}</div>
+                    <div class="stat-label">Papers</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-value text-success">{{ regionsStore.regionStats.manual_count }}</div>
+                    <div class="stat-label">Manual</div>
+                  </div>
+                  <div class="stat-item">
+                    <div class="stat-value text-info">{{ regionsStore.regionStats.automatic_count }}</div>
+                    <div class="stat-label">Auto</div>
+                  </div>
+                </div>
 
-          <!-- Sites List (virtualized) -->
-          <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
-            <v-virtual-scroll
-              v-if="filteredSites.length > 0"
-              :items="filteredSites"
-              :item-height="64"
-              item-key="id"
-              class="fill-height">
-              <template #default="{ item: site }">
+                <!-- Extraction Methods -->
+                <div v-if="Object.keys(regionsStore.regionStats.extraction_methods).length > 0" class="mb-3">
+                  <div class="text-caption text-medium-emphasis mb-1">Extraction Methods:</div>
+                  <v-chip
+                    v-for="(count, method) in regionsStore.regionStats.extraction_methods"
+                    :key="method"
+                    size="x-small"
+                    class="mr-1 mb-1">
+                    {{ formatExtractionMethod(String(method)) }}: {{ count }}
+                  </v-chip>
+                </div>
+
+                <!-- Papers in Region -->
+                <div v-if="regionsStore.regionStats.papers.length > 0">
+                  <div class="text-caption text-medium-emphasis mb-1">Papers in region:</div>
+                  <v-list density="compact" class="bg-transparent pa-0">
+                    <v-list-item
+                      v-for="paper in regionsStore.regionStats.papers"
+                      :key="paper.id"
+                      density="compact"
+                      class="px-0"
+                      @click="filterPaperById(paper.id)">
+                      <v-list-item-title class="text-caption text-wrap">
+                        {{ paper.title || 'Untitled' }}
+                      </v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </div>
+              </v-card-text>
+
+              <v-divider />
+            </template>
+
+            <!-- Regions List -->
+            <v-card-text class="flex-grow-1 overflow-y-auto pa-0">
+              <v-list
+                v-if="regionsStore.regions.length > 0"
+                density="compact">
                 <v-list-item
-                  :active="selectedSite?.id === site.id"
-                  @click="handleSiteClick(site)"
-                  density="compact"
+                  v-for="region in regionsStore.regions"
+                  :key="region.id"
+                  :active="regionsStore.selectedRegion?.id === region.id"
+                  @click="handleRegionClick(region)"
                   class="cursor-pointer">
                   <template #prepend>
                     <v-avatar
-                      :color="site.is_manual ? 'success' : 'info'"
+                      color="orange"
                       size="32">
                       <v-icon
                         size="16"
                         color="white">
-                        {{ site.is_manual ? 'mdi-account' : 'mdi-robot' }}
+                        mdi-shape-polygon-plus
                       </v-icon>
                     </v-avatar>
                   </template>
 
                   <v-list-item-title class="text-wrap">
-                    {{ site.name || 'Unnamed Site' }}
+                    {{ region.name }}
                   </v-list-item-title>
 
-                  <v-list-item-subtitle class="text-wrap">
-                    {{ site.item_title || 'Unknown Paper' }}
+                  <v-list-item-subtitle v-if="region.source_filename" class="text-wrap">
+                    {{ region.source_filename }}
                   </v-list-item-subtitle>
 
                   <template #append>
-                    <v-chip
+                    <v-btn
+                      icon
                       size="x-small"
-                      :color="site.is_manual ? 'success' : 'info'">
-                      {{ site.is_manual ? 'Manual' : 'Auto' }}
-                    </v-chip>
+                      variant="text"
+                      color="error"
+                      @click.stop="confirmDeleteRegion(region)">
+                      <v-icon size="small">mdi-delete</v-icon>
+                      <v-tooltip activator="parent" location="top">Delete</v-tooltip>
+                    </v-btn>
                   </template>
                 </v-list-item>
-              </template>
-            </v-virtual-scroll>
+              </v-list>
 
-            <v-empty-state
-              v-else
-              icon="mdi-map-marker-off"
-              title="No study sites found"
-              text="Try adjusting your filters" />
-          </v-card-text>
-
-          <v-divider />
-
-          <!-- Actions -->
-          <v-card-actions class="flex-grow-0">
-            <v-btn
-              v-if="authStore.isAuthenticated"
-              block
-              color="primary"
-              prepend-icon="mdi-refresh"
-              @click="refreshData"
-              :loading="loading">
-              Refresh
-            </v-btn>
-          </v-card-actions>
-
-          <!-- Legend -->
-          <v-card-text class="flex-grow-0 pt-2 pb-3">
-            <div class="text-caption text-medium-emphasis mb-2">Legend:</div>
-            <div class="d-flex align-center mb-1">
-              <v-icon
-                color="success"
-                size="small"
-                class="mr-2"
-                >mdi-circle</v-icon
-              >
-              <span class="text-caption">Manual (Human-created)</span>
-            </div>
-            <div class="d-flex align-center">
-              <v-icon
-                color="info"
-                size="small"
-                class="mr-2"
-                >mdi-circle</v-icon
-              >
-              <span class="text-caption">Automatic (Algorithm-extracted)</span>
-            </div>
-          </v-card-text>
+              <v-empty-state
+                v-else
+                icon="mdi-shape-polygon-plus"
+                title="No regions uploaded"
+                text="Upload a shapefile to view spatial statistics" />
+            </v-card-text>
+          </template>
         </v-card>
       </v-col>
     </v-row>
@@ -474,6 +627,25 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <!-- Shapefile Upload Dialog -->
+    <ShapefileUploadDialog
+      v-model="uploadDialogOpen"
+      @uploaded="handleShapefileUploaded" />
+
+    <!-- Delete Region Confirmation -->
+    <v-dialog v-model="deleteRegionDialog" max-width="400">
+      <v-card>
+        <v-card-title>Delete Region</v-card-title>
+        <v-card-text>
+          Are you sure you want to delete "{{ regionToDelete?.name }}"?
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="deleteRegionDialog = false">Cancel</v-btn>
+          <v-btn color="error" variant="elevated" @click="executeDeleteRegion">Delete</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
@@ -483,8 +655,10 @@ import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from '../stores/auth'
 import { useStudySitesStore, type MapPoint } from '../stores/studySites'
+import { useRegionsStore, type Region } from '../stores/regions'
 import { useZoteroStore } from '../stores/zotero'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
+import ShapefileUploadDialog from '../components/maps/ShapefileUploadDialog.vue'
 
 interface MapPaperSummary {
   id: string
@@ -507,6 +681,7 @@ const route = useRoute()
 // Stores
 const authStore = useAuthStore()
 const studySitesStore = useStudySitesStore()
+const regionsStore = useRegionsStore()
 const zoteroStore = useZoteroStore()
 const { mapPoints, loading } = storeToRefs(studySitesStore)
 
@@ -527,6 +702,12 @@ const mapPapers = ref<MapPaperSummary[]>([])
 const mapPapersLoading = ref(false)
 const paperStudySitesLoading = ref(false)
 const activeViewport = ref<ViewportBounds | null>(null)
+
+// State - Right sidebar
+const rightTab = ref('sites')
+const uploadDialogOpen = ref(false)
+const deleteRegionDialog = ref(false)
+const regionToDelete = ref<Region | null>(null)
 
 // Filter options - Study Sites
 const filterOptions = [
@@ -807,9 +988,72 @@ const formatExtractionMethod = (method: string): string => {
     .join(' ')
 }
 
+/**
+ * Handle region selected from map click
+ */
+const handleRegionSelected = (regionId: string) => {
+  const region = regionsStore.regions.find((r) => r.id === regionId)
+  if (region) {
+    regionsStore.selectRegion(region)
+    rightTab.value = 'regions'
+  }
+}
+
+/**
+ * Handle region click from list
+ */
+const handleRegionClick = (region: Region) => {
+  if (regionsStore.selectedRegion?.id === region.id) {
+    regionsStore.selectRegion(null)
+  } else {
+    regionsStore.selectRegion(region)
+    mapComponent.value?.fitToRegion(region.id)
+  }
+}
+
+/**
+ * Filter papers by ID (from region stats panel)
+ */
+const filterPaperById = (paperId: string) => {
+  const paper = mapPapers.value.find((p) => p.id === paperId)
+  if (paper) {
+    selectedPaper.value = paper
+    rightTab.value = 'sites'
+  }
+}
+
+/**
+ * Confirm region deletion
+ */
+const confirmDeleteRegion = (region: Region) => {
+  regionToDelete.value = region
+  deleteRegionDialog.value = true
+}
+
+/**
+ * Execute region deletion
+ */
+const executeDeleteRegion = async () => {
+  if (regionToDelete.value) {
+    await regionsStore.deleteRegion(regionToDelete.value.id)
+  }
+  deleteRegionDialog.value = false
+  regionToDelete.value = null
+}
+
+/**
+ * Handle shapefile uploaded
+ */
+const handleShapefileUploaded = () => {
+  uploadDialogOpen.value = false
+}
+
 // Lifecycle
 onMounted(async () => {
   await fetchMapPapers()
+  if (authStore.isAuthenticated) {
+    await regionsStore.fetchRegions()
+  }
 
   // Read query params for initial item selection
   if (route.query.itemTitle) {
@@ -903,5 +1147,22 @@ watch(studySitesDialog, (open) => {
 
 .gap-2 {
   gap: 8px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 1.25rem;
+  font-weight: bold;
+  line-height: 1.2;
+}
+
+.stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.6);
+  letter-spacing: 0.5px;
 }
 </style>

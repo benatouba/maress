@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import Optional, Self
+from typing import Any, Optional, Self
 
+from geoalchemy2 import Geometry, WKBElement  # noqa: TC002
 from pydantic import (  # noqa: TC002
     ConfigDict,
     EmailStr,
@@ -10,7 +11,7 @@ from pydantic import (  # noqa: TC002
     field_validator,
 )
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
-from sqlalchemy import Index
+from sqlalchemy import Index, event
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
 from app.core.security import cipher_suite
@@ -269,7 +270,23 @@ class Location(LocationBase, table=True):
         default_factory=uuid.uuid4,
         primary_key=True,
     )
+    geom: Any = Field(
+        default=None,
+        sa_column=Column(Geometry("POINT", srid=4326), nullable=False),
+    )
     study_sites: list["StudySite"] = Relationship(back_populates="location")
+
+
+def _sync_location_geom(mapper: Any, connection: Any, target: Location) -> None:  # noqa: ANN401, ARG001
+    """Keep geom column in sync with latitude/longitude."""
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import Point as ShapelyPoint
+
+    target.geom = from_shape(ShapelyPoint(float(target.longitude), float(target.latitude)), srid=4326)
+
+
+event.listen(Location, "before_insert", _sync_location_geom)
+event.listen(Location, "before_update", _sync_location_geom)
 
 
 class LocationPublicSimple(LocationBase):
@@ -477,6 +494,59 @@ class StudySiteMapPointsPublic(SQLModel):
 
     data: list[StudySiteMapPoint]
     count: int
+
+
+# ---------- Regions (uploaded shapefiles) ----------
+
+
+class RegionBase(SQLModel):
+    """Base model for geographic regions from uploaded shapefiles."""
+
+    name: str = Field(max_length=255)
+    description: str = Field(default="", max_length=2048)
+    source_filename: str | None = Field(default=None, max_length=255)
+    properties_json: str | None = Field(default=None, description="Original shapefile attributes as JSON")
+
+
+class Region(RegionBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    owner: "User" = Relationship(back_populates="regions")
+    geom: Any = Field(
+        sa_column=Column(Geometry("MULTIPOLYGON", srid=4326), nullable=False),
+    )
+    created_at: datetime = timestamp_field()
+    updated_at: datetime = timestamp_field(onupdate_now=True)
+
+
+class RegionPublic(RegionBase):
+    """Region with GeoJSON geometry for API responses."""
+
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    geojson: dict[str, Any] | None = None  # populated at the route level via ST_AsGeoJSON
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RegionsPublic(SQLModel):
+    data: list[RegionPublic]
+    count: int
+
+
+class RegionStats(SQLModel):
+    """Spatial statistics for a region."""
+
+    region_id: uuid.UUID
+    region_name: str
+    study_site_count: int = 0
+    paper_count: int = 0
+    manual_count: int = 0
+    automatic_count: int = 0
+    extraction_methods: dict[str, int] = Field(default_factory=dict)
+    papers: list["ItemSummary"] = Field(default_factory=list)
 
 
 # Extraction Results - store all candidates found during extraction
@@ -727,6 +797,7 @@ class User(UserBase, table=True):
         back_populates="owner",
         cascade_delete=True,
     )
+    regions: list["Region"] = Relationship(back_populates="owner", cascade_delete=True)
 
 
 # Properties to return via API, id is always required

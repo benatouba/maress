@@ -38,6 +38,7 @@ dependencies = [
   "easyocr>=1.7.2",
   "scispacy>=0.6.2",
   "geopandas>=1.1.2",
+  "geoalchemy2>=0.15.0",
 ]
 description = "Add your description here"
 name = "maress"
