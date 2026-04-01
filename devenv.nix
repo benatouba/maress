@@ -8,6 +8,7 @@
       enable = true;
       sync.enable = true; # auto-sync from pyproject.toml
     };
+    directory = "./backend";
     venv = {
       enable = true;
       quiet = true;
