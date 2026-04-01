@@ -345,9 +345,10 @@
           <!-- Regions Tab -->
           <template v-if="rightTab === 'regions'">
             <!-- Upload Button -->
-            <v-card-text class="flex-grow-0">
+            <v-card-text
+              v-if="authStore.isAuthenticated"
+              class="flex-grow-0">
               <v-btn
-                v-if="authStore.isAuthenticated"
                 block
                 color="primary"
                 variant="outlined"
@@ -355,14 +356,6 @@
                 @click="uploadDialogOpen = true">
                 Upload Shapefile
               </v-btn>
-              <v-alert
-                v-else
-                type="info"
-                variant="tonal"
-                density="compact"
-                class="mt-2">
-                Sign in to upload shapefiles
-              </v-alert>
             </v-card-text>
 
             <v-divider />
@@ -629,6 +622,7 @@
     </v-dialog>
     <!-- Shapefile Upload Dialog -->
     <ShapefileUploadDialog
+      v-if="authStore.isAuthenticated"
       v-model="uploadDialogOpen"
       @uploaded="handleShapefileUploaded" />
 

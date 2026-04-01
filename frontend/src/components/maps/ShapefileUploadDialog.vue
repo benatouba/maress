@@ -11,6 +11,15 @@
       </v-card-title>
 
       <v-card-text>
+        <v-alert
+          v-if="!authStore.isAuthenticated"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mb-4">
+          You must be signed in to upload shapefiles.
+        </v-alert>
+
         <v-file-input
           v-model="selectedFile"
           label="Shapefile (.zip)"
@@ -19,6 +28,7 @@
           variant="outlined"
           density="compact"
           :rules="[fileRequired, fileSize]"
+          :disabled="!authStore.isAuthenticated"
           hint="Upload a .zip archive containing .shp, .shx, .dbf, and .prj files"
           persistent-hint
           show-size
@@ -58,7 +68,7 @@
           color="primary"
           variant="elevated"
           :loading="uploading"
-          :disabled="!selectedFile"
+          :disabled="!selectedFile || !authStore.isAuthenticated"
           @click="upload">
           Upload
         </v-btn>
@@ -70,6 +80,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRegionsStore } from '../../stores/regions'
+import { useAuthStore } from '../../stores/auth'
 
 defineProps<{
   modelValue: boolean
@@ -81,6 +92,7 @@ const emit = defineEmits<{
 }>()
 
 const regionsStore = useRegionsStore()
+const authStore = useAuthStore()
 
 const selectedFile = ref<File | null>(null)
 const error = ref<string | null>(null)
@@ -92,6 +104,11 @@ const fileSize = (v: File | null) =>
   !v || v.size <= 50 * 1024 * 1024 || 'File must be under 50 MB'
 
 const upload = async () => {
+  if (!authStore.isAuthenticated) {
+    error.value = 'You must be signed in to upload shapefiles'
+    return
+  }
+
   if (!selectedFile.value) return
 
   uploading.value = true

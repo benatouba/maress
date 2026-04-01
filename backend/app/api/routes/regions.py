@@ -17,7 +17,7 @@ import zipfile
 from typing import Any
 
 import geopandas as gpd
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, UploadFile, status
 from geoalchemy2.functions import ST_AsGeoJSON, ST_Within
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, mapping
@@ -64,6 +64,9 @@ def upload_shapefile(
     Parses the shapefile with geopandas, reprojects to EPSG:4326 if needed,
     and creates one Region record per feature.
     """
+    if not current_user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inactive user")
+
     if not file.filename or not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="File must be a .zip archive")
 
