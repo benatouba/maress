@@ -21,6 +21,7 @@
       enable = true;
       install.enable = true; # auto-sync from package.json
     };
+    directory = "./frontend";
   };
 
   # --- Native dependencies ---
