@@ -97,8 +97,8 @@ import { Point } from 'ol/geom'
 import { fromLonLat, toLonLat, transformExtent } from 'ol/proj'
 import { Style, Circle, Fill, Stroke, Text } from 'ol/style'
 import { boundingExtent } from 'ol/extent'
-import { DragBox } from 'ol/interaction'
-import { always } from 'ol/events/condition'
+import { DragBox, DragZoom } from 'ol/interaction'
+import { shiftKeyOnly } from 'ol/events/condition'
 import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
 import { useAuthStore } from '../../stores/auth'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
@@ -310,15 +310,25 @@ const initMap = () => {
     scheduleViewportEmit()
   })
 
-  // Box zoom interaction
-  dragBoxInteraction.value = new DragBox({ condition: always })
-  dragBoxInteraction.value.setActive(false)
+  // Remove default DragZoom to avoid conflict with our DragBox
+  map.value.getInteractions().forEach((interaction) => {
+    if (interaction instanceof DragZoom) {
+      map.value!.removeInteraction(interaction)
+    }
+  })
+
+  // Box zoom interaction — fires on button toggle OR shift+drag
+  dragBoxInteraction.value = new DragBox({
+    condition: (event) => boxZoomActive.value || shiftKeyOnly(event),
+  })
 
   dragBoxInteraction.value.on('boxend', () => {
     const extent = dragBoxInteraction.value!.getGeometry().getExtent()
     map.value?.getView().fit(extent, { duration: 500 })
-    // Deactivate box zoom after use
-    toggleBoxZoom()
+    // Only deactivate button mode if it was button-triggered
+    if (boxZoomActive.value) {
+      toggleBoxZoom()
+    }
   })
 
   map.value.addInteraction(dragBoxInteraction.value)
@@ -436,10 +446,7 @@ const panTo = (lat: number, lon: number, zoom?: number, duration = 1500) => {
  */
 const toggleBoxZoom = () => {
   boxZoomActive.value = !boxZoomActive.value
-  if (dragBoxInteraction.value) {
-    dragBoxInteraction.value.setActive(boxZoomActive.value)
-  }
-  // Update cursor and disable default drag-pan while box zoom is active
+  // Update cursor and disable default drag-pan while button-toggled box zoom is active
   const target = map.value?.getTargetElement() as HTMLElement | undefined
   if (target) {
     target.style.cursor = boxZoomActive.value ? 'crosshair' : ''
