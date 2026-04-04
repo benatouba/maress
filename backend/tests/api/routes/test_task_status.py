@@ -466,8 +466,12 @@ class TestTaskStatusIntegration:
         db_session.add(item)
         db_session.commit()
 
-        # Mock the extraction result
-        with patch("app.tasks.extract.PipelineFactory") as mock_pipeline_factory:
+        # Mock extraction enqueue + result payload
+        with (
+            patch("app.api.routes.items.extract_study_site_task.delay") as mock_delay,
+            patch("app.api.routes.items.AsyncResult") as mock_async_result,
+            patch("app.tasks.extract.PipelineFactory") as mock_pipeline_factory,
+        ):
             from pydantic_extra_types.coordinate import Latitude, Longitude
 
             from app.nlp.domain_models import ExtractionResult, GeoEntity
@@ -493,6 +497,9 @@ class TestTaskStatusIntegration:
                 clusters=1,
                 locations=1,
                 section_quality_scores={},
+                stage_timings_ms={},
+                filter_statistics={},
+                entity_type_counts={},
             )
 
             mock_result = ExtractionResult(
@@ -509,6 +516,23 @@ class TestTaskStatusIntegration:
 
             mock_pipeline = mock_pipeline_factory.create_pipeline_for_api.return_value
             mock_pipeline.extract_from_pdf.return_value = mock_result
+
+            mock_delay.return_value = Mock(id=str(uuid.uuid4()))
+
+            status_result = Mock(spec=AsyncResult)
+            status_result.state = "SUCCESS"
+            status_result.status = "SUCCESS"
+            status_result.ready.return_value = True
+            status_result.successful.return_value = True
+            status_result.failed.return_value = False
+            status_result.result = {
+                "item_id": str(item.id),
+                "study_site_ids": [str(uuid.uuid4())],
+                "count": 1,
+                "status": "created",
+                "message": "Successfully created 1 study site(s)",
+            }
+            mock_async_result.return_value = status_result
 
             # Trigger extraction
             response = client.post(
