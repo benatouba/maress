@@ -22,7 +22,7 @@ dependencies = [
   "python-magic>=0.4.27",
   "pyzotero>=1.11.0",
   "scikit-learn>=1.8.0",
-  "spacy>=3.7.0",
+  "spacy>=3.8.0",
   "en-core-web-lg @ https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl",
   "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
   "en_core_web_trf @ https://github.com/explosion/spacy-models/releases/download/en_core_web_trf-3.8.0/en_core_web_trf-3.8.0-py3-none-any.whl",
@@ -37,6 +37,7 @@ dependencies = [
   "easyocr>=1.7.2",
   "geopandas>=1.1.2",
   "geoalchemy2>=0.15.0",
+  "typer>=0.21.2",
 ]
 description = "Add your description here"
 name = "maress"
@@ -47,7 +48,7 @@ version = "0.1.0"
 [project.optional-dependencies]
 scispacy = [
   "scispacy>=0.6.2",
-  "en_core_sci_lg @ https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_lg-0.5.4.tar.gz",
+  # "en_core_sci_lg @ https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_lg-0.5.4.tar.gz",
 ]
 
 [dependency-groups]

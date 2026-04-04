@@ -8,10 +8,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar, Protocol, override
 
+import re
+
 import spacy
 from spacy.tokens import Doc
 
 from app.nlp.domain_models import GeoEntity
+from app.nlp.confidence_scorer import apply_enhanced_scoring
 from app.nlp.text_processing import (
     CoordinateParser,
     PDFTextCleaner,

@@ -6,6 +6,8 @@ This component follows spaCy best practices:
 - Integrates seamlessly with spaCy's entity system
 """
 
+from __future__ import annotations
+
 import re
 
 from spacy.language import Language
