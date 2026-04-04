@@ -155,6 +155,22 @@ class StudySiteResultAdapter:
         if entity.entity_type == "SPATIAL_RELATION":
             return CoordinateExtractionMethod.NER
 
+        if entity.entity_type in ["STUDY_SITE", "MULTIWORD_LOCATION"]:
+            return CoordinateExtractionMethod.NER
+
+        if entity.entity_type in [
+            "WATER_BODY",
+            "GEO_FEATURE",
+            "ECOSYSTEM",
+            "COASTAL",
+            "RESEARCH_SITE",
+            "CLIMATE_ZONE",
+        ]:
+            return CoordinateExtractionMethod.NER
+
+        if entity.entity_type == "BOUNDING_BOX":
+            return CoordinateExtractionMethod.REGEX
+
         # Default
         return CoordinateExtractionMethod.NER
 
@@ -180,9 +196,21 @@ class StudySiteResultAdapter:
             "abstract": PaperSections.ABSTRACT,
             "introduction": PaperSections.INTRODUCTION,
             "methods": PaperSections.METHODS,
+            "methodology": PaperSections.METHODS,
             "results": PaperSections.RESULTS,
             "discussion": PaperSections.DISCUSSION,
             "conclusion": PaperSections.CONCLUSION,
+            "conclusions": PaperSections.CONCLUSION,
+            "study_area": PaperSections.METHODS,
+            "study area": PaperSections.METHODS,
+            "study_site": PaperSections.METHODS,
+            "study site": PaperSections.METHODS,
+            "materials": PaperSections.METHODS,
+            "materials and methods": PaperSections.METHODS,
+            "data": PaperSections.METHODS,
+            "data and methods": PaperSections.METHODS,
+            "data collection": PaperSections.METHODS,
+            "other": PaperSections.OTHER,
             "references": PaperSections.REFERENCES,
         }
 

@@ -156,10 +156,10 @@ class ConfidenceScorer:
         score *= type_boost
 
         # Apply special boosts for specific patterns
-        if hasattr(entity_span, "_") and hasattr(entity_span._, "dependency_pattern"):
+        if entity_span is not None and hasattr(entity_span, "_") and hasattr(entity_span._, "dependency_pattern"):
             score *= 1.3  # Boost for dependency pattern matches
 
-        if hasattr(entity_span, "_") and hasattr(entity_span._, "is_multiword_location"):
+        if entity_span is not None and hasattr(entity_span, "_") and hasattr(entity_span._, "is_multiword_location"):
             if entity_span._.is_multiword_location:
                 score *= 1.2  # Boost for known multi-word locations
 
@@ -328,6 +328,11 @@ def apply_enhanced_scoring(entities: list[GeoEntity], doc: Doc | None = None) ->
         # Calculate new score
         new_score = scorer.score_entity(entity, doc, entity_span)
 
+        # Preserve object when score is unchanged
+        if abs(new_score - entity.confidence) < 1e-9:
+            updated_entities.append(entity)
+            continue
+
         # Create updated entity with new confidence
         updated_entity = GeoEntity(
             text=entity.text,
@@ -338,6 +343,7 @@ def apply_enhanced_scoring(entities: list[GeoEntity], doc: Doc | None = None) ->
             start_char=entity.start_char,
             end_char=entity.end_char,
             coordinates=entity.coordinates,
+            bounding_box=entity.bounding_box,
         )
         updated_entities.append(updated_entity)
 

@@ -172,6 +172,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
             return []
 
         entities: list[GeoEntity] = []
+        seen_spans: set[tuple[int, int]] = set()
 
         # Phase 1.4: Extract MARESS_COORDINATE entities added by our matcher
         # Note: entity_type remains "COORDINATE" as it's a domain concept
@@ -210,6 +211,33 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
                         coordinates=parsed_coords,
                     ),
                 )
+                seen_spans.add((ent.start_char, ent.end_char))
+
+        # Fallback pass with parser patterns for formats the spaCy matcher may miss.
+        # This keeps coverage for malformed/compact coordinate strings.
+        for coord_str, start, end, quality in self.parser.extract_coordinates(text):
+            span_key = (start, end)
+            if span_key in seen_spans:
+                continue
+
+            parsed_coords = self.parser.parse_to_decimal(coord_str)
+            if not parsed_coords or not self._validate_coordinates(parsed_coords):
+                continue
+
+            context = self._get_context(text, start)
+            entities.append(
+                GeoEntity(
+                    text=coord_str,
+                    entity_type="COORDINATE",
+                    context=context,
+                    section=section,
+                    confidence=quality,
+                    start_char=start,
+                    end_char=end,
+                    coordinates=parsed_coords,
+                ),
+            )
+            seen_spans.add(span_key)
 
         return entities
 
@@ -388,6 +416,38 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         # Track NER configuration to avoid redundant updates
         self._ner_configured: bool = False
 
+    def _ensure_required_components(self) -> None:
+        """Ensure matcher components exist when extractor is used directly.
+
+        PipelineFactory configures these centrally, but unit tests and ad-hoc
+        usage can instantiate this extractor directly with a plain spaCy model.
+        """
+        from app.nlp.spacy_earth_science_matcher import EarthScienceEntityMatcher  # noqa: F401
+        from app.nlp.spacy_multiword_location_matcher import MultiWordLocationMatcher  # noqa: F401
+        from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher  # noqa: F401
+        from app.nlp.spacy_study_site_dependency_matcher import StudySiteDependencyMatcher  # noqa: F401
+
+        if "multiword_location_matcher" not in self.nlp.pipe_names:
+            if "ner" in self.nlp.pipe_names:
+                self.nlp.add_pipe("multiword_location_matcher", before="ner")
+            else:
+                self.nlp.add_pipe("multiword_location_matcher", first=True)
+
+        if "earth_science_matcher" not in self.nlp.pipe_names:
+            if "ner" in self.nlp.pipe_names:
+                self.nlp.add_pipe("earth_science_matcher", after="ner")
+            else:
+                self.nlp.add_pipe("earth_science_matcher", last=True)
+
+        if "spatial_relation_matcher" not in self.nlp.pipe_names:
+            if "ner" in self.nlp.pipe_names:
+                self.nlp.add_pipe("spatial_relation_matcher", after="ner")
+            else:
+                self.nlp.add_pipe("spatial_relation_matcher", last=True)
+
+        if "study_site_dependency_matcher" not in self.nlp.pipe_names:
+            self.nlp.add_pipe("study_site_dependency_matcher", last=True)
+
     def _configure_ner_for_multiword(self) -> None:
         """Configure NER to favor longer, multi-word entities.
 
@@ -432,6 +492,7 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         """
         # Configure NER for multi-word entities (happens once, lazily)
         self._configure_ner_for_multiword()
+        self._ensure_required_components()
 
         # Phase 1: Components are added at factory level, not at runtime
         # No need to ensure matchers here
@@ -445,7 +506,10 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         entities: list[GeoEntity] = []
         entities.extend(self._extract_ner_entities(doc, section))
         entities.extend(self._extract_earth_science_entities(doc, section))
-        entities.extend(self._extract_spatial_relations_from_matcher(doc, section))
+        spatial_relations = self._extract_spatial_relations_from_matcher(doc, section)
+        if not spatial_relations:
+            spatial_relations = self._extract_spatial_relations_fallback(clean_text, section)
+        entities.extend(spatial_relations)
         entities.extend(self._extract_study_sites_from_matcher(doc, section))
         entities.extend(self._extract_multiword_locations(doc, section))
         entities.extend(self._extract_contextual_locations(doc, section))
@@ -456,6 +520,31 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         # - DependencyMatcher patterns: pattern confidence (0.90)
         # - CoordinateMatcher: format-based confidence (0.80-1.0)
         # - SpatialRelationMatcher: pattern confidence (0.85)
+
+        return entities
+
+    def _extract_spatial_relations_fallback(self, text: str, section: str) -> list[GeoEntity]:
+        """Fallback regex extraction when matcher finds no spatial relations."""
+        relations = SpatialRelationExtractor().extract(text)
+        entities: list[GeoEntity] = []
+
+        for relation_str, start, end in relations:
+            span_key = (start, end)
+            if span_key in self._seen_spans:
+                continue
+
+            self._seen_spans.add(span_key)
+            entities.append(
+                GeoEntity(
+                    text=relation_str,
+                    entity_type="SPATIAL_RELATION",
+                    context=self._get_context(text, start),
+                    section=section,
+                    confidence=self.config.DEFAULT_SPATIAL_RELATION_CONFIDENCE,
+                    start_char=start,
+                    end_char=end,
+                ),
+            )
 
         return entities
 

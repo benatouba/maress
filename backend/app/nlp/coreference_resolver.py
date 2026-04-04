@@ -77,6 +77,10 @@ class LocationCoreferenceResolver:
     # Maximum distance (in sentences) to search for antecedent
     MAX_SENTENCE_DISTANCE = 3
 
+    # Fallback sentence splitting for docs without sentence boundaries.
+    # Splits on sentence-final punctuation followed by whitespace.
+    FALLBACK_SENTENCE_SPLIT_RE: ClassVar[re.Pattern[str]] = re.compile(r"(?<=[.!?])\s+")
+
     def __init__(self) -> None:
         """Initialize the coreference resolver."""
         pass
@@ -104,6 +108,8 @@ class LocationCoreferenceResolver:
         if not anaphors:
             return links
 
+        sentence_boundaries = self._get_sentence_boundaries(doc)
+
         # For each anaphor, find the most likely antecedent
         for anaphor_start, anaphor_end, anaphor_text in anaphors:
             antecedent = self._find_antecedent(
@@ -111,6 +117,7 @@ class LocationCoreferenceResolver:
                 entities,
                 anaphor_start,
                 anaphor_end,
+                sentence_boundaries,
             )
 
             if antecedent:
@@ -150,6 +157,7 @@ class LocationCoreferenceResolver:
         entities: list[GeoEntity],
         anaphor_start: int,
         anaphor_end: int,
+        sentence_boundaries: list[tuple[int, int]],
     ) -> GeoEntity | None:
         """Find the antecedent for an anaphor.
 
@@ -175,12 +183,12 @@ class LocationCoreferenceResolver:
             return None
 
         # Find the sentence containing the anaphor
-        anaphor_sent_idx = self._get_sentence_index(doc, anaphor_start)
+        anaphor_sent_idx = self._get_sentence_index(sentence_boundaries, anaphor_start)
 
         # Score candidates by recency and salience
         candidates = []
         for entity in preceding_entities:
-            entity_sent_idx = self._get_sentence_index(doc, entity.start_char)
+            entity_sent_idx = self._get_sentence_index(sentence_boundaries, entity.start_char)
 
             # Distance in sentences
             sent_distance = anaphor_sent_idx - entity_sent_idx
@@ -202,12 +210,55 @@ class LocationCoreferenceResolver:
         candidates.sort(key=lambda x: x[1], reverse=True)
         return candidates[0][0]
 
-    def _get_sentence_index(self, doc: Doc, char_pos: int) -> int:
+    def _get_sentence_boundaries(self, doc: Doc) -> list[tuple[int, int]]:
+        """Get sentence boundaries as (start_char, end_char) tuples.
+
+        Some document sources (for example layout-converted docs) may not
+        have sentence boundaries set on the spaCy Doc. In that case, we
+        fallback to lightweight regex sentence splitting so coreference
+        resolution can proceed without raising E030.
+        """
+        try:
+            boundaries = [(sent.start_char, sent.end_char) for sent in doc.sents]
+            if boundaries:
+                return boundaries
+        except ValueError:
+            logger.debug(
+                "Sentence boundaries missing on document; using fallback sentence splitting"
+            )
+
+        return self._fallback_sentence_boundaries(doc.text)
+
+    def _fallback_sentence_boundaries(self, text: str) -> list[tuple[int, int]]:
+        """Create sentence boundaries from text when doc.sents is unavailable."""
+        boundaries: list[tuple[int, int]] = []
+        start = 0
+
+        for match in self.FALLBACK_SENTENCE_SPLIT_RE.finditer(text):
+            end = match.start()
+            if end > start:
+                boundaries.append((start, end))
+            start = match.end()
+
+        if start < len(text):
+            boundaries.append((start, len(text)))
+
+        if not boundaries:
+            return [(0, len(text))]
+
+        return boundaries
+
+    def _get_sentence_index(
+        self,
+        sentence_boundaries: list[tuple[int, int]],
+        char_pos: int,
+    ) -> int:
         """Get the sentence index for a character position."""
-        for i, sent in enumerate(doc.sents):
-            if sent.start_char <= char_pos < sent.end_char:
+        for i, (start, end) in enumerate(sentence_boundaries):
+            if start <= char_pos < end:
                 return i
-        return len(list(doc.sents)) - 1
+
+        return len(sentence_boundaries) - 1
 
     def expand_entities_with_coreferences(
         self,

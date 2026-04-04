@@ -37,6 +37,9 @@ def make_extraction_metadata(
         coordinates=coordinates,
         clusters=clusters,
         locations=locations,
+        stage_timings_ms={},
+        filter_statistics={},
+        entity_type_counts={},
     )
 
 

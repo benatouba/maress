@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING
 
 from geopy.point import Point
@@ -21,6 +22,7 @@ from app.nlp.spatial_relation_resolver import SpatialRelationResolver, get_spati
 from app.nlp.table_extractor import TableCoordinateExtractor
 from app.nlp.temporal_filter import TemporalContextFilter, TemporalContext, get_temporal_filter
 from app.nlp.location_name_handler import LocationNameHandler, get_location_name_handler
+from app.nlp.confidence_scorer import apply_enhanced_scoring
 from app.nlp.coreference_resolver import (
     LocationCoreferenceResolver,
     AbbreviationExpander,
@@ -163,8 +165,15 @@ class StudySiteExtractionPipeline:
 
         logger.info(f"Starting extraction for {pdf_path.name}")
 
+        stage_timings_ms: dict[str, float] = {}
+
+        def _record_timing(stage: str, started_at: float) -> None:
+            stage_timings_ms[stage] = round((perf_counter() - started_at) * 1000.0, 2)
+
         # Parse PDF
+        stage_start = perf_counter()
         doc = self.pdf_parser.parse(pdf_path)
+        _record_timing("parse_pdf", stage_start)
         logger.debug(f"Parsed PDF doc spans: {doc.spans}")
 
         # Extract from sections
@@ -179,11 +188,12 @@ class StudySiteExtractionPipeline:
             logger.info("Title entities used for geocoding bias only, not included in results")
 
         # Extract from text sections
+        stage_start = perf_counter()
         section_quality_scores = {}
         layout_spans = doc.spans.get("layout", [])
         logger.info(f"Found {len(layout_spans)} layout spans in PDF")
 
-        text_spans = [s for s in layout_spans if s.label_ == "text"]
+        text_spans = [s for s in layout_spans if s.label_ in {"text", "image"}]
         logger.info(f"Found {len(text_spans)} text spans for extraction")
 
         # Section filtering statistics
@@ -236,27 +246,33 @@ class StudySiteExtractionPipeline:
             f"({sections_filtered} sections filtered out)"
         )
         logger.debug(f"First extracted entities: {all_entities[:5]}")
+        _record_timing("extract_text_sections", stage_start)
 
         # Extract from tables
         if self.enable_table_extraction:
+            stage_start = perf_counter()
             table_spans = [s for s in doc.spans.get("layout", []) if s.label_ == "table"]
             if table_spans:
                 logger.info(f"Processing {len(table_spans)} tables")
                 table_entities = self.table_extractor.extract_from_spans(table_spans)
                 all_entities.extend(table_entities)
                 logger.info(f"Extracted {len(table_entities)} entities from tables")
+            _record_timing("table_extraction", stage_start)
 
         # Extract bounding boxes (Priority 2 improvement)
         # Looks for coordinate ranges that define study area extent
         if self.enable_bounding_box_extraction:
+            stage_start = perf_counter()
             bbox_entities = self._extract_bounding_boxes(text_spans)
             if bbox_entities:
                 all_entities.extend(bbox_entities)
                 logger.info(f"Extracted {len(bbox_entities)} bounding box entities")
+            _record_timing("bounding_box_extraction", stage_start)
 
         # Context-based filtering (Priority 1 improvement)
         # Remove entities from references, affiliations, captions, etc.
         if self.enable_context_filtering:
+            stage_start = perf_counter()
             pre_filter_count = len(all_entities)
             all_entities = self.context_filter.filter_entities(all_entities)
             filtered_count = pre_filter_count - len(all_entities)
@@ -265,10 +281,12 @@ class StudySiteExtractionPipeline:
                     f"Context filtering: removed {filtered_count} entities from "
                     f"reference/affiliation/caption contexts"
                 )
+            _record_timing("context_filtering", stage_start)
 
         # Merge compound location names (Priority 3 improvement)
         # Ensures "Paradise, United States" is recognized as one entity
         if self.enable_location_name_merging:
+            stage_start = perf_counter()
             pre_merge_count = len(all_entities)
             all_entities = self.location_handler.post_process_entities(
                 all_entities,
@@ -280,10 +298,12 @@ class StudySiteExtractionPipeline:
                 logger.info(
                     f"Location name merging: merged {merged_count} fragmented location entities"
                 )
+            _record_timing("location_name_merging", stage_start)
 
         # Coreference resolution (Priority 4 improvement)
         # Resolve references like "the site" back to actual locations
         if self.enable_coreference_resolution:
+            stage_start = perf_counter()
             pre_coref_count = len(all_entities)
             all_entities = self.coref_resolver.expand_entities_with_coreferences(
                 doc,
@@ -294,44 +314,62 @@ class StudySiteExtractionPipeline:
                 logger.info(
                     f"Coreference resolution: added {added_count} entities from anaphoric references"
                 )
+            _record_timing("coreference_resolution", stage_start)
 
         # Abbreviation expansion (Priority 4 improvement)
         # Expand abbreviations in entity text before geocoding
         if self.enable_abbreviation_expansion:
+            stage_start = perf_counter()
             all_entities = self._expand_abbreviations(all_entities)
+            _record_timing("abbreviation_expansion", stage_start)
 
         # Geocode location entities (with caching and rate limiting)
         if self.enable_geocoding:
+            stage_start = perf_counter()
             logger.info("Geocoding location entities...")
             all_entities = self.geocoder.geocode_entities(all_entities, title_bias_point)
             geocoded_count = sum(1 for e in all_entities if e.coordinates)
             logger.info(f"Geocoded entities: {geocoded_count} now have coordinates")
+            _record_timing("geocoding", stage_start)
 
         # Resolve spatial relations to coordinates (Priority 3 improvement)
         # Converts "10 km north of Paris" to actual coordinates
         if self.enable_spatial_resolution:
+            stage_start = perf_counter()
             all_entities = self._resolve_spatial_relations(all_entities)
+            _record_timing("spatial_resolution", stage_start)
 
         # Temporal context filtering (Priority 3 improvement)
         # Remove historical/comparative references, keep current study sites
         if self.enable_temporal_filtering:
+            stage_start = perf_counter()
             all_entities = self._filter_by_temporal_context(all_entities)
+            _record_timing("temporal_filtering", stage_start)
 
         # Uncertainty detection (Priority 4 improvement)
         # Adjust confidence based on certainty markers in context
         if self.enable_uncertainty_detection:
+            stage_start = perf_counter()
             all_entities = self.uncertainty_detector.adjust_entity_confidence(all_entities)
+            _record_timing("uncertainty_detection", stage_start)
+
+        stage_start = perf_counter()
+        all_entities = apply_enhanced_scoring(all_entities, doc)
+        _record_timing("enhanced_confidence_scoring", stage_start)
 
         # Cluster coordinates and keep largest cluster
         cluster_info = {}
         if self.enable_clustering:
+            stage_start = perf_counter()
             logger.info("Clustering coordinates...")
             all_entities, cluster_info = self.clusterer.cluster_entities(all_entities)
             logger.info(
                 f"Clustering complete: {len(cluster_info)} clusters found, keeping largest cluster",
             )
+            _record_timing("clustering", stage_start)
 
         # Deduplicate, filter by confidence, and rank
+        stage_start = perf_counter()
         unique_entities = self._deduplicate_entities(all_entities)
 
         # Log entity types before filtering
@@ -360,17 +398,28 @@ class StudySiteExtractionPipeline:
         )
 
         ranked_entities = self._rank_entities(confident_entities)
+        _record_timing("deduplicate_filter_rank", stage_start)
+
+        filter_stats = {
+            "sections_filtered": sections_filtered,
+            "entities_before_confidence_filter": len(unique_entities),
+            "entities_after_confidence_filter": len(confident_entities),
+            "entities_filtered_by_confidence": filtered_count,
+        }
 
         metadata = ExtractionMetadata(
             total_sections_processed=sections_processed,
-            average_text_quality=0.0,  # Updated later
-            section_quality_scores={},  # Updated later
+            average_text_quality=0.0,  # Updated below after quality aggregation
+            section_quality_scores={},  # Updated below after quality aggregation
             total_entities=len(ranked_entities),
             coordinates=sum(1 for e in ranked_entities if e.coordinates),
             clusters=cluster_info.get("total_clusters", 0),
             locations=sum(
                 1 for e in ranked_entities if e.entity_type in ["LOC", "GPE"] and e.coordinates
             ),
+            stage_timings_ms=stage_timings_ms,
+            filter_statistics=filter_stats,
+            entity_type_counts=entity_type_counts,
         )
 
         # Add quality assessment to metadata
@@ -391,6 +440,9 @@ class StudySiteExtractionPipeline:
             }
             logger.info(f"Average text quality: {avg_quality:.3f}")
 
+        metadata.average_text_quality = avg_quality
+        metadata.section_quality_scores = quality_scores_dict
+
         logger.info(f"Extraction complete: {len(ranked_entities)} total entities")
 
         result = ExtractionResult(
@@ -408,6 +460,7 @@ class StudySiteExtractionPipeline:
         # Validation (Priority 4 improvement)
         # Perform quality assurance checks on the extraction result
         if self.enable_validation:
+            stage_start = perf_counter()
             validation_report = self.validator.validate_result(result)
             if not validation_report.is_valid:
                 logger.warning(
@@ -419,6 +472,10 @@ class StudySiteExtractionPipeline:
                 logger.warning(
                     f"Validation warnings: {len(validation_report.warnings)} issues found"
                 )
+            _record_timing("validation", stage_start)
+            metadata.stage_timings_ms = stage_timings_ms
+
+        logger.info("Pipeline stage timings (ms): %s", stage_timings_ms)
 
         return result
 

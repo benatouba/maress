@@ -423,6 +423,402 @@ class PatternRegistry:
             ],
         }
 
+    @staticmethod
+    def get_extended_study_site_dependency_patterns(
+        location_preps: list[str],
+        site_nouns: list[str],
+    ) -> dict[str, list[list[dict[str, Any]]]]:
+        """Get extended dependency patterns for study site detection.
+
+        These patterns capture domain-specific and passive constructions commonly
+        found in earth and environmental science papers.
+        """
+        return {
+            "FIELDWORK_AT_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "fieldwork",
+                        "RIGHT_ATTRS": {
+                            "POS": "NOUN",
+                            "LEMMA": {
+                                "IN": ["fieldwork", "field", "work", "campaign", "expedition"]
+                            },
+                        },
+                    },
+                    {
+                        "LEFT_ID": "fieldwork",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "verb",
+                        "RIGHT_ATTRS": {
+                            "POS": "VERB",
+                            "LEMMA": {"IN": ["carry", "conduct", "perform", "undertake", "complete"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": {"IN": location_preps},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "LOCATION_SELECTED_AS_SITE": [
+                [
+                    {
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "location",
+                        "REL_OP": "<",
+                        "RIGHT_ID": "verb",
+                        "RIGHT_ATTRS": {
+                            "POS": "VERB",
+                            "LEMMA": {"IN": ["select", "choose", "designate", "identify", "define"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep_as",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": "as",
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep_as",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "site_noun",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "LEMMA": {"IN": site_nouns},
+                        },
+                    },
+                ]
+            ],
+            "SAMPLES_FROM_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "sample_noun",
+                        "RIGHT_ATTRS": {
+                            "POS": "NOUN",
+                            "LEMMA": {"IN": ["core", "sample", "specimen", "sediment", "ice", "peat"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "sample_noun",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "verb",
+                        "RIGHT_ATTRS": {
+                            "POS": "VERB",
+                            "LEMMA": {"IN": ["extract", "retrieve", "obtain", "collect", "drill", "take"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": {"IN": ["from", "in", "at"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "INSTRUMENTS_AT_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "instrument",
+                        "RIGHT_ATTRS": {
+                            "POS": "NOUN",
+                            "LEMMA": {
+                                "IN": [
+                                    "sensor",
+                                    "instrument",
+                                    "tower",
+                                    "station",
+                                    "buoy",
+                                    "logger",
+                                    "probe",
+                                    "gauge",
+                                ]
+                            },
+                        },
+                    },
+                    {
+                        "LEFT_ID": "instrument",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "verb",
+                        "RIGHT_ATTRS": {
+                            "POS": "VERB",
+                            "LEMMA": {"IN": ["deploy", "install", "place", "position", "set", "mount"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": {"IN": list(set(location_preps) | {"across", "throughout"})},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "TRANSECTS_ACROSS_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "survey_noun",
+                        "RIGHT_ATTRS": {
+                            "POS": "NOUN",
+                            "LEMMA": {"IN": ["transect", "plot", "quadrat", "grid", "profile", "survey"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "survey_noun",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "verb",
+                        "RIGHT_ATTRS": {
+                            "POS": "VERB",
+                            "LEMMA": {"IN": ["establish", "set", "lay", "run", "conduct", "perform"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": {"IN": ["across", "along", "through", "in", "within", "throughout"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "NETWORK_IN_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "network_noun",
+                        "RIGHT_ATTRS": {
+                            "POS": "NOUN",
+                            "LEMMA": {"IN": ["network", "array", "system", "infrastructure", "observatory"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "network_noun",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": {"IN": location_preps},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "DERIVED_FROM_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "verb",
+                        "RIGHT_ATTRS": {
+                            "POS": "VERB",
+                            "LEMMA": {"IN": ["derive", "obtain", "acquire", "source", "extract"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep_from",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": "from",
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep_from",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "imagery",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "LEMMA": {"IN": ["imagery", "image", "satellite", "scene", "data", "product"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "imagery",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep_cover",
+                        "RIGHT_ATTRS": {
+                            "DEP": "acl",
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep_cover",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": {"IN": ["dobj", "pobj"]},
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "EXPERIMENTS_AT_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "experiment",
+                        "RIGHT_ATTRS": {
+                            "POS": "NOUN",
+                            "LEMMA": {"IN": ["experiment", "trial", "test", "manipulation", "treatment"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "experiment",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "verb",
+                        "RIGHT_ATTRS": {
+                            "POS": "VERB",
+                            "LEMMA": {"IN": ["perform", "conduct", "carry", "run", "execute"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": {"IN": location_preps},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "BASED_AT_LOCATION": [
+                [
+                    {
+                        "RIGHT_ID": "based",
+                        "RIGHT_ATTRS": {
+                            "LEMMA": "base",
+                            "TAG": {"IN": ["VBN", "VBD"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "based",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "prep",
+                        "RIGHT_ATTRS": {
+                            "DEP": "prep",
+                            "LEMMA": {"IN": ["in", "at", "on"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+            "ALONG_LOCATION_FEATURE": [
+                [
+                    {
+                        "RIGHT_ID": "prep_along",
+                        "RIGHT_ATTRS": {
+                            "LEMMA": {"IN": ["along", "across", "through"]},
+                        },
+                    },
+                    {
+                        "LEFT_ID": "prep_along",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "feature",
+                        "RIGHT_ATTRS": {
+                            "DEP": "pobj",
+                            "LEMMA": {
+                                "IN": [
+                                    "coast",
+                                    "coastline",
+                                    "river",
+                                    "border",
+                                    "margin",
+                                    "shore",
+                                    "gradient",
+                                    "transect",
+                                ]
+                            },
+                        },
+                    },
+                    {
+                        "LEFT_ID": "feature",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "location",
+                        "RIGHT_ATTRS": {
+                            "DEP": {"IN": ["compound", "nmod", "poss"]},
+                            "ENT_TYPE": {"IN": ["GPE", "LOC", "FAC"]},
+                        },
+                    },
+                ]
+            ],
+        }
+
     # === SPATIAL RELATION PATTERNS ===
 
     @staticmethod

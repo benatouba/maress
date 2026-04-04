@@ -15,6 +15,41 @@ from app.nlp.pdf_parser import DoclingPDFParser
 from app.nlp.sentence_boundaries import improve_sentence_boundaries
 
 
+def _enable_scispacy_abbreviation_detector(
+    nlp: spacy.language.Language, config: ModelConfig
+) -> spacy.language.Language:
+    """Add scispaCy abbreviation detector when available.
+
+    This runs for scientific models and only if `abbreviation_detector`
+    isn't already present.
+    """
+    if not config.SPACY_MODEL.startswith("en_core_sci"):
+        return nlp
+
+    if "abbreviation_detector" in nlp.pipe_names:
+        return nlp
+
+    try:
+        from scispacy.abbreviation import AbbreviationDetector  # noqa: F401
+
+        nlp.add_pipe("abbreviation_detector", first=True)
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info("Added scispacy AbbreviationDetector to pipeline for model %s", config.SPACY_MODEL)
+    except ImportError:
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "scispacy model detected (%s) but scispacy package not installed. "
+            "Install with: pip install scispacy",
+            config.SPACY_MODEL,
+        )
+
+    return nlp
+
+
 class PipelineFactory:
     """Factory for creating configured extraction pipelines.
 
@@ -69,27 +104,7 @@ class PipelineFactory:
         from app.nlp.spacy_spatial_relation_matcher import SpatialRelationMatcher  # noqa: F401
         from app.nlp.spacy_study_site_dependency_matcher import StudySiteDependencyMatcher  # noqa: F401
 
-        # ScispaCy Best Practice: Add AbbreviationDetector for scientific text models
-        # This should be added early in the pipeline to resolve abbreviations before other components
-        if config.SPACY_MODEL.startswith("en_core_sci"):
-            try:
-                from scispacy.abbreviation import AbbreviationDetector  # noqa: F401
-
-                if "abbreviation_detector" not in nlp.pipe_names:
-                    # Add abbreviation detector early, before NER
-                    # This allows other components to benefit from abbreviation resolution
-                    nlp.add_pipe("abbreviation_detector", first=True)
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.info("Added scispacy AbbreviationDetector to pipeline for model %s", config.SPACY_MODEL)
-            except ImportError:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.warning(
-                    "scispacy model detected (%s) but scispacy package not installed. "
-                    "Install with: pip install scispacy",
-                    config.SPACY_MODEL,
-                )
+        nlp = _enable_scispacy_abbreviation_detector(nlp, config)
 
         # Add multiword location matcher BEFORE NER
         # This prevents NER from splitting multi-word location names
