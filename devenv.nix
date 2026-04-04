@@ -34,6 +34,10 @@
     # Native libs needed by Python packages
     ghostscript # camelot-py[ghostscript]
     file # python-magic (libmagic)
+    libGL
+    glib
+    tesseract
+    libc
 
     # LSPs and dev tools — Python
     ty
@@ -68,6 +72,8 @@
   env = {
     MAGIC = "${pkgs.file}/share/misc/magic.mgc";
     UV_LINK_MODE = "copy";
+    UV_WORKING_DIR = "./backend";
+    PGDATABASE = "maress";
   };
 
   # --- Processes (start with `devenv up`) ---
@@ -85,7 +91,7 @@
       };
     };
     worker = {
-      exec = "cd backend && uv run celery -A app.celery_app worker --loglevel=info";
+      exec = "cd backend && env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND uv run celery -A app.celery_app worker --loglevel=info";
       process-compose = {
         depends_on.migrate.condition = "process_completed_successfully";
       };
@@ -97,7 +103,7 @@
     echo "maress dev environment"
     echo "  devenv up    — start postgres + redis + backend + worker + frontend"
     echo "  backend:  cd backend && uv run uvicorn app.main:app --reload"
-    echo "  worker:   cd backend && uv run celery -A app.celery_app worker"
+    echo "  worker:   cd backend && env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND uv run celery -A app.celery_app worker"
     echo "  frontend: cd frontend && pnpm dev"
   '';
 }
