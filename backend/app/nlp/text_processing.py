@@ -355,12 +355,16 @@ class CoordinateParser:
         # === LOW PRIORITY: Alternative formats ===
         # Without symbols (requires direction): 45.5 N, 122.3 W
         r"(\d+\.\d+)\s+([NS])\s*,?\s*(\d+\.\d+)\s+([EW])",
+        # Without symbols (compact): 45.5N, 122.3W
+        r"(\d+\.\d+)\s*([NS])\s*,?\s*(\d+\.\d+)\s*([EW])",
         # With explicit signs: +45.123, -122.456
         r"([+-]\d+\.\d{2,})\s*,\s*([+-]\d+\.\d{2,})",
         # Compact format: 00°01'.72N, 77°59'.13E
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\.(\d+)\s*([EW])",
         # With spaces before direction: 00°01'.72 N (corrupted format)
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([EW])",
+        # Malformed compact format: 00 7 01 b .72N, 77 7 59 b .13E
+        r"(\d+)\s*[°7oOu]\s*(\d+)\s*[\'′b]\s*\.\s*(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°7oOu]\s*(\d+)\s*[\'′b]\s*\.\s*(\d+)\s*([EW])",
         # Range format (extract midpoint): 45.1-45.2°N, 122.3-122.5°W
         r"(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([NS])\s*,?\s*(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([EW])",
     ]
@@ -639,6 +643,16 @@ class CoordinateParser:
                 # Without symbols (requires direction): 45.5 N, 122.3 W
                 (
                     r"(\d+\.\d+)\s+([NS])\s*,?\s*(\d+\.\d+)\s+([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1))],
+                        m.group(2),
+                        [float(m.group(3))],
+                        m.group(4),
+                    ),
+                ),
+                # Without symbols (compact): 45.5N, 122.3W
+                (
+                    r"(\d+\.\d+)\s*([NS])\s*,?\s*(\d+\.\d+)\s*([EW])",
                     lambda m: self._calc_decimal(
                         [float(m.group(1))],
                         m.group(2),

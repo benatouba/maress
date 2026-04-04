@@ -12,8 +12,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, override
+from typing import TYPE_CHECKING, Any, ClassVar, cast, override
 
+import numpy as np
 import pymupdf
 from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import (
@@ -24,23 +25,29 @@ from docling.datamodel.pipeline_options import (
     TesseractOcrOptions,
 )
 from docling.document_converter import DocumentConverter, PdfFormatOption
+from spacy.tokens import Doc as SpaCyDoc
 from spacy_layout import spaCyLayout
 
 from app.core.config import settings
 
 if TYPE_CHECKING:
-    from docling_core.types import DoclingDocument
     from spacy.language import Language
     from spacy.tokens import Doc
 
 logger = logging.getLogger(__name__)
 logger.setLevel(settings.LOG_LEVEL)
 
+if not SpaCyDoc.has_extension("image_ocr_snippets"):
+    SpaCyDoc.set_extension("image_ocr_snippets", default=None)
+if not SpaCyDoc.has_extension("image_ocr_backend"):
+    SpaCyDoc.set_extension("image_ocr_backend", default=None)
+
 
 class OCRBackend(str, Enum):
     """OCR backends in order of preference (fastest to slowest)."""
 
     RAPIDOCR = "rapidocr"  # Fast, good quality (onnxruntime)
+    PADDLEOCR = "paddleocr"  # Higher quality in noisy scans (RapidOCR paddle backend)
     TESSERACT = "tesseract"  # Moderate speed, high quality
     TESSERACT_CLI = "tesseract_cli"  # CLI-based Tesseract
     EASYOCR = "easyocr"  # Slow, best for complex documents
@@ -55,6 +62,17 @@ class ParseResult:
     backend_used: str
     success: bool
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class ImageOcrSnippet:
+    """OCR text extracted from an image region in a PDF page."""
+
+    text: str
+    page_number: int
+    bbox: tuple[float, float, float, float]
+    backend_used: str
+    confidence: float | None = None
 
 
 class PDFParser(ABC):
@@ -80,10 +98,11 @@ class DoclingPDFParser(PDFParser):
     """PDF parser using Docling with robust OCR fallback chain.
 
     Automatically tries multiple OCR backends if one fails:
-    1. RapidOCR (fastest, good quality)
-    2. Tesseract (Python binding)
-    3. EasyOCR (slowest, best for difficult docs)
-    4. PyMuPDF (no OCR, last resort - 50x faster)
+    1. PaddleOCR mode (RapidOCR paddle backend)
+    2. RapidOCR (onnxruntime)
+    3. Tesseract (Python binding)
+    4. EasyOCR (slowest, best for difficult docs)
+    5. PyMuPDF (no OCR, last resort - 50x faster)
 
     Example:
         >>> parser = DoclingPDFParser(nlp, enable_fallback=True)
@@ -92,10 +111,21 @@ class DoclingPDFParser(PDFParser):
 
     # OCR backends to try in order
     FALLBACK_CHAIN: ClassVar = [
+        OCRBackend.PADDLEOCR,
         OCRBackend.RAPIDOCR,
         OCRBackend.TESSERACT,
         OCRBackend.EASYOCR,
     ]
+    IMAGE_OCR_BACKENDS: ClassVar[tuple[OCRBackend, OCRBackend]] = (
+        OCRBackend.PADDLEOCR,
+        OCRBackend.RAPIDOCR,
+    )
+
+    SENTENCE_PIPE_COMPONENTS: ClassVar[tuple[str, ...]] = (
+        "sentencizer",
+        "senter",
+        "scientific_sentencizer",
+    )
 
     def __init__(
         self,
@@ -104,6 +134,8 @@ class DoclingPDFParser(PDFParser):
         enable_ocr_fallback: bool = True,
         enable_pymupdf_fallback: bool = True,
         force_full_page_ocr: bool = False,
+        enable_image_ocr: bool = True,
+        image_ocr_min_chars: int = 8,
     ) -> None:
         """Initialize parser with spaCy model and fallback options.
 
@@ -112,11 +144,15 @@ class DoclingPDFParser(PDFParser):
             enable_ocr_fallback: Try multiple OCR backends (default: True)
             enable_pymupdf_fallback: Use PyMuPDF as last resort (default: True)
             force_full_page_ocr: Force OCR on all pages, not hybrid (default: False)
+            enable_image_ocr: Extract OCR text from embedded PDF images (default: True)
+            image_ocr_min_chars: Minimum snippet length to keep for image OCR (default: 8)
         """
         self.nlp = nlp
         self.enable_ocr_fallback = enable_ocr_fallback
         self.enable_pymupdf_fallback = enable_pymupdf_fallback
         self.force_full_page_ocr = force_full_page_ocr
+        self.enable_image_ocr = enable_image_ocr
+        self.image_ocr_min_chars = image_ocr_min_chars
         self._layout: spaCyLayout | None = None
 
     def _init_layout(self) -> spaCyLayout:
@@ -139,7 +175,14 @@ class DoclingPDFParser(PDFParser):
             OCR options instance or None
         """
         ocr_options_map = {
-            OCRBackend.RAPIDOCR: RapidOcrOptions(force_full_page_ocr=self.force_full_page_ocr),
+            OCRBackend.RAPIDOCR: RapidOcrOptions(
+                force_full_page_ocr=self.force_full_page_ocr,
+                backend="onnxruntime",
+            ),
+            OCRBackend.PADDLEOCR: RapidOcrOptions(
+                force_full_page_ocr=self.force_full_page_ocr,
+                backend="paddle",
+            ),
             OCRBackend.TESSERACT_CLI: TesseractCliOcrOptions(
                 force_full_page_ocr=self.force_full_page_ocr,
             ),
@@ -150,7 +193,7 @@ class DoclingPDFParser(PDFParser):
         }
         return ocr_options_map.get(backend)
 
-    def _docling_to_spacy(self, docling_doc: DoclingDocument) -> Doc:
+    def _docling_to_spacy(self, docling_doc: Any) -> Doc:
         """Convert Docling document to spaCy Doc.
 
         Args:
@@ -165,13 +208,35 @@ class DoclingPDFParser(PDFParser):
         # Remove pictures for cleaner output
         logger.debug("DoclingDocument: %s", docling_doc)
         doc = layout(docling_doc)
+
+        # spaCy-layout builds the Doc directly from tokens and does not run the
+        # NLP pipeline, so sentence boundaries need to be applied explicitly.
+        doc = self._apply_sentence_segmentation(doc)
+
         # Log brief preview
         logger.debug("Converted Doc: %s", doc)
         return doc
 
+    def _apply_sentence_segmentation(self, doc: Doc) -> Doc:
+        """Apply sentence segmentation components to an existing Doc.
+
+        spaCy-layout disables pipeline components during conversion for speed,
+        which means sentence boundaries may be unset on the resulting Doc.
+        Run only sentence-boundary components to avoid unnecessary overhead.
+        """
+        enabled_components = [
+            name for name in self.SENTENCE_PIPE_COMPONENTS if name in self.nlp.pipe_names
+        ]
+
+        if not enabled_components:
+            return doc
+
+        with self.nlp.select_pipes(enable=enabled_components):
+            return self.nlp(doc)
+
     def _validate_docling_result(
         self,
-        docling_doc: DoclingDocument,
+        docling_doc: Any,
         backend: OCRBackend,
     ) -> tuple[bool, str | None]:
         """Validate that Docling parsing produced meaningful content.
@@ -226,7 +291,6 @@ class DoclingPDFParser(PDFParser):
             pipeline_options = PdfPipelineOptions()
             pipeline_options.do_ocr = True
             pipeline_options.do_table_structure = True
-            pipeline_options.table_structure_options.do_cell_matching = True
 
             # Set OCR options
             ocr_options = self._get_ocr_options(backend)
@@ -281,6 +345,182 @@ class DoclingPDFParser(PDFParser):
                 success=False,
                 error=str(e),
             )
+
+    def _extract_image_ocr_snippets(
+        self,
+        pdf_path: Path,
+        backend: OCRBackend,
+    ) -> list[ImageOcrSnippet]:
+        """Extract OCR text from embedded PDF images only.
+
+        This is a supplemental stage for figure/map panels that may not be
+        captured well by the default document OCR flow.
+        """
+        if not self.enable_image_ocr:
+            return []
+
+        try:
+            from rapidocr import EngineType, RapidOCR  # type: ignore
+        except ImportError:
+            logger.warning("RapidOCR not available for image OCR stage")
+            return []
+
+        engine_aliases = {
+            OCRBackend.RAPIDOCR: EngineType.ONNXRUNTIME,
+            OCRBackend.PADDLEOCR: EngineType.PADDLE,
+        }
+        engine_type = engine_aliases.get(backend)
+        if engine_type is None:
+            return []
+
+        try:
+            reader = RapidOCR(
+                params={
+                    "Det.engine_type": engine_type,
+                    "Cls.engine_type": engine_type,
+                    "Rec.engine_type": engine_type,
+                },
+            )
+        except Exception:
+            logger.warning("Failed to initialize image OCR reader for backend %s", backend.value)
+            return []
+
+        snippets: list[ImageOcrSnippet] = []
+        try:
+            pdf_doc = pymupdf.open(pdf_path)
+        except Exception:
+            logger.warning("Could not open PDF for image OCR snippets: %s", pdf_path.name)
+            return []
+
+        try:
+            for page_index in range(pdf_doc.page_count):
+                page = pdf_doc[page_index]
+                image_infos = cast(list[dict[str, Any]], page.get_image_info(hashes=False))
+                for info in image_infos:
+                    bbox_raw = info.get("bbox")
+                    if not bbox_raw:
+                        continue
+
+                    try:
+                        bbox_rect = pymupdf.Rect(bbox_raw)
+                        if bbox_rect.width < 8 or bbox_rect.height < 8:
+                            continue
+
+                        pix = page.get_pixmap(clip=bbox_rect, dpi=216, alpha=False)
+                        image = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                            pix.height,
+                            pix.width,
+                            pix.n,
+                        )
+                        ocr_result = reader(image)
+                    except Exception:
+                        continue
+
+                    if ocr_result is None:
+                        continue
+
+                    ocr_texts = cast(list[str] | None, getattr(ocr_result, "txts", None))
+                    if ocr_texts is None:
+                        continue
+
+                    text = " ".join(t.strip() for t in ocr_texts if t and t.strip()).strip()
+                    if len(text) < self.image_ocr_min_chars:
+                        continue
+
+                    confidence = None
+                    ocr_scores = cast(list[float] | None, getattr(ocr_result, "scores", None))
+                    if ocr_scores is not None and len(ocr_scores) > 0:
+                        confidence = float(sum(ocr_scores) / len(ocr_scores))
+
+                    snippets.append(
+                        ImageOcrSnippet(
+                            text=text,
+                            page_number=page_index + 1,
+                            bbox=(bbox_rect.x0, bbox_rect.y0, bbox_rect.x1, bbox_rect.y1),
+                            backend_used=backend.value,
+                            confidence=confidence,
+                        ),
+                    )
+        finally:
+            pdf_doc.close()
+
+        return snippets
+
+    def _extract_image_ocr_snippets_with_fallback(
+        self,
+        pdf_path: Path,
+        preferred_backend: OCRBackend,
+    ) -> list[ImageOcrSnippet]:
+        """Extract image OCR snippets with paddle/onnx fallback."""
+        backend_order = [preferred_backend]
+        if preferred_backend == OCRBackend.PADDLEOCR:
+            backend_order.append(OCRBackend.RAPIDOCR)
+        elif preferred_backend == OCRBackend.RAPIDOCR:
+            backend_order.append(OCRBackend.PADDLEOCR)
+
+        for configured in self.IMAGE_OCR_BACKENDS:
+            if configured not in backend_order:
+                backend_order.append(configured)
+
+        for backend in backend_order:
+            snippets = self._extract_image_ocr_snippets(pdf_path, backend)
+            if snippets:
+                logger.info(
+                    "Extracted %d image OCR snippets with %s",
+                    len(snippets),
+                    backend.value,
+                )
+                return snippets
+
+        return []
+
+    def _append_image_ocr_spans(self, doc: Doc, snippets: list[ImageOcrSnippet]) -> Doc:
+        """Append image OCR snippets to layout spans as pseudo-text blocks."""
+        if not snippets:
+            return doc
+
+        current_length = len(doc.text)
+        extras: list[str] = []
+        image_spans = []
+
+        for snippet in snippets:
+            prefix = f"\n\n[IMAGE_OCR page={snippet.page_number}] "
+            segment = f"{prefix}{snippet.text}"
+            start_char = current_length + sum(len(x) for x in extras)
+            end_char = start_char + len(segment)
+            extras.append(segment)
+            image_spans.append((start_char, end_char, snippet))
+
+        if not extras:
+            return doc
+
+        enriched_text = doc.text + "".join(extras)
+        enriched_doc = self.nlp(enriched_text)
+
+        for key, spans in doc.spans.items():
+            recreated_spans = []
+            for span in spans:
+                recreated = enriched_doc.char_span(
+                    span.start_char,
+                    span.end_char,
+                    label=span.label_,
+                    alignment_mode="expand",
+                )
+                if recreated is not None:
+                    recreated_spans.append(recreated)
+            enriched_doc.spans[key] = recreated_spans
+
+        layout_spans = list(enriched_doc.spans.get("layout", []))
+        for start_char, end_char, snippet in image_spans:
+            span = enriched_doc.char_span(start_char, end_char, label="image", alignment_mode="expand")
+            if span is not None:
+                layout_spans.append(span)
+
+        enriched_doc.spans["layout"] = layout_spans
+        enriched_doc._.image_ocr_snippets = snippets
+        enriched_doc._.image_ocr_backend = snippets[0].backend_used if snippets else None
+
+        return enriched_doc
 
     def _try_pymupdf(self, pdf_path: Path) -> ParseResult:
         """Try basic text extraction with PyMuPDF (no OCR, 50x faster).
@@ -338,7 +578,8 @@ class DoclingPDFParser(PDFParser):
         """Parse PDF with automatic fallback through multiple methods.
 
         Tries methods in order until one succeeds:
-        1. Docling + RapidOCR
+        1. Docling + PaddleOCR mode
+        2. Docling + RapidOCR (if ocr_fallback enabled)
         3. Docling + Tesseract (if ocr_fallback enabled)
         4. Docling + EasyOCR (if ocr_fallback enabled)
         5. PyMuPDF (if pymupdf_fallback enabled)
@@ -367,8 +608,12 @@ class DoclingPDFParser(PDFParser):
                 result = self._try_docling(pdf_path, backend)
                 # Check if result has actual content (not just empty doc)
                 if result.success and result.doc and result.doc.text.strip():
+                    parsed_doc = result.doc
+                    if self.enable_image_ocr:
+                        snippets = self._extract_image_ocr_snippets_with_fallback(pdf_path, backend)
+                        parsed_doc = self._append_image_ocr_spans(parsed_doc, snippets)
                     logger.info(f"Parsed {pdf_path.name} using {result.backend_used}")
-                    return result.doc
+                    return parsed_doc
 
                 # Log reason for trying next backend
                 if result.success and result.doc and not result.doc.text.strip():
@@ -382,8 +627,15 @@ class DoclingPDFParser(PDFParser):
             result = self._try_docling(pdf_path, self.FALLBACK_CHAIN[0])
             # Check if result has actual content (not just empty doc)
             if result.success and result.doc and result.doc.text.strip():
+                parsed_doc = result.doc
+                if self.enable_image_ocr:
+                    snippets = self._extract_image_ocr_snippets_with_fallback(
+                        pdf_path,
+                        self.FALLBACK_CHAIN[0],
+                    )
+                    parsed_doc = self._append_image_ocr_spans(parsed_doc, snippets)
                 logger.info(f"Parsed {pdf_path.name} using {result.backend_used}")
-                return result.doc
+                return parsed_doc
 
         # PyMuPDF fallback if enabled (50x faster for text-based PDFs)
         if self.enable_pymupdf_fallback:

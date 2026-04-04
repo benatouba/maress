@@ -13,6 +13,8 @@ from spacy.matcher import Matcher
 from spacy.tokens import Doc, Span
 from spacy.util import filter_spans  # Phase 1: Use spaCy's optimized overlap filtering
 
+from app.nlp.pattern_registry import PatternRegistry
+
 
 class SpatialRelationMatcher:
     """spaCy component for detecting spatial relation phrases using Matcher.
@@ -100,93 +102,20 @@ class SpatialRelationMatcher:
     def _add_patterns(self) -> None:
         """Add token-based patterns for spatial relations."""
 
-        # Combine all direction types
         all_directions = self.CARDINAL_DIRECTIONS + self.HYDROLOGICAL_DIRECTIONS
-
-        # Pattern: [NUM] [UNIT] [DIRECTION] of [LOCATION]
-        # Example: "10 km north of Paris"
-        self.matcher.add(
-            "DISTANCE_DIRECTION",
-            [
-                [
-                    {"LIKE_NUM": True},  # Distance number
-                    {"LOWER": {"IN": self.DISTANCE_UNITS}},  # Unit
-                    {"LOWER": {"IN": all_directions}},  # Direction
-                    {"LOWER": {"IN": self.DIRECTIONAL_PREPS}},
-                    {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},  # Location entity
-                ]
-            ],
-            greedy="LONGEST",
+        patterns = PatternRegistry.get_spatial_relation_token_patterns(
+            distance_units=self.DISTANCE_UNITS,
+            all_directions=all_directions,
+            directional_preps=self.DIRECTIONAL_PREPS,
+            proximity_preps=self.PROXIMITY_PREPS,
+            containment_preps=self.CONTAINMENT_PREPS,
+            location_verbs=self.LOCATION_VERBS,
+            location_preps=self.LOCATION_PREPS,
+            location_descriptors=self.LOCATION_DESCRIPTORS,
         )
 
-        # Pattern: [SPATIAL_PREP] [LOCATION]
-        # Example: "near Paris", "adjacent to the river", "close to the station"
-        self.matcher.add(
-            "SPATIAL_PREPOSITION",
-            [
-                [
-                    {"LOWER": {"IN": self.PROXIMITY_PREPS}},
-                    {"LOWER": "to", "OP": "?"},  # Optional "to"
-                    {"POS": "DET", "OP": "?"},  # Optional determiner
-                    {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},  # Location
-                ],
-                [
-                    {"LOWER": {"IN": self.CONTAINMENT_PREPS}},
-                    {"POS": "DET", "OP": "?"},  # Optional determiner
-                    {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
-                ],
-            ],
-            greedy="LONGEST",
-        )
-
-        # Pattern: [DIRECTION] of [LOCATION]
-        # Example: "north of Paris", "east of the river"
-        self.matcher.add(
-            "DIRECTION_OF",
-            [
-                [
-                    {"LOWER": {"IN": all_directions}},
-                    {"LOWER": "of"},
-                    {"POS": "DET", "OP": "?"},  # Optional determiner
-                    {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
-                ]
-            ],
-            greedy="LONGEST",
-        )
-
-        # Pattern: [LOCATION_VERB] in/at/near [LOCATION]
-        # Example: "located in California", "situated at the coast", "found near the river"
-        self.matcher.add(
-            "LOCATION_VERB",
-            [
-                [
-                    {"LOWER": {"IN": self.LOCATION_VERBS}},
-                    {"LOWER": {"IN": self.LOCATION_PREPS}},
-                    {"POS": "DET", "OP": "?"},  # Optional determiner
-                    {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
-                ],
-                [
-                    {"LOWER": {"IN": self.LOCATION_VERBS}},
-                    {"LOWER": {"IN": self.LOCATION_PREPS}},
-                    {"POS": "DET", "OP": "?"},  # Optional determiner
-                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},  # Location name (proper noun or noun)
-                ],
-            ],
-            greedy="LONGEST",
-        )
-
-        # Pattern: [LOCATION] [DESCRIPTOR]
-        # Example: "Amazon River basin", "Pacific Ocean region", "coastal area"
-        self.matcher.add(
-            "LOCATION_DESCRIPTOR",
-            [
-                [
-                    {"ENT_TYPE": {"IN": ["LOC", "GPE"]}},
-                    {"LOWER": {"IN": self.LOCATION_DESCRIPTORS}},
-                ]
-            ],
-            greedy="LONGEST",
-        )
+        for pattern_name, pattern_list in patterns.items():
+            self.matcher.add(pattern_name, pattern_list, greedy="LONGEST")
 
     def __call__(self, doc: Doc) -> Doc:
         """Process a Doc object and add spatial relation entities.

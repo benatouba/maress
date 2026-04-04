@@ -164,6 +164,9 @@ class StudySiteResultAdapter:
         if "Table" in entity.context:
             return CoordinateSourceType.TABLE
 
+        if "[IMAGE_OCR" in entity.context:
+            return CoordinateSourceType.CAPTION
+
         if entity.entity_type in ["CAPTION", "FIGURE"]:
             return CoordinateSourceType.CAPTION
 

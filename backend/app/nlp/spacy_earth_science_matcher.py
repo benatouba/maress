@@ -11,8 +11,6 @@ These entities are crucial for identifying study site locations in
 earth system science publications.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar

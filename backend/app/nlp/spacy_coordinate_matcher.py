@@ -13,6 +13,8 @@ from spacy.matcher import Matcher
 from spacy.tokens import Doc, Span
 from spacy.util import filter_spans  # Phase 1: Use spaCy's optimized overlap filtering
 
+from app.nlp.pattern_registry import PatternRegistry
+
 
 class CoordinateMatcher:
     """spaCy component for detecting coordinates using Matcher and regex.
@@ -20,6 +22,22 @@ class CoordinateMatcher:
     Uses greedy longest-match strategy for overlapping patterns.
     Handles both well-formed and malformed coordinates from PDF extraction.
     """
+
+    PATTERN_CONFIDENCE = {
+        "dms": 0.95,
+        "dm": 0.90,
+        "dd_symbol": 0.85,
+        "parentheses": 0.85,
+        "brackets": 0.85,
+        "dd_direction": 0.80,
+        "decimal_pair": 0.80,
+        "dm_compact": 0.75,
+        "dm_deg7": 0.70,
+        "dm_dego": 0.70,
+        "dm_minb": 0.70,
+        "dms_u_9": 0.65,
+        "dm_u": 0.65,
+    }
 
     def __init__(self, nlp: Language, name: str = "coordinate_matcher") -> None:
         """Initialize the coordinate matcher component.
@@ -45,63 +63,10 @@ class CoordinateMatcher:
         These patterns match structured formats that align with token boundaries.
         The greedy="LONGEST" ensures we get the longest match for overlaps.
         """
-        # Pattern: Lat: 45.123, Lon: -122.456
-        # Matches: "Lat:" or "Latitude:" followed by number, comma, "Lon:" or "Longitude:", number
-        self.matcher.add(
-            "LABELED_LATLON",
-            [
-                [
-                    {"LOWER": {"IN": ["lat", "latitude"]}},
-                    {"IS_PUNCT": True, "OP": "?"},  # Optional colon
-                    {"IS_SPACE": True, "OP": "*"},  # Optional spaces
-                    {"LIKE_NUM": True},  # Latitude value
-                    {"IS_PUNCT": True},  # Comma
-                    {"IS_SPACE": True, "OP": "*"},
-                    {"LOWER": {"IN": ["lon", "long", "longitude"]}},
-                    {"IS_PUNCT": True, "OP": "?"},
-                    {"IS_SPACE": True, "OP": "*"},
-                    {"LIKE_NUM": True},  # Longitude value
-                ]
-            ],
-            greedy="LONGEST",  # Prefer longest match
-        )
+        token_patterns = PatternRegistry.get_coordinate_token_patterns()
 
-        # Pattern: Lon: -122.456, Lat: 45.123 (reversed order)
-        self.matcher.add(
-            "LABELED_LONLAT",
-            [
-                [
-                    {"LOWER": {"IN": ["lon", "long", "longitude"]}},
-                    {"IS_PUNCT": True, "OP": "?"},
-                    {"IS_SPACE": True, "OP": "*"},
-                    {"LIKE_NUM": True},
-                    {"IS_PUNCT": True},
-                    {"IS_SPACE": True, "OP": "*"},
-                    {"LOWER": {"IN": ["lat", "latitude"]}},
-                    {"IS_PUNCT": True, "OP": "?"},
-                    {"IS_SPACE": True, "OP": "*"},
-                    {"LIKE_NUM": True},
-                ]
-            ],
-            greedy="LONGEST",
-        )
-
-        # Pattern: Coordinates: 45.123, -122.456
-        self.matcher.add(
-            "PREFIXED_COORDS",
-            [
-                [
-                    {"LOWER": {"IN": ["coordinates", "coords", "coordinate"]}},
-                    {"IS_PUNCT": True, "OP": "?"},
-                    {"IS_SPACE": True, "OP": "*"},
-                    {"LIKE_NUM": True},
-                    {"IS_PUNCT": True},
-                    {"IS_SPACE": True, "OP": "*"},
-                    {"LIKE_NUM": True},
-                ]
-            ],
-            greedy="LONGEST",
-        )
+        for pattern_name, pattern_list in token_patterns.items():
+            self.matcher.add(pattern_name, pattern_list, greedy="LONGEST")
 
     def _get_regex_patterns(self) -> list[tuple[str, str, float]]:
         """Get regex-based patterns for coordinate matching.
@@ -114,89 +79,12 @@ class CoordinateMatcher:
         Returns:
             List of tuples (pattern, pattern_id, confidence)
         """
-        patterns = [
-            # === WELL-FORMED DMS/DM FORMATS ===
-            # Degrees Minutes Seconds: 45°12'30"N, 122°30'15"W
-            (
-                r"\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[EW]",
-                "dms",
-                0.95,
-            ),
-            # Degrees Minutes: 45°12'N, 122°30'W
-            (
-                r"\d+\s*[°º]\s*\d+\s*[\'′]\s*[NS]\s*,?\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*[EW]",
-                "dm",
-                0.90,
-            ),
-            # Decimal degrees with symbol: 45.123°N, 122.456°W
-            (
-                r"-?\d+\.\d+\s*°\s*[NS]?\s*,?\s*-?\d+\.\d+\s*°\s*[EW]?",
-                "dd_symbol",
-                0.85,
-            ),
-            # === MALFORMED PATTERNS - PDF Extraction Artifacts ===
-            # Degree as "7" (OCR corruption): 45 7 12'N, 122 7 30'W
-            (
-                r"\d+\s+7\s+\d+\s*[\'′b9]\s*[NS]\s*,?\s*\d+\s+7\s+\d+\s*[\'′b9]\s*[EW]",
-                "dm_deg7",
-                0.70,
-            ),
-            # Degree as "o" or "O": 45o12'N, 122o30'W
-            (
-                r"\d+\s*[oO]\s*\d+\s*[\'′9]\s*[NS]\s*,?\s*\d+\s*[oO]\s*\d+\s*[\'′9]\s*[EW]",
-                "dm_dego",
-                0.70,
-            ),
-            # Degree as "u" (OCR corruption): 13 u 13 9 09 S, 74 u 57 9 45 W
-            (
-                r"\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*[\'′b9]\s*\d*\.?\d*\s*[\"″]?\s*[EW]",
-                "dm_degu",
-                0.65,
-            ),
-            # Minute as "b" (OCR corruption): 45°12bN, 122°30bW
-            (
-                r"\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[b9]\s*[EW]",
-                "dm_minb",
-                0.70,
-            ),
-            # Compact decimal minutes: 00°01'.72N, 77°59'.13E
-            (
-                r"\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[NS]\s*,?\s*\d+\s*[°7oOu]\s*\d+\s*[\'′b9]\.?\d*\s*[EW]",
-                "dm_compact",
-                0.75,
-            ),
-            # DMS with "u" degree and "9" minute: 13 u 13 9 09 S (full format with seconds)
-            (
-                r"\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[NS]\s*,?\s*\d+\s*u\s*\d+\s*9\s*\d+\.?\d*\s*[EW]",
-                "dms_u_9",
-                0.65,
-            ),
-            # === SIMPLE FORMATS ===
-            # Decimal pairs in parentheses: (45.123, -122.456) or (45.5, -122.3)
-            (
-                r"\(\s*-?\d+\.\d+\s*,\s*-?\d+\.\d+\s*\)",
-                "parentheses",
-                0.85,
-            ),
-            # Decimal pairs in brackets: [45.123, -122.456] or [45.5, -122.3]
-            (
-                r"\[\s*-?\d+\.\d+\s*,\s*-?\d+\.\d+\s*\]",
-                "brackets",
-                0.85,
-            ),
-            # Decimal with direction: 45.5 N, 122.3 W
-            (
-                r"\d+\.\d+\s+[NS]\s*,?\s*\d+\.\d+\s+[EW]",
-                "dd_direction",
-                0.80,
-            ),
-            # Signed decimals: +45.123, -122.456 or 45.5, -122.3 or -45.1, 122.4
-            (
-                r"[+-]?\d+\.\d+\s*,\s*[+-]?\d+\.\d+",
-                "decimal_pair",
-                0.80,
-            ),
-        ]
+        patterns: list[tuple[str, str, float]] = []
+
+        for entry in PatternRegistry.get_coordinate_regex_patterns():
+            pattern_id = entry["id"]
+            confidence = self.PATTERN_CONFIDENCE.get(pattern_id, 0.75)
+            patterns.append((entry["pattern"], pattern_id, confidence))
 
         return patterns
 

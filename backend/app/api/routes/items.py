@@ -867,7 +867,10 @@ def get_extraction_summary(
         ),
         "average_confidence": round(avg_confidence or 0, 3),
         "average_validation_score": round(avg_validation or 0, 3),
-        "by_extraction_method": {str(method): count for method, count in by_method_results},
+        "by_extraction_method": {
+            (method.value if hasattr(method, "value") else str(method)): count
+            for method, count in by_method_results
+        },
     }
 
 

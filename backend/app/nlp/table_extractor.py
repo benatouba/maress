@@ -162,7 +162,7 @@ class TableCoordinateExtractor(BaseEntityExtractor):
                     section=section,
                     confidence=0.9,  # High confidence for table data
                     start_char=0,  # Not applicable for table extraction
-                    end_char=0,
+                    end_char=1,
                     coordinates=(lat, lon),
                 )
 

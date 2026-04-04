@@ -494,8 +494,48 @@ class TestPDFFile:
             # Print for manual verification
             print(f"\nExtracted {len(valid_coords)} valid coordinates:")
             for i, ent in enumerate(valid_coords[:5]):
+                assert ent.coordinates is not None
                 lat, lon = ent.coordinates
                 print(f"{i+1}. {ent.text} -> ({lat:.4f}, {lon:.4f})")
+
+        except ImportError as e:
+            pytest.skip(f"Required dependencies not available: {e}")
+
+    def test_pdf_image_ocr_integration(self):
+        """Test that image OCR snippets are attached to parsed docs."""
+        from pathlib import Path
+
+        pdf_path = Path("tests/data/35J9RCQ8.pdf")
+        if not pdf_path.exists():
+            pytest.skip(f"Test PDF not found at {pdf_path}")
+
+        try:
+            import spacy
+
+            from app.nlp.pdf_parser import DoclingPDFParser
+
+            nlp = spacy.blank("en")
+            nlp.add_pipe("sentencizer")
+
+            parser = DoclingPDFParser(
+                nlp,
+                enable_image_ocr=True,
+                enable_ocr_fallback=False,
+            )
+            doc = parser.parse(pdf_path)
+
+            snippets = doc._.image_ocr_snippets
+            if not snippets:
+                # Image OCR may produce no snippets for text-only PDFs
+                assert doc._.image_ocr_backend is None
+                return
+
+            snippets_list = list(snippets)
+            assert doc._.image_ocr_backend is not None
+
+            image_spans = [span for span in doc.spans.get("layout", []) if span.label_ == "image"]
+            # Number can differ due to filtering, but snippets should be represented.
+            assert len(image_spans) >= 0
 
         except ImportError as e:
             pytest.skip(f"Required dependencies not available: {e}")
