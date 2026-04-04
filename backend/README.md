@@ -20,6 +20,12 @@ From `./backend/` you can install all the dependencies with:
 $ uv sync
 ```
 
+If you need the optional sciSpaCy stack (`scispacy` + `en_core_sci_lg`), install with:
+
+```console
+$ uv sync --extra scispacy
+```
+
 Then you can activate the virtual environment with:
 
 ```console

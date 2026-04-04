@@ -113,7 +113,7 @@ MaRESS follows a modern **microservices-inspired architecture** with clear separ
 | Redis | 7 | Cache & message broker |
 | Celery | 5.6+ | Async task queue |
 | spaCy | 3.7+ | NLP framework |
-| scispacy | 0.6.2 | Scientific text processing |
+| scispacy (optional extra) | 0.6.2 | Scientific text processing |
 
 **NLP & Document Processing:**
 - `en_core_web_lg` - General English NLP model
@@ -1011,13 +1011,15 @@ User filters by node type → Rebuild graph
 
    # Install dependencies
    uv sync
+
+   # Optional: include sciSpaCy model stack
+   uv sync --extra scispacy
    ```
 
 3. **Download spaCy models:**
    ```bash
    uv run python -m spacy download en_core_web_lg
    uv run python -m spacy download en_core_web_trf
-   uv run pip install https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_lg-0.5.4.tar.gz
    ```
 
 4. **Configure environment:**
