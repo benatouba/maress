@@ -104,6 +104,7 @@ import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
 import logger from '@/utils/logger'
 import { useRegionsStore, type Region } from '../../stores/regions'
 import { useAuthStore } from '../../stores/auth'
+import type { GISBufferedFeature } from '../../stores/gis'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
 import StudySiteCreateDialog from './StudySiteCreateDialog.vue'
 
@@ -119,6 +120,10 @@ const props = defineProps({
   },
   regions: {
     type: Array as () => Region[],
+    default: () => [],
+  },
+  bufferFeatures: {
+    type: Array as () => GISBufferedFeature[],
     default: () => [],
   },
 })
@@ -147,6 +152,8 @@ const dragBoxInteraction = ref<DragBox | null>(null)
 const dragPanInteraction = ref<DragPan | null>(null)
 const regionSource = ref<VectorSource | null>(null)
 const regionLayer = ref<VectorLayer | null>(null)
+const analysisSource = ref<VectorSource | null>(null)
+const analysisLayer = ref<VectorLayer | null>(null)
 const geojsonFormat = new GeoJSON()
 
 const emitViewportChanged = () => {
@@ -297,10 +304,25 @@ const initMap = () => {
     }),
   })
 
-  // Create map — layer order: tiles, regions, clusters
+  // Analysis result layer (rendered above regions)
+  analysisSource.value = new VectorSource()
+  analysisLayer.value = new VectorLayer({
+    source: analysisSource.value,
+    style: new Style({
+      fill: new Fill({ color: 'rgba(233, 30, 99, 0.15)' }),
+      stroke: new Stroke({ color: '#E91E63', width: 2 }),
+    }),
+  })
+
+  // Create map — layer order: tiles, regions, analysis, clusters
   map.value = new Map({
     target: mapContainer.value,
-    layers: [new TileLayer({ source: new OSM() }), regionLayer.value, clusterLayer.value],
+    layers: [
+      new TileLayer({ source: new OSM() }),
+      regionLayer.value,
+      analysisLayer.value,
+      clusterLayer.value,
+    ],
     view: new View({ center: fromLonLat(props.initialCenter), zoom: props.initialZoom }),
   })
 
@@ -395,6 +417,7 @@ const initMap = () => {
   // Populate features
   updateMarkers()
   updateRegions()
+  updateAnalysisFeatures()
   scheduleViewportEmit()
 }
 
@@ -463,6 +486,31 @@ const updateRegions = () => {
     })
 
     regionSource.value!.addFeatures(features)
+  })
+}
+
+/**
+ * Update analysis result geometries (e.g. buffer output)
+ */
+const updateAnalysisFeatures = () => {
+  if (!analysisSource.value) return
+  analysisSource.value.clear()
+
+  props.bufferFeatures.forEach((bufferFeature) => {
+    if (!bufferFeature.geometry) return
+
+    const featureObj = {
+      type: 'Feature' as const,
+      geometry: bufferFeature.geometry,
+      properties: { sourceId: bufferFeature.source_id },
+    }
+
+    const features = geojsonFormat.readFeatures(featureObj, {
+      dataProjection: 'EPSG:4326',
+      featureProjection: 'EPSG:3857',
+    })
+
+    analysisSource.value!.addFeatures(features)
   })
 }
 
@@ -609,6 +657,15 @@ watch(
   () => {
     if (mapInitialized.value) {
       updateRegions()
+    }
+  },
+)
+
+watch(
+  () => props.bufferFeatures,
+  () => {
+    if (mapInitialized.value) {
+      updateAnalysisFeatures()
     }
   },
 )

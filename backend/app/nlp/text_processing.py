@@ -693,7 +693,9 @@ class CoordinateParser:
                     result = calculator(match)
                     # Ensure result is valid tuple
                     if result and isinstance(result, tuple) and len(result) == 2:
-                        return result
+                        if self._validate_coordinates(result):
+                            return result
+                        continue
 
         except (ValueError, AttributeError, IndexError, ZeroDivisionError):
             return None

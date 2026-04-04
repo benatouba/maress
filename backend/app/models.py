@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any, Optional, Self
+from typing import Any, Literal, Optional, Self
 
 from geoalchemy2 import Geometry, WKBElement  # noqa: TC002
 from pydantic import (  # noqa: TC002
@@ -9,6 +9,7 @@ from pydantic import (  # noqa: TC002
     computed_field,
     field_serializer,
     field_validator,
+    model_validator,
 )
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
 from sqlalchemy import Index, event
@@ -250,6 +251,143 @@ class MapItemSummary(SQLModel):
 
 class MapItemsPublic(SQLModel):
     data: list[MapItemSummary]
+    count: int
+
+
+class GISSelection(SQLModel):
+    """Feature selection descriptor used by GIS operations."""
+
+    type: Literal["all", "ids", "bbox"] = "all"
+    ids: list[uuid.UUID] | None = None
+    bbox: list[float] | None = None
+
+    @model_validator(mode="after")
+    def validate_shape(self) -> Self:
+        if self.type == "ids":
+            if not self.ids:
+                raise ValueError("selection.ids is required when selection.type='ids'")
+        elif self.type == "bbox":
+            if not self.bbox or len(self.bbox) != 4:
+                raise ValueError(
+                    "selection.bbox must contain [minLon, minLat, maxLon, maxLat] when selection.type='bbox'",
+                )
+            min_lon, min_lat, max_lon, max_lat = self.bbox
+            if min_lon >= max_lon or min_lat >= max_lat:
+                raise ValueError("selection.bbox extents are invalid")
+        return self
+
+
+class GISFeatureSetRef(SQLModel):
+    """Reference to a GIS layer and an optional selection."""
+
+    layer_id: Literal["study-sites", "regions"]
+    selection: GISSelection = Field(default_factory=GISSelection)
+
+
+class GISOperationCapability(SQLModel):
+    id: str
+    label: str
+    description: str
+    permission: str
+    execution: Literal["sync", "async"] = "sync"
+    requires_authentication: bool = True
+    enabled: bool = False
+    geometry_inputs: list[str] = Field(default_factory=list)
+    parameter_schema: dict[str, Any] = Field(default_factory=dict)
+
+
+class GISCapabilitiesPublic(SQLModel):
+    version: str
+    operations: list[GISOperationCapability]
+    limits: dict[str, Any] = Field(default_factory=dict)
+
+
+class GISWithinDistanceParameters(SQLModel):
+    distance: float = Field(gt=0)
+    unit: Literal["meter", "kilometer"] = "meter"
+    return_target: Literal["source", "against"] = Field(default="source", alias="return")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class GISWithinDistanceRequest(SQLModel):
+    source: GISFeatureSetRef
+    against: GISFeatureSetRef
+    parameters: GISWithinDistanceParameters
+
+
+class GISRegionFeature(SQLModel):
+    id: uuid.UUID
+    name: str
+
+
+class GISWithinDistanceResult(SQLModel):
+    source_layer_id: str
+    against_layer_id: str
+    return_layer_id: str
+    distance_meters: float
+    count: int
+    study_sites: list["StudySiteMapPoint"] | None = None
+    regions: list[GISRegionFeature] | None = None
+
+
+class GISBufferParameters(SQLModel):
+    distance: float = Field(gt=0)
+    unit: Literal["meter", "kilometer"] = "meter"
+    dissolve: bool = False
+
+
+class GISBufferRequest(SQLModel):
+    target: GISFeatureSetRef
+    parameters: GISBufferParameters
+
+
+class GISBufferedFeature(SQLModel):
+    source_id: uuid.UUID | None = None
+    geometry: dict[str, Any]
+
+
+class GISBufferResult(SQLModel):
+    target_layer_id: str
+    distance_meters: float
+    dissolved: bool
+    count: int
+    features: list[GISBufferedFeature]
+
+
+class GISClipRequest(SQLModel):
+    target: GISFeatureSetRef
+    clip_with: GISFeatureSetRef
+
+
+class GISClipResult(SQLModel):
+    target_layer_id: str
+    clip_layer_id: str
+    count: int
+    study_sites: list["StudySiteMapPoint"] | None = None
+
+
+class GISMetric(SQLModel):
+    type: Literal["count", "avg"]
+    field: str
+    alias: str | None = None
+
+
+class GISSpatialFilter(SQLModel):
+    layer_id: Literal["regions"]
+    selection: GISSelection = Field(default_factory=GISSelection)
+    predicate: Literal["within"] = "within"
+
+
+class GISSummaryStatsRequest(SQLModel):
+    target: GISFeatureSetRef
+    group_by: list[str] = Field(default_factory=list)
+    metrics: list[GISMetric] = Field(min_length=1)
+    spatial_filter: GISSpatialFilter | None = None
+
+
+class GISSummaryStatsPublic(SQLModel):
+    rows: list[dict[str, Any]]
     count: int
 
 

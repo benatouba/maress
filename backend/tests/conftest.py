@@ -40,6 +40,11 @@ def create_test_database():
             if not result.fetchone():
                 conn.execute(text(f"CREATE DATABASE {TEST_DATABASE_NAME}"))
 
+        # Ensure PostGIS types are available for geometry columns used in models.
+        with test_engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+            conn.commit()
+
         yield  # Run all tests
 
     finally:

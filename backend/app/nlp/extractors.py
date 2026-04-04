@@ -173,6 +173,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
 
         entities: list[GeoEntity] = []
         seen_spans: set[tuple[int, int]] = set()
+        seen_coords: set[tuple[float, float]] = set()
 
         # Phase 1.4: Extract MARESS_COORDINATE entities added by our matcher
         # Note: entity_type remains "COORDINATE" as it's a domain concept
@@ -196,6 +197,9 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
 
             # Validate parsed coordinates
             if parsed_coords and self._validate_coordinates(parsed_coords):
+                coord_key = (round(parsed_coords[0], 6), round(parsed_coords[1], 6))
+                if coord_key in seen_coords:
+                    continue
                 # Get full sentence context
                 context = ent.sent.text if ent.sent else coord_str
 
@@ -212,6 +216,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
                     ),
                 )
                 seen_spans.add((ent.start_char, ent.end_char))
+                seen_coords.add(coord_key)
 
         # Fallback pass with parser patterns for formats the spaCy matcher may miss.
         # This keeps coverage for malformed/compact coordinate strings.
@@ -222,6 +227,9 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
 
             parsed_coords = self.parser.parse_to_decimal(coord_str)
             if not parsed_coords or not self._validate_coordinates(parsed_coords):
+                continue
+            coord_key = (round(parsed_coords[0], 6), round(parsed_coords[1], 6))
+            if coord_key in seen_coords:
                 continue
 
             context = self._get_context(text, start)
@@ -238,6 +246,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
                 ),
             )
             seen_spans.add(span_key)
+            seen_coords.add(coord_key)
 
         return entities
 

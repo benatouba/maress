@@ -243,7 +243,7 @@ class TextQualityAssessor:
         if len(words) > 0:
             char_frag_ratio = single_letter_words / len(words)
             if char_frag_ratio > 0.3:  # More than 30% single-letter words is fragmented
-                return char_frag_ratio  # Return low score (0.3-1.0 range, but inverted meaning)
+                return max(0.0, 1.0 - char_frag_ratio)
 
         lines = text.split("\n")
         if not lines:

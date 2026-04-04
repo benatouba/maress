@@ -19,10 +19,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
 from app.nlp.nlp_logger import logger
+from app.nlp.domain_models import GeoEntity
 
 if TYPE_CHECKING:
     from spacy.tokens import Doc, Span, Token
-    from app.nlp.domain_models import GeoEntity
 
 
 @dataclass

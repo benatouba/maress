@@ -71,6 +71,9 @@ class ExtractionMetadata(BaseModel):
     coordinates: int
     clusters: int
     locations: int
+    stage_timings_ms: dict[str, float] = Field(default_factory=dict)
+    filter_statistics: dict[str, int] = Field(default_factory=dict)
+    entity_type_counts: dict[str, int] = Field(default_factory=dict)
 
 class ExtractionResult(BaseModel):
     """Complete extraction result with metadata."""

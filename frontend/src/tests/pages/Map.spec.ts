@@ -5,6 +5,8 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import Map from '@/pages/Map.vue'
 import { useStudySitesStore } from '@/stores/studySites'
 import { useZoteroStore } from '@/stores/zotero'
+import { useGisStore } from '@/stores/gis'
+import { useRegionsStore } from '@/stores/regions'
 import { setupTest, teardownTest } from '../utils/test-utils'
 
 // Mock data
@@ -119,20 +121,27 @@ const router = createRouter({
 
 describe('Map Page', () => {
   let wrapper: any
+  let pinia: any
   let studySitesStore: any
   let zoteroStore: any
+  let gisStore: any
+  let regionsStore: any
 
   const createWrapper = (routeQuery = {}) => {
     router.push({ path: '/map', query: routeQuery })
 
     return mount(Map, {
       global: {
-        plugins: [createPinia(), router],
+        plugins: [pinia, router],
         stubs: {
           StudySiteMap: {
+            name: 'StudySiteMap',
             template: '<div class="mock-map"></div>',
+            props: ['sites', 'regions', 'bufferFeatures'],
             methods: {
-              panTo: vi.fn()
+              panTo: vi.fn(),
+              fitToMarkers: vi.fn(),
+              fitToRegion: vi.fn(),
             }
           },
           VContainer: { template: '<div><slot /></div>' },
@@ -142,6 +151,12 @@ describe('Map Page', () => {
           VCardText: { template: '<div><slot /></div>' },
           VCardTitle: { template: '<div><slot /></div>' },
           VCardActions: { template: '<div><slot /></div>' },
+          VTabs: { template: '<div><slot /></div>', props: ['modelValue', 'density', 'grow'] },
+          VTab: { template: '<button><slot /></button>', props: ['value'] },
+          VVirtualScroll: {
+            template: '<div><slot v-for="item in items" :item="item" :key="item?.id || item" /></div>',
+            props: ['items', 'itemHeight', 'itemKey']
+          },
           VBtn: {
             template: '<button @click="$emit(\'click\')" :disabled="disabled"><slot /></button>',
             props: ['disabled', 'loading', 'icon', 'variant']
@@ -171,12 +186,16 @@ describe('Map Page', () => {
             props: ['color', 'size', 'variant']
           },
           VAvatar: { template: '<div><slot /></div>', props: ['color', 'size'] },
-          VEmptyState: { template: '<div><slot /></div>' },
+          VEmptyState: {
+            template: '<div>{{ title }} {{ text }}<slot /></div>',
+            props: ['title', 'text', 'icon']
+          },
           VDivider: { template: '<hr />' },
           VAlert: { template: '<div><slot /></div>' },
           VProgressLinear: { template: '<div />', props: ['modelValue', 'color'] },
           VTooltip: { template: '<div><slot /></div>' },
-          VSpacer: { template: '<div />' }
+          VSpacer: { template: '<div />' },
+          ShapefileUploadDialog: { template: '<div />' }
         }
       }
     })
@@ -184,7 +203,7 @@ describe('Map Page', () => {
 
   beforeEach(() => {
     setupTest()
-    const pinia = createPinia()
+    pinia = createPinia()
     setActivePinia(pinia)
 
     // Mock Study Sites store
@@ -209,6 +228,78 @@ describe('Map Page', () => {
       }
     })
     zoteroStore.loading = false
+
+    // Mock Regions store
+    regionsStore = useRegionsStore()
+    regionsStore.regions = [
+      {
+        id: 'region-1',
+        name: 'Test Region',
+        description: '',
+        source_filename: null,
+        properties_json: null,
+        owner_id: 'user-1',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        geojson: null,
+      },
+    ]
+    regionsStore.regionCount = 1
+    regionsStore.selectedRegion = null
+    regionsStore.regionStats = null
+    vi.spyOn(regionsStore, 'fetchRegions').mockImplementation(async () => {})
+    vi.spyOn(regionsStore, 'selectRegion').mockImplementation(async () => {})
+
+    // Mock GIS store
+    gisStore = useGisStore()
+    gisStore.capabilities = [
+      { id: 'buffer', enabled: true },
+      { id: 'clip', enabled: true },
+      { id: 'within-distance', enabled: true },
+      { id: 'summary-stats', enabled: true },
+    ]
+    gisStore.bufferFeatures = []
+    gisStore.clippedStudySites = []
+    gisStore.withinDistanceStudySites = []
+    gisStore.withinDistanceRegions = []
+    gisStore.summaryStatsRows = []
+    gisStore.summaryStatsCount = 0
+    gisStore.runningOperation = false
+    vi.spyOn(gisStore, 'fetchCapabilities').mockImplementation(async () => {})
+    vi.spyOn(gisStore, 'runBuffer').mockImplementation(async () => ({
+      target_layer_id: 'study-sites',
+      distance_meters: 1000,
+      dissolved: false,
+      count: 1,
+      features: [{ source_id: 'site-1', geometry: { type: 'Polygon', coordinates: [] } }],
+    }))
+    vi.spyOn(gisStore, 'runClip').mockImplementation(async () => ({
+      target_layer_id: 'study-sites',
+      clip_layer_id: 'regions',
+      count: 1,
+      study_sites: [mockMapPoint],
+    }))
+    vi.spyOn(gisStore, 'runWithinDistance').mockImplementation(async () => ({
+      source_layer_id: 'study-sites',
+      against_layer_id: 'regions',
+      return_layer_id: 'study-sites',
+      distance_meters: 1000,
+      count: 1,
+      study_sites: [mockMapPoint],
+      regions: null,
+    }))
+    vi.spyOn(gisStore, 'runSummaryStats').mockImplementation(async () => ({
+      rows: [{ is_manual: true, site_count: 1, avg_confidence: 0.9 }],
+      count: 1,
+    }))
+    vi.spyOn(gisStore, 'clearResults').mockImplementation(() => {
+      gisStore.bufferFeatures = []
+      gisStore.clippedStudySites = []
+      gisStore.withinDistanceStudySites = []
+      gisStore.withinDistanceRegions = []
+      gisStore.summaryStatsRows = []
+      gisStore.summaryStatsCount = 0
+    })
   })
 
   afterEach(() => {
@@ -230,7 +321,7 @@ describe('Map Page', () => {
       wrapper = createWrapper()
       await flushPromises()
 
-      expect(wrapper.text()).toContain('Study Sites')
+      expect(wrapper.text()).toContain('Sites')
     })
 
     it('should render map in the center', async () => {
@@ -252,7 +343,7 @@ describe('Map Page', () => {
       wrapper = createWrapper()
       await flushPromises()
 
-      expect(wrapper.text()).toContain('2 sites')
+      expect(wrapper.text()).toContain('Sites 2')
     })
   })
 
@@ -293,6 +384,55 @@ describe('Map Page', () => {
 
       expect(zoteroStore.fetchMapItems).toHaveBeenCalled()
       expect(studySitesStore.fetchMapPointsForBounds).not.toHaveBeenCalled()
+      expect(gisStore.fetchCapabilities).toHaveBeenCalled()
+    })
+  })
+
+  describe('GIS Operations', () => {
+    beforeEach(async () => {
+      wrapper = createWrapper()
+      await flushPromises()
+    })
+
+    it('runs buffer operation', async () => {
+      wrapper.vm.gisOperation = 'buffer'
+      wrapper.vm.bufferDistance = 500
+      await wrapper.vm.runBufferOperation()
+
+      expect(gisStore.runBuffer).toHaveBeenCalled()
+    })
+
+    it('runs clip operation and enables clipped result mode', async () => {
+      wrapper.vm.gisOperation = 'clip'
+      wrapper.vm.selectedRegionIdForClip = 'region-1'
+      await wrapper.vm.runClipOperation()
+
+      expect(gisStore.runClip).toHaveBeenCalled()
+      expect(wrapper.vm.useClippedResult).toBe(true)
+    })
+
+    it('clears GIS results', async () => {
+      wrapper.vm.useClippedResult = true
+      wrapper.vm.clearGisResults()
+
+      expect(gisStore.clearResults).toHaveBeenCalled()
+      expect(wrapper.vm.useClippedResult).toBe(false)
+    })
+
+    it('runs within-distance operation and enables result mode', async () => {
+      wrapper.vm.gisOperation = 'within-distance'
+      wrapper.vm.withinDistanceDistance = 2000
+      await wrapper.vm.runWithinDistanceOperation()
+
+      expect(gisStore.runWithinDistance).toHaveBeenCalled()
+      expect(wrapper.vm.useWithinDistanceResult).toBe(true)
+    })
+
+    it('runs summary-stats operation', async () => {
+      wrapper.vm.gisOperation = 'summary-stats'
+      await wrapper.vm.runSummaryStatsOperation()
+
+      expect(gisStore.runSummaryStats).toHaveBeenCalled()
     })
   })
 
@@ -569,7 +709,8 @@ describe('Map Page', () => {
 
     it('should fit map to markers when paper selection changes', async () => {
       const fitToMarkersSpy = vi.fn()
-      wrapper.vm.mapComponent = { fitToMarkers: fitToMarkersSpy }
+      const mapComponent = wrapper.findComponent({ name: 'StudySiteMap' })
+      ;(mapComponent.vm as any).fitToMarkers = fitToMarkersSpy
 
       wrapper.vm.selectedPaper = mockPaper1
       await wrapper.vm.$nextTick()
@@ -649,8 +790,10 @@ describe('Map Page', () => {
 
   describe('Query Parameters', () => {
     it('should load with itemTitle query param', async () => {
-      wrapper = createWrapper({ itemTitle: 'Test Paper 1' })
+      wrapper = createWrapper()
       await flushPromises()
+      await router.push({ path: '/map', query: { itemTitle: 'Test Paper 1' } })
+      await wrapper.vm.$nextTick()
 
       expect(wrapper.vm.searchQuery).toBe('Test Paper 1')
     })

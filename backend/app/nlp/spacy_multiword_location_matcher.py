@@ -154,7 +154,7 @@ class MultiWordLocationMatcher:
 
         # Phase 1: Use spaCy's filter_spans() instead of manual overlap filtering
         # filter_spans automatically keeps longest spans and removes overlaps
-        all_ents = list(doc.ents) + new_ents
+        all_ents = new_ents + list(doc.ents)
         doc.ents = filter_spans(all_ents)
 
         return doc

@@ -865,9 +865,20 @@ class PatternRegistry:
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},  # Location
                 ],
                 [
+                    {"LOWER": {"IN": proximity_preps}},
+                    {"LOWER": "to", "OP": "?"},  # Optional "to"
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
+                ],
+                [
                     {"LOWER": {"IN": containment_preps}},
                     {"POS": "DET", "OP": "?"},  # Optional determiner
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
+                ],
+                [
+                    {"LOWER": {"IN": containment_preps}},
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
                 ],
             ],
             "DIRECTION_OF": [
@@ -876,6 +887,13 @@ class PatternRegistry:
                     {"LOWER": "of"},
                     {"POS": "DET", "OP": "?"},  # Optional determiner
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},
+                ]
+                ,
+                [
+                    {"LOWER": {"IN": all_directions}},
+                    {"LOWER": "of"},
+                    {"POS": "DET", "OP": "?"},  # Optional determiner
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
                 ]
             ],
             "LOCATION_VERB": [
@@ -895,6 +913,11 @@ class PatternRegistry:
             "LOCATION_DESCRIPTOR": [
                 [
                     {"ENT_TYPE": {"IN": ["LOC", "GPE"]}},
+                    {"LOWER": {"IN": location_descriptors}},
+                ]
+                ,
+                [
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
                     {"LOWER": {"IN": location_descriptors}},
                 ]
             ],
