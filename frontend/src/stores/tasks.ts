@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import axios from '@/services/api'
 import { useNotificationStore } from './notification'
+import logger from '@/utils/logger'
 
 export interface Task {
   task_id: string
@@ -153,7 +154,7 @@ export const useTaskStore = defineStore('tasks', () => {
         processTaskStatusResponse(combinedData.tasks, combinedData.summary)
       }
     } catch (error) {
-      console.error('Error fetching task statuses:', error)
+      logger.error('Error fetching task statuses:', error)
     }
   }
 
@@ -235,7 +236,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
       return response.data
     } catch (error) {
-      console.error('Error cancelling task:', error)
+      logger.error('Error cancelling task:', error)
       notificationStore.showNotification('Failed to cancel task', 'error', 5000)
       return null
     }
@@ -268,7 +269,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
       return response.data
     } catch (error) {
-      console.error('Error cancelling tasks:', error)
+      logger.error('Error cancelling tasks:', error)
       notificationStore.showNotification('Failed to cancel tasks', 'error', 5000)
       return null
     }
@@ -307,7 +308,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
       return response.data
     } catch (error) {
-      console.error('Error cancelling pending tasks:', error)
+      logger.error('Error cancelling pending tasks:', error)
       notificationStore.showNotification('Failed to cancel pending tasks', 'error', 5000)
       return null
     }
@@ -320,7 +321,7 @@ export const useTaskStore = defineStore('tasks', () => {
       const response = await axios.get(`/items/tasks/${taskId}`)
       return response.data
     } catch (error) {
-      console.error('Error fetching task details:', error)
+      logger.error('Error fetching task details:', error)
       return null
     }
   }
@@ -357,7 +358,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
       return response.data
     } catch (error) {
-      console.error('Error retrying task:', error)
+      logger.error('Error retrying task:', error)
       notificationStore.showNotification('Failed to retry task', 'error', 5000)
       return null
     }

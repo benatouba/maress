@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import axios from '@/services/api'
 import { useNotificationStore } from './notification'
+import logger from '@/utils/logger'
 import type { Ref } from 'vue'
 
 // Tag interfaces for better intellisense
@@ -65,9 +66,9 @@ export const useTagStore = defineStore('tags', (): TagStore => {
       const response = await axios.get('/tags/', { params })
       tags.value = response.data.data
       totalCount.value = response.data.count
-      console.log('Fetched tags:', response.data)
+      logger.debug('Fetched tags:', response.data)
     } catch (error) {
-      console.error('Error fetching tags:', error)
+      logger.error('Error fetching tags:', error)
     } finally {
       loading.value = false
     }
@@ -81,7 +82,7 @@ export const useTagStore = defineStore('tags', (): TagStore => {
       currentTag.value = response.data
       return response.data
     } catch (error) {
-      console.error('Error fetching tag:', error)
+      logger.error('Error fetching tag:', error)
       return null
     } finally {
       loading.value = false

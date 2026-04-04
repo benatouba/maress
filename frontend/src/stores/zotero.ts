@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import axios from '@/services/api'
 import { useNotificationStore } from './notification'
+import logger from '@/utils/logger'
 import type { Ref } from 'vue'
 
 // Zotero collection interface
@@ -267,7 +268,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
               skipped: meta?.skipped || 0,
               failed: meta?.failed || 0,
             }
-            console.log(`Download progress: ${meta?.current || 0}/${meta?.total || 0}`)
+            logger.debug(`Download progress: ${meta?.current || 0}/${meta?.total || 0}`)
           }
           // PENDING state - keep polling
         } catch (error) {

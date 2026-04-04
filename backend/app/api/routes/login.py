@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 from typing import Annotated, Any
 
@@ -20,6 +21,8 @@ from app.utils import (
     verify_password_reset_token,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["login"])
 
 
@@ -35,9 +38,12 @@ def login_access_token(
         password=form_data.password,
     )
     if not user:
+        logger.warning("Failed login attempt for %s", form_data.username)
         raise HTTPException(status_code=400, detail="Incorrect email or password")
     if not user.is_active:
+        logger.warning("Login attempt for inactive user %s", form_data.username)
         raise HTTPException(status_code=400, detail="Inactive user")
+    logger.info("User %s logged in", user.id)
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     return Token(
         access_token=security.create_access_token(
@@ -95,6 +101,7 @@ def reset_password(session: SessionDep, body: NewPassword) -> Message:
     user.hashed_password = hashed_password
     session.add(user)
     session.commit()
+    logger.info("Password reset completed for %s", email)
     return Message(message="Password updated successfully")
 
 

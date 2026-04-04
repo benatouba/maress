@@ -473,6 +473,7 @@ import { useNotificationStore } from '@/stores/notification'
 import { useTaskStore } from '@/stores/tasks'
 import { debounce } from 'lodash'
 import ExtractionResults from '@/components/papers/ExtractionResults.vue'
+import logger from '@/utils/logger'
 
 // Stores
 const router = useRouter()
@@ -609,7 +610,7 @@ const handleSync = async () => {
       notificationStore.showNotification(message, 'success')
     }
   } catch (error) {
-    console.error('Sync error:', error)
+    logger.error('Sync error:', error)
   }
 }
 
@@ -625,7 +626,7 @@ const handleDownloadAttachments = async () => {
       clearSelection()
     }
   } catch (error) {
-    console.error('Download error:', error)
+    logger.error('Download error:', error)
   }
 }
 
@@ -641,7 +642,7 @@ const handleExtractAll = async () => {
       const itemIds = selectedItems.value
       const totalSelected = itemIds.length
 
-      console.log('Selected item IDs:', itemIds)
+      logger.debug('Selected item IDs:', itemIds)
 
       try {
         const result = await zoteroStore.extractStudySites(itemIds, forceReload.value)
@@ -655,7 +656,7 @@ const handleExtractAll = async () => {
           )
         }
       } catch (error) {
-        console.error(`Extraction error for selected items:`, error)
+        logger.error('Extraction error for selected items:', error)
         notificationStore.showNotification(
           `Failed to queue extraction for selected items`,
           'error'
@@ -683,7 +684,7 @@ const handleExtractAll = async () => {
       }
     }
   } catch (error) {
-    console.error('Extraction error:', error)
+    logger.error('Extraction error:', error)
   }
 }
 
@@ -740,7 +741,7 @@ const handleImportFile = async (item: any) => {
       await zoteroStore.fetchItems()
     }
   } catch (error) {
-    console.error('Import file error:', error)
+    logger.error('Import file error:', error)
   }
 }
 
@@ -761,7 +762,7 @@ const handleExtractStudySites = async (item: any) => {
       }, 5000)
     }
   } catch (error) {
-    console.error('Extraction error:', error)
+    logger.error('Extraction error:', error)
   }
 }
 
@@ -789,7 +790,7 @@ const handleEnrichAll = async () => {
       zoteroStore.fetchItems()
     }, 5000)
   } catch (error) {
-    console.error('Enrichment error:', error)
+    logger.error('Enrichment error:', error)
   }
 }
 
@@ -807,7 +808,7 @@ const handleEnrichItem = async (item: any) => {
       }, 5000)
     }
   } catch (error) {
-    console.error('Enrichment error:', error)
+    logger.error('Enrichment error:', error)
   }
 }
 
@@ -833,7 +834,7 @@ const handleDelete = async (item: any) => {
     notificationStore.showNotification('Item deleted', 'success')
     await zoteroStore.fetchItems()
   } catch (error) {
-    console.error('Delete error:', error)
+    logger.error('Delete error:', error)
   }
 }
 

@@ -88,6 +88,7 @@ import fcose from 'cytoscape-fcose'
 import dagre from 'cytoscape-dagre'
 import { useGraphComposable } from '@/composables/useGraphComposable'
 import NodeInfoDialog from './NodeInfoDialog.vue'
+import logger from '@/utils/logger'
 
 // Register layout extensions
 cytoscape.use(fcose)
@@ -146,7 +147,7 @@ const getInitials = (title) => {
 const buildGraphData = computed(() => {
   // Performance check
   if (props.items.length > props.maxNodes) {
-    console.warn(
+    logger.warn(
       `Dataset too large (${props.items.length} > ${props.maxNodes}). Consider pagination.`,
     )
   }
@@ -518,7 +519,7 @@ const initCytoscape = async () => {
       initMinimap()
     }
   } catch (error) {
-    console.error('Failed to initialize cytoscape:', error)
+    logger.error('Failed to initialize cytoscape:', error)
   }
 }
 
@@ -606,12 +607,12 @@ const setupEventHandlers = () => {
 const initMinimap = () => {
   // Implementation would depend on cytoscape-minimap extension
   // This is a placeholder for the concept
-  console.log('Minimap initialized')
+  logger.debug('Minimap initialized')
 }
 
 const updateMinimap = () => {
   // Update minimap viewport indicator
-  console.log('Minimap updated')
+  logger.debug('Minimap updated')
 }
 
 const setupZoomOptimization = () => {
@@ -761,7 +762,7 @@ const updateGraph = async () => {
 
     cytoscapeContainer.value.style.cursor = 'default'
   } catch (error) {
-    console.error('Failed to update graph:', error)
+    logger.error('Failed to update graph:', error)
     cytoscapeContainer.value.style.cursor = 'default'
   }
 }
@@ -801,7 +802,7 @@ const exportGraph = async () => {
       link.click()
       URL.revokeObjectURL(url)
     } catch (error) {
-      console.error('Export failed:', error)
+      logger.error('Export failed:', error)
     }
   }
 }

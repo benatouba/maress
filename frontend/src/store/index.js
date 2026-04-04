@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/services/api'
+import logger from '@/utils/logger'
 
 export const useAppStore = defineStore('app', () => {
   // State
@@ -34,7 +35,7 @@ export const useAppStore = defineStore('app', () => {
       papers.value = response.data
     } catch (err) {
       error.value = err.message
-      console.error('Error fetching papers:', err)
+      logger.error('Error fetching papers:', err)
     } finally {
       isLoading.value = false
     }
@@ -50,7 +51,7 @@ export const useAppStore = defineStore('app', () => {
       return response.data
     } catch (err) {
       error.value = err.message
-      console.error('Error fetching paper:', err)
+      logger.error('Error fetching paper:', err)
       return null
     } finally {
       isLoading.value = false
@@ -72,7 +73,7 @@ export const useAppStore = defineStore('app', () => {
       return response.data
     } catch (err) {
       error.value = err.message
-      console.error('Error importing from Zotero:', err)
+      logger.error('Error importing from Zotero:', err)
       throw err
     } finally {
       isLoading.value = false
@@ -88,7 +89,7 @@ export const useAppStore = defineStore('app', () => {
       return response.data
     } catch (err) {
       error.value = err.message
-      console.error('Error processing paper:', err)
+      logger.error('Error processing paper:', err)
       throw err
     } finally {
       isLoading.value = false

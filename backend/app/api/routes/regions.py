@@ -11,6 +11,7 @@ Allows users to:
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 import uuid
 import zipfile
@@ -36,6 +37,8 @@ from app.models import (
     StudySiteMapPoint,
     StudySiteMapPointsPublic,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/regions", tags=["regions"])
 
@@ -170,6 +173,7 @@ def upload_shapefile(
         )
 
     session.commit()
+    logger.info("User %s uploaded shapefile '%s': %d regions created", current_user.id, source_filename, len(created_regions))
 
     return RegionsPublic(data=created_regions, count=len(created_regions))
 
@@ -367,5 +371,6 @@ def delete_region(
 
     session.delete(region)
     session.commit()
+    logger.info("User %s deleted region %s", current_user.id, region_id)
 
     return {"message": "Region deleted successfully"}

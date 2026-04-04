@@ -9,6 +9,7 @@ Allows users to:
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -33,6 +34,8 @@ from maress_types import (
     CoordinateSourceType,
     PaperSections,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/study-sites", tags=["study-sites"])
 
@@ -249,6 +252,7 @@ def create_manual_study_site(
     session.refresh(study_site)
     # Load the location relationship
     session.refresh(study_site, ["location"])
+    logger.info("User %s manually created study site %s for item %s", current_user.id, study_site.id, item_id)
 
     return study_site_to_public(study_site)
 
@@ -309,6 +313,7 @@ def update_study_site(
     session.refresh(study_site)
     # Load the location relationship
     session.refresh(study_site, ["location"])
+    logger.info("User %s updated study site %s", current_user.id, study_site_id)
 
     return study_site_to_public(study_site)
 
@@ -355,6 +360,7 @@ def delete_study_site(
 
     session.delete(study_site)
     session.commit()
+    logger.info("User %s deleted study site %s", current_user.id, study_site_id)
 
     return {"message": "Study site deleted successfully"}
 

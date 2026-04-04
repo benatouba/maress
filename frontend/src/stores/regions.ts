@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/services/api'
 import { useNotificationStore } from './notification'
+import logger from '@/utils/logger'
 import type { MapPoint } from './studySites'
 
 export interface GeoJSONGeometry {
@@ -66,7 +67,7 @@ export const useRegionsStore = defineStore('regions', () => {
       )
       return created
     } catch (error: any) {
-      console.error('Error uploading shapefile:', error)
+      logger.error('Error uploading shapefile:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to upload shapefile',
         'error',
@@ -86,7 +87,7 @@ export const useRegionsStore = defineStore('regions', () => {
       const response = await api.get('/regions/')
       regions.value = response.data.data || []
     } catch (error: any) {
-      console.error('Error fetching regions:', error)
+      logger.error('Error fetching regions:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch regions',
         'error',
@@ -105,7 +106,7 @@ export const useRegionsStore = defineStore('regions', () => {
       regionStats.value = response.data
       return response.data
     } catch (error: any) {
-      console.error('Error fetching region stats:', error)
+      logger.error('Error fetching region stats:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch region statistics',
         'error',
@@ -124,7 +125,7 @@ export const useRegionsStore = defineStore('regions', () => {
       regionStudySites.value = points
       return points
     } catch (error: any) {
-      console.error('Error fetching region study sites:', error)
+      logger.error('Error fetching region study sites:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch study sites for region',
         'error',
@@ -150,7 +151,7 @@ export const useRegionsStore = defineStore('regions', () => {
       notificationStore.showNotification('Region deleted', 'success')
       return true
     } catch (error: any) {
-      console.error('Error deleting region:', error)
+      logger.error('Error deleting region:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to delete region',
         'error',

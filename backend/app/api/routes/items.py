@@ -902,7 +902,7 @@ def cancel_task(
             "cancelled": True,
         }
     except Exception as e:
-        logger.error(f"Error cancelling task {task_id}: {e}")
+        logger.error("Error cancelling task %s: %s", task_id, e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel task: {e!s}",
@@ -945,7 +945,7 @@ def cancel_batch_tasks(
             celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
             cancelled_tasks.append(task_id)
         except Exception as e:
-            logger.error(f"Error cancelling task {task_id}: {e}")
+            logger.error("Error cancelling task %s: %s", task_id, e)
             failed_tasks.append({"task_id": task_id, "error": str(e)})
 
     return {

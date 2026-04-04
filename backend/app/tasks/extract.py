@@ -245,6 +245,9 @@ def extract_study_site_task(
     Args:
         _test_session: Optional session for testing (bypasses SessionLocal)
     """
+    task_id = getattr(self.request, "id", "no-id")
+    logger.info("Starting extract task [task=%s] for item %s (force=%s)", task_id, item_id, force)
+
     try:
         if _test_session is not None:
             # Test mode - use provided session
@@ -257,13 +260,15 @@ def extract_study_site_task(
             )
         # Production mode - create new session
         with SessionLocal() as session:
-            return _extract_study_site_impl(
+            result = _extract_study_site_impl(
                 session,
                 item_id,
                 user_id,
                 is_superuser,
                 force,
             )
+        logger.info("Finished extract task [task=%s] for item %s: %s", task_id, item_id, result.get("status"))
+        return result
 
     except FileNotFoundError as e:
         msg = f"Attachment file not found for item {item_id}"

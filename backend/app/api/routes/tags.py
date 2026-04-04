@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -9,6 +10,8 @@ from fastapi import APIRouter, HTTPException, status
 from app.api.deps import CurrentUser, OptionalCurrentUser, SessionDep
 from app.crud import create_tag, delete_tag, get_tag, get_tags, update_tag
 from app.models import Item, TagCreate, TagPublic, TagsPublic
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 

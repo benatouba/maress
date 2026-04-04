@@ -213,6 +213,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useZoteroStore } from '@/stores/zotero'
+import logger from '@/utils/logger'
 
 interface ExtractionResult {
   id: string
@@ -348,7 +349,7 @@ const loadResults = async () => {
       error.value = 'Failed to load extraction results'
     }
   } catch (err) {
-    console.error('Error loading extraction results:', err)
+    logger.error('Error loading extraction results:', err)
     error.value = 'An error occurred while loading extraction results'
   } finally {
     loading.value = false

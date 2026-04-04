@@ -243,6 +243,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useZoteroStore } from '@/stores/zotero'
+import logger from '@/utils/logger'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -289,7 +290,7 @@ const loadUserStats = async () => {
       // Mock data for demonstration
       stats.value = { studySites: 15, keywords: 8 }
     } catch (error) {
-      console.error('Error loading user stats:', error)
+      logger.error('Error loading user stats:', error)
     }
   }
 }

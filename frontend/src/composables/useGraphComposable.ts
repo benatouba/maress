@@ -1,4 +1,5 @@
 import type { Core } from 'cytoscape'
+import logger from '@/utils/logger'
 
 export interface NodeImportanceMap {
   items: Record<string, number>
@@ -101,7 +102,7 @@ export function useGraphComposable() {
     scale: number = 2
   ): string => {
     if (!cy) {
-      console.error('Cytoscape instance not available')
+      logger.error('Cytoscape instance not available')
       return ''
     }
 
@@ -119,7 +120,7 @@ export function useGraphComposable() {
       const dataUrl = cy.png(options)
       return dataUrl
     } catch (error) {
-      console.error('Failed to export graph:', error)
+      logger.error('Failed to export graph:', error)
       return ''
     }
   }

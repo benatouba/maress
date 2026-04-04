@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import logger from '@/utils/logger'
 
 export function useGraphComposable() {
   // Color schemes
@@ -96,7 +97,7 @@ export function useGraphComposable() {
   const clusterNodes = (nodes, edges, algorithm = 'louvain') => {
     // Placeholder for clustering implementation
     // Would integrate with community detection algorithms
-    console.log(`Clustering ${nodes.length} nodes using ${algorithm}`)
+    logger.debug(`Clustering ${nodes.length} nodes using ${algorithm}`)
     return { clusters: [], modularity: 0 }
   }
 

@@ -2,6 +2,10 @@ from celery import Celery
 
 import app.nlp  # noqa: F401
 from app.core.config import settings
+from app.core.logging import setup_logging
+
+# Configure logging for the Celery worker process
+setup_logging()
 
 celery = Celery(
     "maress_worker",

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/services/api'
 import { useNotificationStore } from './notification'
+import logger from '@/utils/logger'
 
 export interface Location {
   id: string
@@ -96,7 +97,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       const response = await api.get(`/study-sites/items/${itemId}/study-sites`)
       return response.data.data || []
     } catch (error: any) {
-      console.error('Error fetching item study sites:', error)
+      logger.error('Error fetching item study sites:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch study sites',
         'error'
@@ -135,7 +136,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
 
       studySites.value = enrichedSites
     } catch (error: any) {
-      console.error('Error fetching all study sites:', error)
+      logger.error('Error fetching all study sites:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch study sites',
         'error'
@@ -154,7 +155,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       const response = await api.get('/study-sites/map-points')
       mapPoints.value = response.data.data || []
     } catch (error: any) {
-      console.error('Error fetching map points:', error)
+      logger.error('Error fetching map points:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch map points',
         'error'
@@ -182,7 +183,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       })
       mapPoints.value = response.data.data || []
     } catch (error: any) {
-      console.error('Error fetching viewport map points:', error)
+      logger.error('Error fetching viewport map points:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch map points for viewport',
         'error'
@@ -204,7 +205,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       currentStudySite.value = response.data
       return response.data
     } catch (error: any) {
-      console.error('Error fetching study site:', error)
+      logger.error('Error fetching study site:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to fetch study site',
         'error'
@@ -247,7 +248,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       )
       return newSite
     } catch (error: any) {
-      console.error('Error creating study site:', error)
+      logger.error('Error creating study site:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to create study site',
         'error'
@@ -293,7 +294,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       )
       return updatedSite
     } catch (error: any) {
-      console.error('Error updating study site:', error)
+      logger.error('Error updating study site:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to update study site',
         'error'
@@ -325,7 +326,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       )
       return true
     } catch (error: any) {
-      console.error('Error deleting study site:', error)
+      logger.error('Error deleting study site:', error)
       notificationStore.showNotification(
         error.response?.data?.detail || 'Failed to delete study site',
         'error'
@@ -344,7 +345,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
       const response = await api.get(`/study-sites/items/${itemId}/study-sites/stats`)
       return response.data
     } catch (error: any) {
-      console.error('Error fetching study site stats:', error)
+      logger.error('Error fetching study site stats:', error)
       return null
     }
   }

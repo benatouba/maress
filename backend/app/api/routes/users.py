@@ -1,4 +1,5 @@
 # pyright: reportAny=false
+import logging
 import uuid
 from typing import Any
 
@@ -26,6 +27,8 @@ from app.models import (
     UserUpdateMe,
 )
 from app.utils import generate_new_account_email, send_email
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -57,6 +60,7 @@ def create_user(*, session: SessionDep, user_in: UserCreate):
         )
 
     user = crud.create_user(session=session, user_create=user_in)
+    logger.info("Admin created user %s (%s)", user.id, user_in.email)
     if settings.emails_enabled and user_in.email:
         email_data = generate_new_account_email(
             email_to=user_in.email,
@@ -136,6 +140,7 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
             status_code=403,
             detail="Super users are not allowed to delete themselves",
         )
+    logger.info("User %s deleted their own account", current_user.id)
     session.delete(current_user)
     session.commit()
     return Message(message="User deleted successfully")
@@ -152,6 +157,7 @@ def register_user(session: SessionDep, user_in: UserRegister) -> Any:
         )
     user_create = UserCreate.model_validate(user_in)
     user = crud.create_user(session=session, user_create=user_create)
+    logger.info("New user registered: %s (%s)", user.id, user_in.email)
     if settings.emails_enabled and user_in.email:
         email_data = generate_new_account_email(
             email_to=user_in.email,
@@ -232,4 +238,5 @@ def delete_user(
     session.exec(statement)  # type: ignore
     session.delete(user)
     session.commit()
+    logger.info("Admin deleted user %s", user_id)
     return Message(message="User deleted successfully")

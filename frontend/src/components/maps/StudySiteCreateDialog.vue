@@ -163,6 +163,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useStudySitesStore, type StudySiteCreate } from '@/stores/studySites'
 import api from '@/services/api'
+import logger from '@/utils/logger'
 
 interface Props {
   modelValue: boolean
@@ -234,7 +235,7 @@ const fetchItems = async () => {
     })
     items.value = response.data.data || []
   } catch (error) {
-    console.error('Error fetching items:', error)
+    logger.error('Error fetching items:', error)
   } finally {
     loadingItems.value = false
   }

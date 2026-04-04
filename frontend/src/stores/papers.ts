@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import axios from '@/services/api'
 import { useNotificationStore } from './notification'
+import logger from '@/utils/logger'
 
 export const usePapersStore = defineStore('papers', () => {
   const papers = ref([])
@@ -54,7 +55,7 @@ export const usePapersStore = defineStore('papers', () => {
       const response = await axios.get('/papers', { params })
       papers.value = response.data
     } catch (error) {
-      console.error('Error fetching papers:', error)
+      logger.error('Error fetching papers:', error)
     } finally {
       loading.value = false
     }
@@ -68,7 +69,7 @@ export const usePapersStore = defineStore('papers', () => {
       currentPaper.value = response.data
       return response.data
     } catch (error) {
-      console.error('Error fetching paper:', error)
+      logger.error('Error fetching paper:', error)
       return null
     } finally {
       loading.value = false
@@ -170,7 +171,7 @@ export const usePapersStore = defineStore('papers', () => {
       const response = await axios.get(`/papers/${id}/locations`)
       return response.data
     } catch (error) {
-      console.error('Error fetching paper locations:', error)
+      logger.error('Error fetching paper locations:', error)
       return []
     }
   }

@@ -108,15 +108,21 @@ def enrich_item_task(
         email: Contact email for CrossRef polite pool.
         _test_session: Optional session for testing (bypasses SessionLocal).
     """
+    task_id = getattr(self.request, "id", "no-id")
+    logger.info("Starting enrich task [task=%s] for item %s", task_id, item_id)
+
     try:
         if _test_session is not None:
-            return _enrich_item_impl(
+            result = _enrich_item_impl(
                 _test_session, item_id, user_id, is_superuser, email,
             )
-        with SessionLocal() as session:
-            return _enrich_item_impl(
-                session, item_id, user_id, is_superuser, email,
-            )
+        else:
+            with SessionLocal() as session:
+                result = _enrich_item_impl(
+                    session, item_id, user_id, is_superuser, email,
+                )
+        logger.info("Finished enrich task [task=%s] for item %s: %s", task_id, item_id, result.get("status"))
+        return result
 
     except PermissionError:
         msg = f"Permission denied for item {item_id}"

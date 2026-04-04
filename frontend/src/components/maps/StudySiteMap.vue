@@ -101,6 +101,7 @@ import { DragBox, DragZoom, DragPan } from 'ol/interaction'
 import { shiftKeyOnly } from 'ol/events/condition'
 import GeoJSON from 'ol/format/GeoJSON'
 import { useStudySitesStore, type MapPoint } from '../../stores/studySites'
+import logger from '@/utils/logger'
 import { useRegionsStore, type Region } from '../../stores/regions'
 import { useAuthStore } from '../../stores/auth'
 import StudySiteEditDialog from './StudySiteEditDialog.vue'
@@ -534,7 +535,7 @@ const fitToMarkers = () => {
  */
 const panTo = (lat: number, lon: number, zoom?: number, duration = 1500) => {
   if (!map.value) {
-    console.warn('Map instance not initialized')
+    logger.warn('Map instance not initialized')
     return
   }
 

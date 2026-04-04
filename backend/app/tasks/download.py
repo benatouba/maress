@@ -239,6 +239,9 @@ def download_attachments_task(
         item_ids: Optional list of specific item IDs to download
         _test_session: Optional session for testing (bypasses SessionLocal)
     """
+    task_id = getattr(self.request, "id", "no-id")
+    logger.info("Starting download task [task=%s] for user %s", task_id, user_id)
+
     try:
         if _test_session is not None:
             # Test mode - use provided session
@@ -253,7 +256,7 @@ def download_attachments_task(
 
         # Production mode - create new session
         with SessionLocal() as session:
-            return _download_attachments_impl(
+            result = _download_attachments_impl(
                 session,
                 user_id,
                 is_superuser,
@@ -261,6 +264,8 @@ def download_attachments_task(
                 limit,
                 item_ids,
             )
+        logger.info("Finished download task [task=%s]: %d downloaded", task_id, result.get("downloaded", 0))
+        return result
 
     except ValueError as e:
         msg = f"Invalid parameters: {e!s}"

@@ -653,6 +653,7 @@ import { useRegionsStore, type Region } from '../stores/regions'
 import { useZoteroStore } from '../stores/zotero'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
 import ShapefileUploadDialog from '../components/maps/ShapefileUploadDialog.vue'
+import logger from '@/utils/logger'
 
 interface MapPaperSummary {
   id: string
@@ -812,7 +813,7 @@ const handleSiteSelected = (site: MapPoint) => {
  */
 const handleSiteClick = (site: MapPoint) => {
   if (!site) {
-    console.warn('Invalid site clicked')
+    logger.warn('Invalid site clicked')
     return
   }
 
@@ -824,12 +825,12 @@ const handleSiteClick = (site: MapPoint) => {
   }
 
   if (!mapComponent.value) {
-    console.warn('Map component not initialized yet')
+    logger.warn('Map component not initialized yet')
     return
   }
 
   if (site.latitude == null || site.longitude == null) {
-    console.warn(`Site "${site.name}" has no valid location data`)
+    logger.warn(`Site "${site.name}" has no valid location data`)
     return
   }
 
@@ -925,7 +926,7 @@ const panToStudySite = (site: any) => {
   studySitesDialog.value = false
 
   if (!mapComponent.value) {
-    console.warn('Map component not initialized yet')
+    logger.warn('Map component not initialized yet')
     return
   }
 
@@ -933,7 +934,7 @@ const panToStudySite = (site: any) => {
   const lon = site.location?.longitude ?? site.longitude
 
   if (lat == null || lon == null) {
-    console.warn(`Site "${site.name}" has no valid location data`)
+    logger.warn(`Site "${site.name}" has no valid location data`)
     return
   }
 
