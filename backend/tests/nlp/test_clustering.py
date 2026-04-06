@@ -2,7 +2,7 @@
 
 Tests that:
 - ALL coordinate entities are always kept
-- Named entities and spatial relations: only largest cluster is kept
+- Named entities and spatial relations: all clusters retained (up to max_clusters)
 - Coordinates are converted to decimal format
 """
 
@@ -76,9 +76,9 @@ class TestClusteringLogic:
         coordinate_results = [e for e in result_entities if e.entity_type == "COORDINATE"]
         assert len(coordinate_results) == 2, "All coordinates must be kept"
 
-        # Only ONE cluster of named entities should be kept (the largest)
+        # All clusters of named entities should be kept (multi-cluster support)
         named_entity_results = [e for e in result_entities if e.entity_type in ["GPE", "LOC"]]
-        assert len(named_entity_results) == 1, "Only largest cluster of named entities should be kept"
+        assert len(named_entity_results) == 2, "All clusters of named entities should be kept"
 
         # Verify metadata
         assert cluster_info["coordinates_always_included"] == 2
@@ -142,14 +142,13 @@ class TestClusteringLogic:
 
         result_entities, cluster_info = clusterer.cluster_entities(entities)
 
-        # Should have 3 entities from California cluster (largest)
-        assert len(result_entities) == 3, "Should keep only the largest cluster"
+        # Should have all 5 entities from both clusters
+        assert len(result_entities) == 5, "Should keep all clusters"
 
-        # All results should be from California (lat ~37-38)
-        for entity in result_entities:
-            if entity.coordinates:
-                lat, _ = entity.coordinates
-                assert 37 <= lat <= 38, "Should only have California entities"
+        # Verify both California and New York entities are present
+        lats = [e.coordinates[0] for e in result_entities if e.coordinates]
+        assert any(37 <= lat <= 38 for lat in lats), "Should have California entities"
+        assert any(40 <= lat <= 41 for lat in lats), "Should have New York entities"
 
         assert cluster_info["largest_cluster_size"] == 3
 
@@ -249,14 +248,13 @@ class TestClusteringLogic:
 
         result_entities, cluster_info = clusterer.cluster_entities(entities)
 
-        # Should only keep the 2 from California (largest cluster)
-        assert len(result_entities) == 2
+        # Should keep all 3 from both clusters
+        assert len(result_entities) == 3
 
-        # Verify they're all California entities
-        for entity in result_entities:
-            if entity.coordinates:
-                lat, _ = entity.coordinates
-                assert 37 <= lat <= 38
+        # Verify both California and New York entities are present
+        lats = [e.coordinates[0] for e in result_entities if e.coordinates]
+        assert any(37 <= lat <= 38 for lat in lats), "Should have California entities"
+        assert any(40 <= lat <= 41 for lat in lats), "Should have New York entities"
 
     def test_no_coordinates_only_named_entities(self, clusterer: CoordinateClusterer) -> None:
         """Test clustering when there are no coordinate entities, only named entities."""

@@ -123,6 +123,37 @@ class PatternRegistry:
                 "pattern": r"\d+\s*[°7oO]\s*\d+\s*[\'′b]\.?\d*\s*[NS]\s*,?\s*\d+\s*[°7oO]\s*\d+\s*[\'′b]\.?\d*\s*[EW]",
                 "id": "dm_compact",
             },
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[°]\s*\d+\s*[`´]\s*[NS]\s*,?\s*\d+\s*[°]\s*\d+\s*[`´]\s*[EW]",
+                "id": "dm_min_corrupt_quote",
+            },
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[7oOu]\s*\d+\s*[b`´]\s*\d+\s*[c]\s*[NS]\s*,?\s*\d+\s*[7oOu]\s*\d+\s*[b`´]\s*\d+\s*[c]\s*[EW]",
+                "id": "dms_full_corrupt",
+            },
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[oO]\s*\d+\s*[\'′`´]\s*[NS]",
+                "id": "single_axis_dm_corrupt",
+            },
+            # === DASH-SEPARATED FORMATS (lat-lon joined by hyphen/dash) ===
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[NS]\s*[-\u2013\u2014]\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*\d+\.?\d*\s*[\"″]\s*[EW]",
+                "id": "dms_dash",
+            },
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"\d+\s*[°º]\s*\d+\s*[\'′]\s*[NS]\s*[-\u2013\u2014]\s*\d+\s*[°º]\s*\d+\s*[\'′]\s*[EW]",
+                "id": "dm_dash",
+            },
+            {
+                "label": "MARESS_COORDINATE",
+                "pattern": r"-?\d+\.\d+\s*°\s*[NS]\s*[-\u2013\u2014]\s*-?\d+\.\d+\s*°\s*[EW]",
+                "id": "dd_symbol_dash",
+            },
             # === SIMPLE FORMATS ===
             {
                 "label": "MARESS_COORDINATE",
@@ -856,6 +887,15 @@ class PatternRegistry:
                     {"LOWER": {"IN": directional_preps}},
                     {"ENT_TYPE": {"IN": ["LOC", "GPE", "FAC"]}, "OP": "+"},  # Location entity
                 ]
+                ,
+                [
+                    {"LIKE_NUM": True},
+                    {"LOWER": {"IN": distance_units}},
+                    {"LOWER": {"IN": all_directions}},
+                    {"LOWER": {"IN": directional_preps}},
+                    {"POS": "DET", "OP": "?"},
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
+                ]
             ],
             "SPATIAL_PREPOSITION": [
                 [
@@ -869,6 +909,19 @@ class PatternRegistry:
                     {"LOWER": "to", "OP": "?"},  # Optional "to"
                     {"POS": "DET", "OP": "?"},  # Optional determiner
                     {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
+                ],
+                [
+                    {"LOWER": "adjacent"},
+                    {"LOWER": "to", "OP": "?"},
+                    {"POS": "DET", "OP": "?"},
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
+                ],
+                [
+                    {"LOWER": "adjacent"},
+                    {"LOWER": "to", "OP": "?"},
+                    {"POS": "DET", "OP": "?"},
+                    {"LOWER": {"IN": ["national", "state", "regional"]}, "OP": "*"},
+                    {"POS": "NOUN", "OP": "+"},
                 ],
                 [
                     {"LOWER": {"IN": containment_preps}},
@@ -907,7 +960,21 @@ class PatternRegistry:
                     {"LOWER": {"IN": location_verbs}},
                     {"LOWER": {"IN": location_preps}},
                     {"POS": "DET", "OP": "?"},  # Optional determiner
-                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},  # Location name (proper noun or noun)
+                    {"POS": {"IN": ["PROPN", "NOUN"]}},
+                ],
+                [
+                    {"LOWER": {"IN": location_verbs}},
+                    {"LOWER": {"IN": location_preps}},
+                    {"POS": "DET", "OP": "?"},
+                    {"POS": {"IN": ["PROPN", "NOUN"]}},
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "?"},
+                ],
+                [
+                    {"LOWER": {"IN": location_verbs}},
+                    {"LOWER": "offshore"},
+                    {"LOWER": {"IN": directional_preps}, "OP": "?"},
+                    {"POS": "DET", "OP": "?"},
+                    {"POS": {"IN": ["PROPN", "NOUN"]}, "OP": "+"},
                 ],
             ],
             "LOCATION_DESCRIPTOR": [

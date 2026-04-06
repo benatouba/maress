@@ -27,15 +27,17 @@ class CoordinateClusterer:
     clusters, filtering only noise points. Ranking determines study sites.
     """
 
-    def __init__(self, eps_km: float = 50.0, min_samples: int = 1) -> None:
+    def __init__(self, eps_km: float = 50.0, min_samples: int = 1, max_clusters: int = 5) -> None:
         """Initialize clusterer.
 
         Args:
             eps_km: Maximum distance between points in same cluster (km)
             min_samples: Minimum points required to form a cluster
+            max_clusters: Maximum number of clusters to retain (largest first)
         """
         self.eps_km = eps_km
         self.min_samples = min_samples
+        self.max_clusters = max_clusters
 
     def cluster_entities(
         self,
@@ -120,30 +122,28 @@ class CoordinateClusterer:
             cluster_info[f"cluster_{cluster_label}"] = len(cluster)
             logger.info(f"Cluster {cluster_label}: {len(cluster)} entities")
 
-        # Keep ONLY the largest cluster (excluding noise)
+        # Keep all clusters up to max_clusters (largest first), excluding noise
         if sorted_cluster_labels:
             non_noise_labels = [label for label in sorted_cluster_labels if label != -1]
+            retained_labels = non_noise_labels[: self.max_clusters]
 
-            if non_noise_labels:
-                # Get the largest cluster
-                largest_cluster_label = non_noise_labels[0]
-                largest_cluster = clustered[largest_cluster_label]
-
-                logger.info(
-                    f"Keeping largest cluster (label={largest_cluster_label}) "
-                    f"with {len(largest_cluster)} entities"
-                )
-
-                # Extract entities from largest cluster only
-                result_entities.extend([entity for entity, label in largest_cluster])
+            if retained_labels:
+                for cluster_label in retained_labels:
+                    cluster = clustered[cluster_label]
+                    logger.info(
+                        f"Keeping cluster (label={cluster_label}) "
+                        f"with {len(cluster)} entities"
+                    )
+                    result_entities.extend([entity for entity, _label in cluster])
             else:
                 logger.warning("No valid clusters found (all noise), keeping only coordinates")
 
-            # Add entities without coordinates from largest cluster's region
+            # Add entities without coordinates
             result_entities.extend(entities_without_coords)
 
-            cluster_info["largest_cluster_size"] = len(largest_cluster) if non_noise_labels else 0
+            cluster_info["largest_cluster_size"] = len(clustered[retained_labels[0]]) if retained_labels else 0
             cluster_info["total_clusters"] = len(non_noise_labels)
+            cluster_info["retained_clusters"] = len(retained_labels)
             cluster_info["coordinates_always_included"] = len(coordinate_entities)
 
             return result_entities, cluster_info

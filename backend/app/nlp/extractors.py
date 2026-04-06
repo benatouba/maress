@@ -6,7 +6,7 @@ The spaCyExtractor is inspired by Geospacy.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar, Protocol, override
+from typing import TYPE_CHECKING, ClassVar, Protocol, cast, override
 
 import re
 
@@ -14,15 +14,15 @@ import spacy
 from spacy.tokens import Doc
 
 from app.nlp.domain_models import GeoEntity
-from app.nlp.confidence_scorer import apply_enhanced_scoring
 from app.nlp.text_processing import (
     CoordinateParser,
     PDFTextCleaner,
     SpatialRelationExtractor,
 )
-from maress_types import NERResultKeys
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from spacy.language import Language
     from spacy.tokens import Span
     from transformers import Pipeline
@@ -140,6 +140,11 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
     Coordinates have the highest priority in the extraction pipeline.
     """
 
+    PARTIAL_COORDINATE_RE: ClassVar[re.Pattern[str]] = re.compile(
+        r"\b\d+(?:\.\d+)?\s*[°oO7]?\s*\d*(?:\.\d+)?\s*[\'′`´]?\s*[NSEW]\b",
+        re.IGNORECASE,
+    )
+
     def __init__(self, config: ModelConfig) -> None:
         """Initialize spaCy coordinate extractor."""
         super().__init__(config)
@@ -175,8 +180,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
             return []
 
         entities: list[GeoEntity] = []
-        seen_spans: set[tuple[int, int]] = set()
-        seen_coords: set[tuple[float, float]] = set()
+        seen_spans: list[tuple[int, int]] = []
 
         # Phase 1.4: Extract MARESS_COORDINATE entities added by our matcher
         # Note: entity_type remains "COORDINATE" as it's a domain concept
@@ -200,8 +204,7 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
 
             # Validate parsed coordinates
             if parsed_coords and self._validate_coordinates(parsed_coords):
-                coord_key = (round(parsed_coords[0], 6), round(parsed_coords[1], 6))
-                if coord_key in seen_coords:
+                if self._has_overlapping_span(seen_spans, ent.start_char, ent.end_char):
                     continue
                 # Get full sentence context
                 context = ent.sent.text if ent.sent else coord_str
@@ -218,23 +221,36 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
                         coordinates=parsed_coords,
                     ),
                 )
-                seen_spans.add((ent.start_char, ent.end_char))
-                seen_coords.add(coord_key)
+                seen_spans.append((ent.start_char, ent.end_char))
+            elif self._is_partial_coordinate_mention(coord_str):
+                if self._has_overlapping_span(seen_spans, ent.start_char, ent.end_char):
+                    continue
+
+                context = ent.sent.text if ent.sent else coord_str
+                entities.append(
+                    GeoEntity(
+                        text=coord_str,
+                        entity_type="COORDINATE",
+                        context=context,
+                        section=section,
+                        confidence=confidence * 0.75,
+                        start_char=ent.start_char,
+                        end_char=ent.end_char,
+                        coordinates=None,
+                    ),
+                )
+                seen_spans.append((ent.start_char, ent.end_char))
 
         # Fallback pass with parser patterns for formats the spaCy matcher may miss.
         # This keeps coverage for malformed/compact coordinate strings.
         for coord_str, start, end, quality in self.parser.extract_coordinates(text):
             span_key = (start, end)
-            if span_key in seen_spans:
+            if self._has_overlapping_span(seen_spans, start, end):
                 continue
 
             parsed_coords = self.parser.parse_to_decimal(coord_str)
             if not parsed_coords or not self._validate_coordinates(parsed_coords):
                 continue
-            coord_key = (round(parsed_coords[0], 6), round(parsed_coords[1], 6))
-            if coord_key in seen_coords:
-                continue
-
             context = self._get_context(text, start)
             entities.append(
                 GeoEntity(
@@ -248,10 +264,47 @@ class SpaCyCoordinateExtractor(BaseEntityExtractor):
                     coordinates=parsed_coords,
                 ),
             )
-            seen_spans.add(span_key)
-            seen_coords.add(coord_key)
+            seen_spans.append(span_key)
+
+        # Additional fallback on cleaned text for noisy punctuation/formatting.
+        if len(entities) < 2:
+            cleaned_text = PDFTextCleaner().clean(text)
+            for coord_str, start, end, quality in self.parser.extract_coordinates(cleaned_text):
+                if self._has_overlapping_span(seen_spans, start, end):
+                    continue
+
+                parsed_coords = self.parser.parse_to_decimal(coord_str)
+                if not parsed_coords or not self._validate_coordinates(parsed_coords):
+                    continue
+
+                entities.append(
+                    GeoEntity(
+                        text=coord_str,
+                        entity_type="COORDINATE",
+                        context=self._get_context(cleaned_text, start),
+                        section=section,
+                        confidence=quality,
+                        start_char=start,
+                        end_char=end,
+                        coordinates=parsed_coords,
+                    ),
+                )
+                seen_spans.append((start, end))
 
         return entities
+
+    def _has_overlapping_span(
+        self,
+        seen_spans: list[tuple[int, int]],
+        start_char: int,
+        end_char: int,
+    ) -> bool:
+        """Return whether a span overlaps with any previously kept span."""
+        return any(start_char < seen_end and end_char > seen_start for seen_start, seen_end in seen_spans)
+
+    def _is_partial_coordinate_mention(self, text: str) -> bool:
+        """Detect one-axis coordinate mentions like `40o30'N`."""
+        return bool(self.PARTIAL_COORDINATE_RE.search(text))
 
     def _validate_coordinates(self, coords: tuple[float, float]) -> bool:
         """Validate coordinate ranges.
@@ -338,26 +391,37 @@ class TransformerNERExtractor(BaseEntityExtractor):
             sent_start = sent.start_char
 
             # Run NER on sentence
-            ner_results: dict[NERResultKeys, int | str] = self.ner_pipeline(sent_text)
+            raw_results = cast("Sequence[object]", self.ner_pipeline(sent_text))
 
-            for entity in ner_results:
-                if entity["entity_group"] not in ["LOC", "GPE"]:
+            for raw_entity in raw_results:
+                if not isinstance(raw_entity, dict):
+                    continue
+                entity_group = raw_entity.get("entity_group")
+                score = raw_entity.get("score")
+                start_value = raw_entity.get("start")
+                end_value = raw_entity.get("end")
+                word = raw_entity.get("word")
+
+                if not isinstance(entity_group, str) or entity_group not in {"LOC", "GPE"}:
+                    continue
+                if not isinstance(score, (int, float)) or score < self.config.MIN_CONFIDENCE:
+                    continue
+                if not isinstance(start_value, int) or not isinstance(end_value, int):
+                    continue
+                if not isinstance(word, str) or not word:
                     continue
 
-                if entity["score"] < self.config.MIN_CONFIDENCE:
-                    continue
+                abs_start = sent_start + start_value
+                abs_end = sent_start + end_value
 
                 # Adjust positions to document coordinates
-                abs_start = sent_start + entity["start"]
-                abs_end = sent_start + entity["end"]
-
                 entities.append(
                     GeoEntity(
-                        text=entity["word"],
-                        entity_type=entity["entity_group"],
+                        text=word,
+                        entity_type=entity_group,
                         context=sent_text,  # Full sentence as context
                         section=section,
-                        confidence=entity["score"],
+                        confidence=float(score),
                         start_char=abs_start,
                         end_char=abs_end,
                     ),
@@ -418,10 +482,11 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         "yd", "yards", "yard",
     }
 
-    def __init__(self, config: ModelConfig) -> None:
+    def __init__(self, config: ModelConfig, *, apply_enhanced_scoring: bool = True) -> None:
         """Initialize spaCy-based geo extractor."""
         super().__init__(config)
         self.cleaner: PDFTextCleaner = PDFTextCleaner()
+        self._apply_enhanced_scoring = apply_enhanced_scoring
         # Track seen entities to avoid duplicates
         self._seen_spans: set[tuple[int, int]] = set()
         # Phase 1: Components are now added at factory level (no runtime additions)
@@ -475,9 +540,11 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         if "ner" in self.nlp.pipe_names:
             ner = self.nlp.get_pipe("ner")
             # Increase beam width to explore more entity combinations
-            ner.cfg["beam_width"] = 32  # Default is 16
-            # Increase beam density for better long-span detection
-            ner.cfg["beam_density"] = 0.01  # More permissive beam search
+            cfg = getattr(ner, "cfg", None)  # pyright: ignore[reportAttributeAccessIssue]
+            if isinstance(cfg, dict):
+                cfg["beam_width"] = 32  # Default is 16
+                # Increase beam density for better long-span detection
+                cfg["beam_density"] = 0.01  # More permissive beam search
             self._ner_configured = True
 
     # Phase 1: Runtime component addition methods removed
@@ -521,17 +588,18 @@ class SpaCyGeoExtractor(BaseEntityExtractor):
         spatial_relations = self._extract_spatial_relations_from_matcher(doc, section)
         if not spatial_relations:
             spatial_relations = self._extract_spatial_relations_fallback(clean_text, section)
+        elif len(spatial_relations) < 3:
+            fallback_relations = self._extract_spatial_relations_fallback(clean_text, section)
+            spatial_relations.extend(fallback_relations)
         entities.extend(spatial_relations)
         entities.extend(self._extract_study_sites_from_matcher(doc, section))
         entities.extend(self._extract_multiword_locations(doc, section))
         entities.extend(self._extract_contextual_locations(doc, section))
 
-        # NLP best practice: Use model scores directly, no heuristic modifications
-        # Each extractor already assigns appropriate confidence based on:
-        # - spaCy NER: model confidence
-        # - DependencyMatcher patterns: pattern confidence (0.90)
-        # - CoordinateMatcher: format-based confidence (0.80-1.0)
-        # - SpatialRelationMatcher: pattern confidence (0.85)
+        if self._apply_enhanced_scoring:
+            from app.nlp.confidence_scorer import apply_enhanced_scoring
+
+            return apply_enhanced_scoring(entities, doc)
 
         return entities
 

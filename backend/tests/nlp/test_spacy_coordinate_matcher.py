@@ -429,10 +429,10 @@ class TestPDFFile:
 
             # Parse PDF
             parser = DoclingPDFParser(nlp)
-            parsed = parser.parse_pdf(str(pdf_path))
+            parsed_doc = parser.parse(pdf_path)
 
             # Get text content
-            text = parsed.get("markdown", "")
+            text = parsed_doc.text
             if not text:
                 pytest.skip("Could not extract text from PDF")
 
@@ -479,8 +479,8 @@ class TestPDFFile:
             parser = DoclingPDFParser(nlp)
 
             # Parse PDF
-            parsed = parser.parse_pdf(str(pdf_path))
-            text = parsed.get("markdown", "")
+            parsed_doc = parser.parse(pdf_path)
+            text = parsed_doc.text
             if not text:
                 pytest.skip("Could not extract text from PDF")
 

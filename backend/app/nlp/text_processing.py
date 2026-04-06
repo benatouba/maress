@@ -365,6 +365,17 @@ class CoordinateParser:
         r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*\.?\s*(\d+)\s+([EW])",
         # Malformed compact format: 00 7 01 b .72N, 77 7 59 b .13E
         r"(\d+)\s*[°7oOu]\s*(\d+)\s*[\'′b]\s*\.\s*(\d+)\s*([NS])\s*,?\s*(\d+)\s*[°7oOu]\s*(\d+)\s*[\'′b]\s*\.\s*(\d+)\s*([EW])",
+        # Minute as backtick/acute: 45°12`N, 122°30´W
+        r"(\d+)\s*[°]\s*(\d+)\s*[`´]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[`´]\s*([EW])",
+        # Full DMS corruption: 45 7 12 b 30c N, 122 7 30 b 45c W
+        r"(\d+)\s*[7°oOu]\s*(\d+)\s*[\'′b`´]\s*(\d+\.?\d*)\s*[c\"″]\s*([NS])\s*,?\s*(\d+)\s*[7°oOu]\s*(\d+)\s*[\'′b`´]\s*(\d+\.?\d*)\s*[c\"″]\s*([EW])",
+        # === DASH-SEPARATED FORMATS (lat-lon joined by hyphen) ===
+        # DMS dash: 45°12'30"S-122°30'15"W
+        r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([NS])\s*[-\u2013\u2014]\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([EW])",
+        # DM dash: 22°20'S-68°35'W
+        r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*[-\u2013\u2014]\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
+        # DD dash with symbol: 22.5°S-68.5°W
+        r"(\d+\.?\d*)\s*°\s*([NS])\s*[-\u2013\u2014]\s*(\d+\.?\d*)\s*°\s*([EW])",
         # Range format (extract midpoint): 45.1-45.2°N, 122.3-122.5°W
         r"(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([NS])\s*,?\s*(\d+\.\d+)\s*-\s*(\d+\.\d+)\s*°?\s*([EW])",
     ]
@@ -426,6 +437,12 @@ class CoordinateParser:
         # Reject coordinates that are exactly 0,0 (often placeholders)
         if lat == 0.0 and lon == 0.0:
             return False
+
+        # Allow one-axis coordinates (partial mentions) such as "40o30'N"
+        if lat == 0.0 and lon != 0.0:
+            return True
+        if lon == 0.0 and lat != 0.0:
+            return True
 
         return True
 
@@ -544,6 +561,21 @@ class CoordinateParser:
                         m.group(6),
                     ),
                 ),
+                # Full DMS corruption: 45 7 12 b 30c N, 122 7 30 b 45c W
+                (
+                    r"(\d+)\s*[7°oOu]\s*(\d+)\s*[\'′b`´]\s*(\d+\.?\d*)\s*[c\"″]\s*([NS])\s*,?\s*(\d+)\s*[7°oOu]\s*(\d+)\s*[\'′b`´]\s*(\d+\.?\d*)\s*[c\"″]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2)), float(m.group(3))],
+                        m.group(4),
+                        [float(m.group(5)), float(m.group(6)), float(m.group(7))],
+                        m.group(8),
+                    ),
+                ),
+                # Single-axis malformed DM mention (used for contextual extraction)
+                (
+                    r"(\d+)\s*[oO]\s*(\d+)\s*[\'′`´]\s*([NS])",
+                    lambda m: self._calc_single_axis([float(m.group(1)), float(m.group(2))], m.group(3)),
+                ),
                 # Degree as "u", minute as "9": 13 u 13 9 09 S, 74 u 57 9 45 W
                 (
                     r"(\d+)\s*u\s*(\d+)\s*9\s*(\d+\.?\d*)\s*([NS])\s*,?\s*(\d+)\s*u\s*(\d+)\s*9\s*(\d+\.?\d*)\s*([EW])",
@@ -572,6 +604,37 @@ class CoordinateParser:
                         m.group(3),
                         [float(m.group(4)), float(m.group(5))],
                         m.group(6),
+                    ),
+                ),
+                # === DASH-SEPARATED PATTERNS (lat-lon joined by hyphen) ===
+                # DMS dash: 22°20'30"S-68°35'15"W
+                (
+                    r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([NS])\s*[-\u2013\u2014]\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*(\d+\.?\d*)\s*[\"″]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2)), float(m.group(3))],
+                        m.group(4),
+                        [float(m.group(5)), float(m.group(6)), float(m.group(7))],
+                        m.group(8),
+                    ),
+                ),
+                # DM dash: 22°20'S-68°35'W
+                (
+                    r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*[-\u2013\u2014]\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+                # DD dash with symbol: 22.5°S-68.5°W
+                (
+                    r"(\d+\.?\d*)\s*°\s*([NS])\s*[-\u2013\u2014]\s*(\d+\.?\d*)\s*°\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1))],
+                        m.group(2),
+                        [float(m.group(3))],
+                        m.group(4),
                     ),
                 ),
                 # === WELL-FORMED PATTERNS (Priority 2) ===
@@ -613,6 +676,16 @@ class CoordinateParser:
                 # Degrees + minutes: 45°12'N, 122°30'W
                 (
                     r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])",
+                    lambda m: self._calc_decimal(
+                        [float(m.group(1)), float(m.group(2))],
+                        m.group(3),
+                        [float(m.group(4)), float(m.group(5))],
+                        m.group(6),
+                    ),
+                ),
+                # Degrees + minutes with optional trailing punctuation
+                (
+                    r"(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([NS])\s*,?\s*(\d+)\s*[°]\s*(\d+)\s*[\'′]\s*([EW])[\.,;:]?",
                     lambda m: self._calc_decimal(
                         [float(m.group(1)), float(m.group(2))],
                         m.group(3),
@@ -731,6 +804,22 @@ class CoordinateParser:
             lon = -lon
 
         return (lat, lon)
+
+    def _calc_single_axis(self, components: list[float], direction: str) -> tuple[float, float]:
+        """Calculate decimal latitude/longitude from a single-axis mention."""
+        value = components[0]
+        if len(components) > 1:
+            value += components[1] / 60.0
+        if len(components) > 2:
+            value += components[2] / 3600.0
+
+        direction_upper = direction.upper()
+        if direction_upper in {"S", "W"}:
+            value = -value
+
+        if direction_upper in {"N", "S"}:
+            return (value, 0.0)
+        return (0.0, value)
 
 
 class SpatialRelationExtractor:

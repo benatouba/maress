@@ -127,11 +127,12 @@ class TestCoordinateClusterer:
 
         result, cluster_info = clusterer.cluster_entities(entities)
 
-        # Only largest cluster (Ecuador with 2 sites) should be returned for GPE
-        assert len(result) == 2
+        # All clusters should be returned (multi-cluster support)
+        assert len(result) == 4
 
-        # All returned should be Ecuador sites
-        assert all("Ecuador" in e.text for e in result)
+        # Ecuador sites should be present (largest cluster)
+        ecuador_count = sum(1 for e in result if "Ecuador" in e.text)
+        assert ecuador_count == 2
 
     def test_coordinates_always_kept(self) -> None:
         """Test that COORDINATE entities are always kept regardless of cluster size."""

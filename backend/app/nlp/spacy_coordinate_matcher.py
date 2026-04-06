@@ -39,6 +39,9 @@ class CoordinateMatcher:
         "dm_minb": 0.70,
         "dms_u_9": 0.65,
         "dm_u": 0.65,
+        "dm_min_corrupt_quote": 0.70,
+        "dms_full_corrupt": 0.70,
+        "single_axis_dm_corrupt": 0.60,
     }
 
     def __init__(self, nlp: Language, name: str = "coordinate_matcher") -> None:

@@ -314,5 +314,30 @@ class TestCoordinateDecimalConversion:
         assert abs(lon - 151.2093) < 0.001
 
 
+    def test_dm_dash_separated(self, parser: CoordinateParser) -> None:
+        """Test DM format with dash separator: 22°20'S-68°35'W."""
+        result = parser.parse_to_decimal("22°20'S-68°35'W")
+        assert result is not None
+        lat, lon = result
+        assert abs(lat - (-22.3333)) < 0.01
+        assert abs(lon - (-68.5833)) < 0.01
+
+    def test_dms_dash_separated(self, parser: CoordinateParser) -> None:
+        """Test DMS format with dash separator: 22°20'30\"S-68°35'15\"W."""
+        result = parser.parse_to_decimal('22°20\'30"S-68°35\'15"W')
+        assert result is not None
+        lat, lon = result
+        assert abs(lat - (-22.3417)) < 0.01
+        assert abs(lon - (-68.5875)) < 0.01
+
+    def test_dd_dash_separated(self, parser: CoordinateParser) -> None:
+        """Test DD format with dash separator: 22.5°S-68.5°W."""
+        result = parser.parse_to_decimal("22.5°S-68.5°W")
+        assert result is not None
+        lat, lon = result
+        assert abs(lat - (-22.5)) < 0.01
+        assert abs(lon - (-68.5)) < 0.01
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

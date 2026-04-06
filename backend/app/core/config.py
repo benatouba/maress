@@ -8,6 +8,7 @@ from pydantic import (
     EmailStr,
     PostgresDsn,
     computed_field,
+    field_validator,
     model_validator,
 )
 from pydantic_core import MultiHostUrl
@@ -18,6 +19,15 @@ from logging import Logger
 def parse_cors(v: list[Any] | str) -> list[str] | str:
     if isinstance(v, str) and not v.startswith("["):
         return [i.strip() for i in v.split(",") if i.strip()]
+    return v
+
+
+def strip_wrapping_quotes(v: Any) -> Any:
+    if isinstance(v, str):
+        value = v.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        return value
     return v
 
 
@@ -40,6 +50,19 @@ class Settings(BaseSettings):
         list[AnyUrl] | str,
         BeforeValidator(parse_cors),
     ] = []
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _strip_wrapping_quotes(cls, v: Any) -> Any:
+        return strip_wrapping_quotes(v)
+
+    @field_validator("LOG_LEVEL", mode="before")
+    @classmethod
+    def _normalize_log_level(cls, v: Any) -> Any:
+        value = strip_wrapping_quotes(v)
+        if isinstance(value, str):
+            return value.upper()
+        return value
 
     @computed_field  # type: ignore[prop-decorator]
     @property

@@ -169,9 +169,9 @@ class TestFullPipelineIntegration:
         coords = [e for e in result_entities if e.entity_type == "COORDINATE"]
         assert len(coords) == 2
 
-        # Only the largest cluster of named entities (California) should be kept
+        # All clusters of named entities should be kept
         named = [e for e in result_entities if e.entity_type in ["GPE", "LOC"]]
-        assert len(named) == 2  # Only SF and Oakland
+        assert len(named) == 3  # SF, Oakland, and New York
 
         # Verify metadata
         assert cluster_info["coordinates_always_included"] == 2
@@ -361,10 +361,10 @@ class TestFullPipelineIntegration:
         coords = [e for e in result_entities if e.entity_type == "COORDINATE"]
         assert len(coords) == 1
 
-        # Only largest cluster of other entities (California) should be kept
+        # All clusters of other entities should be kept
         others = [e for e in result_entities if e.entity_type != "COORDINATE"]
-        # Should have SF and spatial relation
-        assert len(others) == 2
+        # Should have SF, spatial relation, and New York
+        assert len(others) == 3
 
     def test_real_world_scientific_text(self, config: ModelConfig) -> None:
         """Test with realistic scientific paper text."""

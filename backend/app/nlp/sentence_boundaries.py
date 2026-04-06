@@ -92,6 +92,8 @@ SCIENTIFIC_ABBREVIATIONS = [
     "ha",
 ]
 
+SCIENTIFIC_ABBREVIATIONS_LOWER = {abbr.lower() for abbr in SCIENTIFIC_ABBREVIATIONS}
+
 
 def add_scientific_abbreviations(nlp: Language) -> Language:
     """Add scientific abbreviations as special cases to prevent sentence
@@ -149,6 +151,32 @@ def scientific_sentencizer(doc: Doc) -> Doc:
     Returns:
         Modified Doc with corrected sentence boundaries (if possible)
     """
+    # Ensure sentence starts exist for pipelines without parser/senter.
+    # Ensure there is at least one sentence start marker.
+    if not any(token.is_sent_start for token in doc):
+        _safe_set_sent_start(doc, 0, True)
+
+    # Ensure split after sentence-final punctuation when parser misses it.
+    for i, token in enumerate(doc[:-1]):
+        token_text = token.text
+        if token_text in {".", "!", "?"} or token_text.endswith((".", "!", "?")):
+            next_idx = i + 1
+            while next_idx < len(doc) and doc[next_idx].is_space:
+                next_idx += 1
+            if next_idx < len(doc):
+                # Don't split after known abbreviations like "Fig.", "Jan.", "e.g."
+                token_core = token_text.rstrip(".!?").lower()
+                if token_core in SCIENTIFIC_ABBREVIATIONS_LOWER:
+                    next_text = doc[next_idx].text
+                    if next_text and next_text[0].isdigit():
+                        _safe_set_sent_start(doc, next_idx, False)
+                        continue
+                    next_alpha = next((ch for ch in next_text if ch.isalpha()), "")
+                    should_split = bool(next_alpha and next_alpha.isupper())
+                    _safe_set_sent_start(doc, next_idx, should_split)
+                else:
+                    _safe_set_sent_start(doc, next_idx, True)
+
     # Handle list numbering: (1) Site A, (2) Site B
     for i, token in enumerate(doc[:-1]):
         if token.text == ")":
@@ -201,10 +229,10 @@ def improve_sentence_boundaries(nlp: Language) -> Language:
 
     # Add custom sentencizer component if not already present
     if "scientific_sentencizer" not in nlp.pipe_names:
-        # Add after parser (which does initial sentence segmentation)
+        # Add before parser so boundaries can be applied on parsed docs.
         if "parser" in nlp.pipe_names:
-            nlp.add_pipe("scientific_sentencizer", after="parser")
-            logger.info("Added scientific_sentencizer after parser")
+            nlp.add_pipe("scientific_sentencizer", before="parser")
+            logger.info("Added scientific_sentencizer before parser")
         else:
             # If no parser, add at the end
             nlp.add_pipe("scientific_sentencizer", last=True)

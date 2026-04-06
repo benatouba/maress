@@ -30,7 +30,9 @@ def _enable_scispacy_abbreviation_detector(
         return nlp
 
     try:
-        from scispacy.abbreviation import AbbreviationDetector  # noqa: F401
+        import importlib
+
+        importlib.import_module("scispacy.abbreviation")
 
         nlp.add_pipe("abbreviation_detector", first=True)
         import logging
@@ -145,6 +147,7 @@ class PipelineFactory:
         enable_quality_assessment: bool = True,
         enable_enriched_context: bool = True,
         use_spacy_coordinate_matcher: bool = True,  # Phase 3: New option
+        enable_vision_extraction: bool = False,
     ) -> StudySiteExtractionPipeline:
         """Create a fully configured extraction pipeline.
 
@@ -152,13 +155,15 @@ class PipelineFactory:
             config: Model configuration
             extractors: List of extractors (creates defaults if None)
             enable_geocoding: Enable geocoding with caching (Phase 1)
-            enable_clustering: Enable largest cluster selection (Phase 1)
+            enable_clustering: Enable geographic cluster selection (Phase 1)
             enable_table_extraction: Enable table extraction (Phase 1)
             enable_improved_sentences: Enable improved sentence boundaries (Phase 2)
             enable_quality_assessment: Enable text quality assessment (Phase 2)
             enable_enriched_context: Enable enriched context extraction (Phase 2)
             use_spacy_coordinate_matcher: Enable spaCy-integrated coordinate matching (Phase 3)
                 This handles malformed coordinates better than regex-only extraction.
+            enable_vision_extraction: Enable local image-based coordinate extraction from map figures.
+                Uses Tesseract HOCR to find coordinates in PDF images. CPU-only, no GPU needed.
 
         Returns:
             Configured extraction pipeline
@@ -209,7 +214,7 @@ class PipelineFactory:
             extractors = [
                 coord_extractor,
                 SpatialRelationEntityExtractor(config),
-                SpaCyGeoExtractor(config),
+                SpaCyGeoExtractor(config, apply_enhanced_scoring=False),
             ]
 
         # Inject shared spaCy instance into all extractors to reduce memory usage
@@ -226,6 +231,7 @@ class PipelineFactory:
             enable_table_extraction=enable_table_extraction,
             enable_quality_assessment=enable_quality_assessment,
             enable_enriched_context=enable_enriched_context,
+            enable_vision_extraction=enable_vision_extraction,
         )
 
     @staticmethod
@@ -233,6 +239,7 @@ class PipelineFactory:
         config: ModelConfig,  # Required - no default
         *,
         use_spacy_coordinate_matcher: bool = True,
+        enable_vision_extraction: bool = False,
     ) -> StudySiteExtractionPipeline:
         """Create pipeline optimised for API use.
 
@@ -260,7 +267,7 @@ class PipelineFactory:
         extractors = [
             coord_extractor,
             SpatialRelationEntityExtractor(config),
-            SpaCyGeoExtractor(config),  # Uses spaCy NER (fast)
+            SpaCyGeoExtractor(config, apply_enhanced_scoring=False),  # Uses spaCy NER (fast)
         ]
 
         return PipelineFactory.create_pipeline(
@@ -270,4 +277,5 @@ class PipelineFactory:
             enable_clustering=True,
             enable_table_extraction=True,
             use_spacy_coordinate_matcher=use_spacy_coordinate_matcher,
+            enable_vision_extraction=enable_vision_extraction,
         )

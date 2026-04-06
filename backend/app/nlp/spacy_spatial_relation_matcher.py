@@ -4,6 +4,10 @@ This component uses spaCy's Matcher with token-based patterns to detect
 spatial relations, following spaCy best practices instead of regex.
 """
 
+from __future__ import annotations
+
+import re
+
 import json
 from pathlib import Path
 from typing import ClassVar
@@ -14,6 +18,12 @@ from spacy.tokens import Doc, Span
 from spacy.util import filter_spans  # Phase 1: Use spaCy's optimized overlap filtering
 
 from app.nlp.pattern_registry import PatternRegistry
+
+
+ADJACENT_FALLBACK_RE = re.compile(
+    r"adjacent\s+to\s+(?:the\s+)?(?:national\s+|state\s+|regional\s+)?[a-z]+(?:\s+[a-z]+){0,3}",
+    re.IGNORECASE,
+)
 
 
 class SpatialRelationMatcher:
@@ -131,14 +141,47 @@ class SpatialRelationMatcher:
 
         # Convert matches to entities
         new_ents = []
+        match_span_keys: set[tuple[int, int]] = set()
         for match_id, start, end in matches:
             span = doc[start:end]
+            match_span_keys.add((span.start_char, span.end_char))
 
             # Phase 1.4: Use MARESS_SPATIAL_REL label to avoid namespace collisions
             # Create entity span
             ent_span = Span(doc, start, end, label="MARESS_SPATIAL_REL")
             ent_span._.spatial_relation_type = self.nlp.vocab.strings[match_id].lower()
             new_ents.append(ent_span)
+
+        # Add short fallback spans for adjacency-like phrases that may be
+        # swallowed by longer greedy matches.
+        for token in doc:
+            if token.lower_ != "adjacent":
+                continue
+
+            # Use compact fallback span to avoid overlap suppression.
+            span = doc[token.i : token.i + 1]
+            span_key = (span.start_char, span.end_char)
+            if span_key in match_span_keys:
+                continue
+
+            ent_span = Span(doc, span.start, span.end, label="MARESS_SPATIAL_REL")
+            ent_span._.spatial_relation_type = "spatial_preposition"
+            new_ents.append(ent_span)
+            match_span_keys.add(span_key)
+
+        # Regex fallback for adjacency phrases in noisy tagger parses.
+        for match in ADJACENT_FALLBACK_RE.finditer(doc.text):
+            span = doc.char_span(match.start(), match.end(), alignment_mode="expand")
+            if span is None:
+                continue
+            span_key = (span.start_char, span.end_char)
+            if span_key in match_span_keys:
+                continue
+
+            ent_span = Span(doc, span.start, span.end, label="MARESS_SPATIAL_REL")
+            ent_span._.spatial_relation_type = "spatial_preposition"
+            new_ents.append(ent_span)
+            match_span_keys.add(span_key)
 
         # Phase 1: Use spaCy's filter_spans() instead of manual overlap filtering
         # filter_spans automatically keeps longest spans and removes overlaps

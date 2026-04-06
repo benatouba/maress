@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast, override
 import numpy as np
 import pymupdf
 from docling.datamodel.base_models import InputFormat
+from docling.datamodel.base_models import ConversionStatus
+from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
 from docling.datamodel.pipeline_options import (
     EasyOcrOptions,
     PdfPipelineOptions,
@@ -47,7 +49,7 @@ class OCRBackend(str, Enum):
     """OCR backends in order of preference (fastest to slowest)."""
 
     RAPIDOCR = "rapidocr"  # Fast, good quality (onnxruntime)
-    PADDLEOCR = "paddleocr"  # Higher quality in noisy scans (RapidOCR paddle backend)
+    PADDLEOCR = "paddleocr"  # RapidOCR paddle backend (optional)
     TESSERACT = "tesseract"  # Moderate speed, high quality
     TESSERACT_CLI = "tesseract_cli"  # CLI-based Tesseract
     EASYOCR = "easyocr"  # Slow, best for complex documents
@@ -111,14 +113,14 @@ class DoclingPDFParser(PDFParser):
 
     # OCR backends to try in order
     FALLBACK_CHAIN: ClassVar = [
-        OCRBackend.PADDLEOCR,
         OCRBackend.RAPIDOCR,
         OCRBackend.TESSERACT,
         OCRBackend.EASYOCR,
+        OCRBackend.PADDLEOCR,
     ]
     IMAGE_OCR_BACKENDS: ClassVar[tuple[OCRBackend, OCRBackend]] = (
-        OCRBackend.PADDLEOCR,
         OCRBackend.RAPIDOCR,
+        OCRBackend.EASYOCR,
     )
 
     SENTENCE_PIPE_COMPONENTS: ClassVar[tuple[str, ...]] = (
@@ -154,6 +156,111 @@ class DoclingPDFParser(PDFParser):
         self.enable_image_ocr = enable_image_ocr
         self.image_ocr_min_chars = image_ocr_min_chars
         self._layout: spaCyLayout | None = None
+
+    @staticmethod
+    def _is_docling_layout_dtype_error(error: str | None) -> bool:
+        """Return True when Docling layout model hits torch dtype mismatch."""
+        if not error:
+            return False
+
+        dtype_markers = (
+            "expected scalar type double but found float",
+            "input type (float) and bias type (double) should be the same",
+        )
+        normalized = error.lower()
+        return any(marker in normalized for marker in dtype_markers)
+
+    def _retry_docling_with_backend_text(
+        self,
+        pdf_path: Path,
+        pipeline_options: PdfPipelineOptions,
+        backend: OCRBackend,
+    ):
+        """Retry conversion with backend text mode after layout dtype mismatch."""
+        pipeline_options.force_backend_text = True
+        pipeline_options.do_table_structure = False
+
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+            },
+        )
+
+        # Avoid hard failure on conversion status so we can inspect returned document.
+        result = converter.convert(pdf_path, raises_on_error=False)
+        status = getattr(result, "status", None)
+        if status not in {ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS}:
+            details = "; ".join(
+                getattr(err, "error_message", str(err)) for err in getattr(result, "errors", [])
+            )
+            msg = f"Docling backend-text retry failed for {backend.value}"
+            if details:
+                msg = f"{msg}: {details}"
+            raise RuntimeError(msg)
+        if getattr(result, "document", None) is None:
+            msg = f"Docling backend-text retry returned no document for {backend.value}"
+            raise RuntimeError(msg)
+
+        return result
+
+    def _try_docling_with_pypdfium_backend(self, pdf_path: Path, backend: OCRBackend):
+        """Fallback to Docling pipeline with pypdfium backend.
+
+        This avoids layout-model failures in docling-parse backend while keeping
+        Docling conversion and layout span generation.
+        """
+        pipeline_options = PdfPipelineOptions()
+        pipeline_options.do_ocr = True
+        pipeline_options.do_table_structure = False
+        pipeline_options.force_backend_text = True
+
+        ocr_options = self._get_ocr_options(backend)
+        if ocr_options:
+            pipeline_options.ocr_options = ocr_options
+
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(
+                    pipeline_options=pipeline_options,
+                    backend=PyPdfiumDocumentBackend,
+                ),
+            },
+        )
+
+        result = converter.convert(pdf_path, raises_on_error=False)
+        status = getattr(result, "status", None)
+        if status not in {ConversionStatus.SUCCESS, ConversionStatus.PARTIAL_SUCCESS}:
+            details = "; ".join(
+                getattr(err, "error_message", str(err)) for err in getattr(result, "errors", [])
+            )
+            msg = f"Docling pypdfium fallback failed for {backend.value}"
+            if details:
+                msg = f"{msg}: {details}"
+            raise RuntimeError(msg)
+        if getattr(result, "document", None) is None:
+            msg = f"Docling pypdfium fallback returned no document for {backend.value}"
+            raise RuntimeError(msg)
+
+        return result
+
+    def _build_doc_with_layout_spans(self, text_blocks: list[str]) -> Doc:
+        """Build a spaCy Doc and attach pseudo layout text spans."""
+        cleaned_blocks = [block.strip() for block in text_blocks if block and block.strip()]
+        combined_text = "\n\n".join(cleaned_blocks)
+        doc = self.nlp(combined_text) if combined_text else self.nlp("")
+
+        layout_spans = []
+        cursor = 0
+        for block_text in cleaned_blocks:
+            start = cursor
+            end = start + len(block_text)
+            span = doc.char_span(start, end, label="text", alignment_mode="expand")
+            if span is not None:
+                layout_spans.append(span)
+            cursor = end + 2  # account for separator "\n\n"
+
+        doc.spans["layout"] = layout_spans
+        return doc
 
     def _init_layout(self) -> spaCyLayout:
         """Lazy initialization of spacy-layout."""
@@ -305,7 +412,30 @@ class DoclingPDFParser(PDFParser):
             )
 
             # Convert document
-            result = converter.convert(pdf_path)
+            try:
+                result = converter.convert(pdf_path)
+            except Exception as exc:
+                if self._is_docling_layout_dtype_error(str(exc)):
+                    logger.warning(
+                        "Docling layout dtype mismatch detected for %s; retrying with backend text mode",
+                        backend.value,
+                    )
+                    try:
+                        result = self._retry_docling_with_backend_text(
+                            pdf_path,
+                            pipeline_options,
+                            backend,
+                        )
+                    except Exception as retry_exc:
+                        if not self._is_docling_layout_dtype_error(str(retry_exc)):
+                            raise
+                        logger.warning(
+                            "Backend-text retry still hits dtype mismatch for %s; falling back to pypdfium backend",
+                            backend.value,
+                        )
+                        result = self._try_docling_with_pypdfium_backend(pdf_path, backend)
+                else:
+                    raise
             docling_doc = result.document
 
             # Validate the result BEFORE converting to spaCy
@@ -359,30 +489,48 @@ class DoclingPDFParser(PDFParser):
         if not self.enable_image_ocr:
             return []
 
-        try:
-            from rapidocr import EngineType, RapidOCR  # type: ignore
-        except ImportError:
-            logger.warning("RapidOCR not available for image OCR stage")
-            return []
+        rapidocr_reader = None
+        easyocr_reader = None
 
-        engine_aliases = {
-            OCRBackend.RAPIDOCR: EngineType.ONNXRUNTIME,
-            OCRBackend.PADDLEOCR: EngineType.PADDLE,
-        }
-        engine_type = engine_aliases.get(backend)
-        if engine_type is None:
-            return []
+        if backend in {OCRBackend.RAPIDOCR, OCRBackend.PADDLEOCR}:
+            try:
+                from rapidocr import EngineType, RapidOCR  # type: ignore
+            except ImportError:
+                logger.warning("RapidOCR not available for image OCR stage")
+                return []
 
-        try:
-            reader = RapidOCR(
-                params={
-                    "Det.engine_type": engine_type,
-                    "Cls.engine_type": engine_type,
-                    "Rec.engine_type": engine_type,
-                },
-            )
-        except Exception:
-            logger.warning("Failed to initialize image OCR reader for backend %s", backend.value)
+            engine_aliases = {
+                OCRBackend.RAPIDOCR: EngineType.ONNXRUNTIME,
+                OCRBackend.PADDLEOCR: EngineType.PADDLE,
+            }
+            engine_type = engine_aliases.get(backend)
+            if engine_type is None:
+                return []
+
+            try:
+                rapidocr_reader = RapidOCR(
+                    params={
+                        "Det.engine_type": engine_type,
+                        "Cls.engine_type": engine_type,
+                        "Rec.engine_type": engine_type,
+                    },
+                )
+            except Exception:
+                logger.warning("Failed to initialize image OCR reader for backend %s", backend.value)
+                return []
+        elif backend == OCRBackend.EASYOCR:
+            try:
+                import easyocr  # type: ignore
+            except ImportError:
+                logger.warning("EasyOCR not available for image OCR stage")
+                return []
+
+            try:
+                easyocr_reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+            except Exception:
+                logger.warning("Failed to initialize image OCR reader for backend %s", backend.value)
+                return []
+        else:
             return []
 
         snippets: list[ImageOcrSnippet] = []
@@ -401,6 +549,9 @@ class DoclingPDFParser(PDFParser):
                     if not bbox_raw:
                         continue
 
+                    ocr_result: Any | None = None
+                    easyocr_result: list[Any] | None = None
+
                     try:
                         bbox_rect = pymupdf.Rect(bbox_raw)
                         if bbox_rect.width < 8 or bbox_rect.height < 8:
@@ -412,25 +563,53 @@ class DoclingPDFParser(PDFParser):
                             pix.width,
                             pix.n,
                         )
-                        ocr_result = reader(image)
+                        if rapidocr_reader is not None:
+                            ocr_result = rapidocr_reader(image)
+                        else:
+                            if easyocr_reader is None:
+                                continue
+                            easyocr_result = cast(
+                                list[Any],
+                                cast(Any, easyocr_reader).readtext(image, detail=1),
+                            )
                     except Exception:
                         continue
 
-                    if ocr_result is None:
-                        continue
+                    if rapidocr_reader is not None:
+                        if ocr_result is None:
+                            continue
 
-                    ocr_texts = cast(list[str] | None, getattr(ocr_result, "txts", None))
-                    if ocr_texts is None:
-                        continue
+                        ocr_texts = cast(list[str] | None, getattr(ocr_result, "txts", None))
+                        if ocr_texts is None:
+                            continue
 
-                    text = " ".join(t.strip() for t in ocr_texts if t and t.strip()).strip()
-                    if len(text) < self.image_ocr_min_chars:
-                        continue
+                        text = " ".join(t.strip() for t in ocr_texts if t and t.strip()).strip()
+                        if len(text) < self.image_ocr_min_chars:
+                            continue
 
-                    confidence = None
-                    ocr_scores = cast(list[float] | None, getattr(ocr_result, "scores", None))
-                    if ocr_scores is not None and len(ocr_scores) > 0:
-                        confidence = float(sum(ocr_scores) / len(ocr_scores))
+                        confidence = None
+                        ocr_scores = cast(list[float] | None, getattr(ocr_result, "scores", None))
+                        if ocr_scores is not None and len(ocr_scores) > 0:
+                            confidence = float(sum(ocr_scores) / len(ocr_scores))
+                    else:
+                        if not easyocr_result:
+                            continue
+
+                        easy_texts: list[str] = []
+                        easy_scores: list[float] = []
+                        for item_any in easyocr_result:
+                            if not isinstance(item_any, (list, tuple)):
+                                continue
+                            item = cast(tuple[Any, ...], tuple(item_any))
+                            if len(item) >= 2:
+                                easy_texts.append(str(item[1]).strip())
+                            if len(item) >= 3 and isinstance(item[2], (int, float)):
+                                easy_scores.append(float(item[2]))
+
+                        text = " ".join(t for t in easy_texts if t).strip()
+                        if len(text) < self.image_ocr_min_chars:
+                            continue
+                        confidence = float(sum(easy_scores) / len(easy_scores)) if easy_scores else None
 
                     snippets.append(
                         ImageOcrSnippet(
@@ -545,13 +724,8 @@ class DoclingPDFParser(PDFParser):
 
             pdf_doc.close()
 
-            # Create Doc from combined text
-            combined_text = "\n\n".join(blocks)
-            doc = self.nlp(combined_text) if combined_text else self.nlp("")
-
-            # Add empty layout span group for compatibility
-            if "layout" not in doc.spans:
-                doc.spans["layout"] = []
+            # Build doc with pseudo layout spans for section extraction compatibility
+            doc = self._build_doc_with_layout_spans(blocks)
 
             if not doc.text.strip():
                 msg = "PyMuPDF parsing resulted in empty text"
@@ -622,16 +796,24 @@ class DoclingPDFParser(PDFParser):
                     )
                 else:
                     logger.warning("Retrying with next OCR backend...")
+
+                if self._is_docling_layout_dtype_error(result.error):
+                    logger.warning(
+                        "Docling layout model dtype mismatch detected; skipping remaining OCR backends",
+                    )
+                    break
         else:
             # Try only once with first backend
-            result = self._try_docling(pdf_path, self.FALLBACK_CHAIN[0])
+            selected_backend = self.FALLBACK_CHAIN[0]
+            result = self._try_docling(pdf_path, selected_backend)
+
             # Check if result has actual content (not just empty doc)
             if result.success and result.doc and result.doc.text.strip():
                 parsed_doc = result.doc
                 if self.enable_image_ocr:
                     snippets = self._extract_image_ocr_snippets_with_fallback(
                         pdf_path,
-                        self.FALLBACK_CHAIN[0],
+                        selected_backend,
                     )
                     parsed_doc = self._append_image_ocr_spans(parsed_doc, snippets)
                 logger.info(f"Parsed {pdf_path.name} using {result.backend_used}")
@@ -698,16 +880,25 @@ class PyMuPDFParser(PDFParser):
                 text_blocks = page.get_text("blocks")
                 for block in text_blocks:
                     if block[6] == 0:  # Text block
-                        blocks.extend(block[4])
+                        blocks.append(block[4])
 
             pdf_doc.close()
 
-            combined_text = "\n\n".join(blocks)
+            # Reuse same pseudo-layout behavior as Docling fallback parser
+            cleaned_blocks = [block.strip() for block in blocks if block and block.strip()]
+            combined_text = "\n\n".join(cleaned_blocks)
             doc = self.nlp(combined_text) if combined_text else self.nlp("")
 
-            # Add empty layout for compatibility
-            if "layout" not in doc.spans:
-                doc.spans["layout"] = []
+            layout_spans = []
+            cursor = 0
+            for block_text in cleaned_blocks:
+                start = cursor
+                end = start + len(block_text)
+                span = doc.char_span(start, end, label="text", alignment_mode="expand")
+                if span is not None:
+                    layout_spans.append(span)
+                cursor = end + 2
+            doc.spans["layout"] = layout_spans
 
         except Exception as e:
             logger.exception("PyMuPDF parsing failed for %s", pdf_path.name)

@@ -209,3 +209,48 @@ def test_manual_study_site_creation_requires_authentication(
         },
     )
     assert response.status_code == 401
+
+
+def test_anonymous_can_search_geocoding_locations(client: TestClient, monkeypatch) -> None:
+    class _MockResponse:
+        status_code = 200
+
+        def raise_for_status(self) -> None:
+            return
+
+        def json(self) -> list[dict[str, str | int]]:
+            return [
+                {
+                    "place_id": 123,
+                    "display_name": "Quito, Pichincha, Ecuador",
+                    "lat": "-0.2201641",
+                    "lon": "-78.5123274",
+                }
+            ]
+
+    def _mock_httpx_get(*args, **kwargs):
+        del args, kwargs
+        return _MockResponse()
+
+    monkeypatch.setattr("app.api.routes.study_sites.httpx.get", _mock_httpx_get)
+
+    response = client.get(
+        f"{settings.API_V1_STR}/study-sites/geocode-search",
+        params={"q": "Quito"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    assert payload["data"][0]["label"] == "Quito, Pichincha, Ecuador"
+    assert payload["data"][0]["latitude"] == -0.2201641
+    assert payload["data"][0]["longitude"] == -78.5123274
+
+
+def test_geocode_search_requires_minimum_query_length(client: TestClient) -> None:
+    response = client.get(
+        f"{settings.API_V1_STR}/study-sites/geocode-search",
+        params={"q": "ab"},
+    )
+
+    assert response.status_code == 422

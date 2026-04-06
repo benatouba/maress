@@ -63,6 +63,7 @@ class StudySiteExtractionPipeline:
         enable_abbreviation_expansion: bool = True,
         enable_uncertainty_detection: bool = True,
         enable_validation: bool = True,
+        enable_vision_extraction: bool = False,
     ) -> None:
         """Initialize pipeline with dependencies.
 
@@ -106,6 +107,7 @@ class StudySiteExtractionPipeline:
         self.enable_abbreviation_expansion = enable_abbreviation_expansion
         self.enable_uncertainty_detection = enable_uncertainty_detection
         self.enable_validation = enable_validation
+        self.enable_vision_extraction = enable_vision_extraction
 
         # Initialize components
         if enable_geocoding:
@@ -139,6 +141,10 @@ class StudySiteExtractionPipeline:
             self.uncertainty_detector = get_uncertainty_detector()
         if enable_validation:
             self.validator = get_validator()
+        if enable_vision_extraction:
+            from app.nlp.vision_extractor import VisionMapExtractor
+
+            self.vision_extractor = VisionMapExtractor()
 
     def extract_from_pdf(self, pdf_path: Path, title: str | None = None) -> ExtractionResult:
         """Complete extraction pipeline for a PDF improvements.
@@ -149,7 +155,7 @@ class StudySiteExtractionPipeline:
         - Extract from text sections (with quality assessment)
         - Extract from tables
         - Geocode location entities
-        - Cluster coordinates and keep largest cluster
+        - Cluster coordinates and retain top geographic clusters
         - Deduplicate and rank (with enriched context)
 
         Args:
@@ -259,6 +265,15 @@ class StudySiteExtractionPipeline:
                 logger.info(f"Extracted {len(table_entities)} entities from tables")
             _record_timing("table_extraction", stage_start)
 
+        # Extract coordinates from map images using local OCR
+        if self.enable_vision_extraction:
+            stage_start = perf_counter()
+            vision_entities = self.vision_extractor.extract_from_pdf(pdf_path)
+            if vision_entities:
+                all_entities.extend(vision_entities)
+                logger.info(f"Extracted {len(vision_entities)} entities from map images")
+            _record_timing("vision_extraction", stage_start)
+
         # Extract bounding boxes (Priority 2 improvement)
         # Looks for coordinate ranges that define study area extent
         if self.enable_bounding_box_extraction:
@@ -357,14 +372,18 @@ class StudySiteExtractionPipeline:
         all_entities = apply_enhanced_scoring(all_entities, doc)
         _record_timing("enhanced_confidence_scoring", stage_start)
 
-        # Cluster coordinates and keep largest cluster
+        # Cluster coordinates and retain strongest clusters
         cluster_info = {}
         if self.enable_clustering:
             stage_start = perf_counter()
             logger.info("Clustering coordinates...")
             all_entities, cluster_info = self.clusterer.cluster_entities(all_entities)
             logger.info(
-                f"Clustering complete: {len(cluster_info)} clusters found, keeping largest cluster",
+                (
+                    "Clustering complete: "
+                    f"total={cluster_info.get('total_clusters', 0)} "
+                    f"retained={cluster_info.get('retained_clusters', 0)}"
+                ),
             )
             _record_timing("clustering", stage_start)
 
@@ -778,8 +797,9 @@ class StudySiteExtractionPipeline:
     def _is_study_site_relevant_section(self, section_name: str) -> bool:
         """Check if a section is relevant for study site extraction.
 
-        Implements NLP best practice of focusing on sections where study sites
-        are typically described in earth system papers.
+        Uses a blacklist approach: process all sections except those known
+        to be irrelevant (references, acknowledgments). Section classification
+        is used for confidence scoring, not filtering.
 
         Args:
             section_name: Classified section name
@@ -787,19 +807,11 @@ class StudySiteExtractionPipeline:
         Returns:
             True if section should be processed for study site extraction
         """
-        # Normalize section name
         section_normalized = section_name.lower().strip()
 
-        # Check against study site sections list
-        for relevant_section in self.config.STUDY_SITE_SECTIONS:
-            if relevant_section.lower() in section_normalized:
-                return True
-
-        # Always skip references and acknowledgments
-        if section_normalized in ["references", "bibliography", "acknowledgments", "acknowledgements"]:
-            return False
-
-        return False
+        # Only skip known-irrelevant sections
+        skip_sections = {"references", "bibliography", "acknowledgments", "acknowledgements"}
+        return section_normalized not in skip_sections
 
     def _deduplicate_entities(self, entities: list[GeoEntity]) -> list[GeoEntity]:
         """Remove duplicate entities based on text and position."""
