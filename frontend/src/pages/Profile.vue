@@ -186,7 +186,7 @@ const rules = {
   maxLength: (max: number) => (value: string) => value.length <= max || `Maximum ${max} characters allowed`,
 }
 
-const getInitials = (name: string): string => {
+const getInitials = (name?: string): string => {
   if (!name) return '?'
   return name
     .split(' ')

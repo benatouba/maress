@@ -21,8 +21,8 @@
       "@/*": ["./src/*"]
     },
     "types": ["vite/client"],
-    "strict": false,
-    "noImplicitAny": false,
+    "strict": true,
+    "noImplicitAny": true,
     "ignoreDeprecations": "6.0"
   },
   "vueCompilerOptions": {

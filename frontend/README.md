@@ -18,10 +18,10 @@ $ pnpm dev
 This will start a local development server at `http://localhost:3000` that reloads when it detects code changes.
 
 ## Frontend tests
-**Note:** There are no tests implemented yet.
 
-The frontend uses [Vitest](https://vitest.dev/) as the testing framework.
-To run the frontend tests, use:
+The frontend uses [Vitest](https://vitest.dev/) as the testing framework with test files located in `src/tests/`. Tests cover stores, components, composables, and integration scenarios.
+
+To run the frontend tests:
 
 ```console
 $ pnpm test

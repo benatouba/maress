@@ -39,10 +39,10 @@ export interface ZoteroStore {
   enrichItems: (itemIds?: string[]) => Promise<any | null>
 }
 export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
-  const collections = ref([])
+  const collections = ref<any[]>([])
   const zoteroCollections = ref<ZoteroCollection[]>([])
   const selectedCollectionId = ref<string | null>(null)
-  const items = ref([])
+  const items = ref<any[]>([])
   const itemsCount = ref(0)
   const loading = ref(false)
   const syncing = ref(false)
@@ -61,7 +61,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     } catch (error) {
       const notificationStore = useNotificationStore()
       notificationStore.showNotification(
-        'Failed to fetch collections, with error:' + (error.response?.data?.detail || error.message),
+        'Failed to fetch collections, with error:' + ((error as any).response?.data?.detail || (error as any).message),
         'error'
       )
     } finally {
@@ -85,7 +85,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     } catch (error) {
       const notificationStore = useNotificationStore()
       notificationStore.showNotification(
-        'Failed to fetch Zotero collections, with error:' + (error.response?.data?.detail || error.message),
+        'Failed to fetch Zotero collections, with error:' + ((error as any).response?.data?.detail || (error as any).message),
         'error'
       )
     } finally {
@@ -94,7 +94,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   }
 
   // Fetch items
-  const fetchItems = async (limit = 500, silent = false) => {
+  const fetchItems = async (limit = 500, silent = false): Promise<any[]> => {
     // Don't set loading if it's a silent refresh (polling during download)
     if (!silent && !downloading.value) {
       loading.value = true
@@ -109,9 +109,10 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     } catch (error) {
       const notificationStore = useNotificationStore()
       notificationStore.showNotification(
-        'Failed to fetch items, with error:' + (error.response?.data?.detail || error.message),
+        'Failed to fetch items, with error:' + ((error as any).response?.data?.detail || (error as any).message),
         'error'
       )
+      return []
     } finally {
       if (!silent && !downloading.value) {
         loading.value = false
@@ -126,7 +127,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     } catch (error) {
       const notificationStore = useNotificationStore()
       notificationStore.showNotification(
-        'Failed to fetch map papers, with error:' + (error.response?.data?.detail || error.message),
+        'Failed to fetch map papers, with error:' + ((error as any).response?.data?.detail || (error as any).message),
         'error'
       )
       return null
@@ -155,7 +156,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       return true
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to start sync',
+        (error as any).response?.data?.detail || 'Failed to start sync',
         'error',
       )
       return false
@@ -176,7 +177,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       } catch (error) {
         const notificationStore = useNotificationStore()
         notificationStore.showNotification(
-          'Error refreshing items during download: ' + (error.response?.data?.detail || error.message),
+          'Error refreshing items during download: ' + ((error as any).response?.data?.detail || (error as any).message),
           'error'
         )
       }
@@ -232,7 +233,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       }
 
       notificationStore.showNotification(
-        error.response?.data?.detail || error.message || 'Failed to download attachments',
+        (error as any).response?.data?.detail || (error as any).message || 'Failed to download attachments',
         'error',
       )
       return null
@@ -295,7 +296,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     } catch (error) {
       const notificationStore = useNotificationStore()
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to extract study sites',
+        (error as any).response?.data?.detail || 'Failed to extract study sites',
         'error',
       )
       return []
@@ -303,7 +304,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   }
 
   // Import single item
-  const importItem = async (itemId) => {
+  const importItem = async (itemId: string) => {
     const notificationStore = useNotificationStore()
     loading.value = true
 
@@ -313,7 +314,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       return response.data
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to import item',
+        (error as any).response?.data?.detail || 'Failed to import item',
         'error',
       )
       return null
@@ -323,14 +324,14 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   }
 
   // Add this method to your Zotero store
-  const updateStudySite = async (studySiteId, updateData) => {
+  const updateStudySite = async (studySiteId: string, updateData: object) => {
     const notificationStore = useNotificationStore()
     try {
       const response = await axios.patch(`/study-sites/study-sites/${studySiteId}`, updateData)
       return response.data
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to update study site',
+        (error as any).response?.data?.detail || 'Failed to update study site',
         'error',
       )
       throw error
@@ -338,7 +339,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   }
 
   // Import file from Zotero for a single item
-  const importFileFromZotero = async (itemId) => {
+  const importFileFromZotero = async (itemId: string) => {
     const notificationStore = useNotificationStore()
     loading.value = true
 
@@ -348,7 +349,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       return response.data
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to import file',
+        (error as any).response?.data?.detail || 'Failed to import file',
         'error',
       )
       return null
@@ -367,7 +368,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       return response.data
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to fetch extraction results',
+        (error as any).response?.data?.detail || 'Failed to fetch extraction results',
         'error',
       )
       return null
@@ -410,7 +411,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
         tasks: taskData
       }
     } catch (error) {
-      const errorDetail = error.response?.data?.detail
+      const errorDetail = (error as any).response?.data?.detail
 
       // Format validation errors if present
       let errorMessage = 'Failed to start extraction'
@@ -452,7 +453,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
         tasks: taskData,
       }
     } catch (error) {
-      const errorDetail = error.response?.data?.detail
+      const errorDetail = (error as any).response?.data?.detail
       let errorMessage = 'Failed to start enrichment'
       if (typeof errorDetail === 'string') {
         errorMessage = errorDetail

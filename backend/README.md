@@ -167,6 +167,72 @@ The tests run with Pytest, modify and add tests to `./backend/tests/`.
 
 If you use GitHub Actions the tests will run automatically.
 
+## Geocoding tuning
+
+You can tune geocoding candidate filtering/disambiguation in your backend `.env`.
+
+Suggested starting values:
+
+```env
+# geocoding request behavior
+GEOCODING_ALLOW_LIVE_REQUESTS=true
+GEOCODING_RATE_LIMIT=1.0
+
+# candidate budget + confidence gates
+GEOCODING_MAX_CANDIDATES_PER_DOC=20
+GEOCODING_MIN_CANDIDATE_CONFIDENCE=0.55
+GEOCODING_STRICT_OTHER_SECTION_MIN_CONFIDENCE=0.80
+
+# phrase/noise filtering toggles
+GEOCODING_REJECT_DETERMINER_PREFIX=true
+GEOCODING_REJECT_NON_LOCATION_CONTENT=true
+GEOCODING_REQUIRE_CAPITALIZED_MULTI_TOKEN=true
+
+# geographic plausibility guards (km)
+GEOCODING_MAX_DISTANCE_WITHOUT_BIAS_KM=3000
+GEOCODING_MAX_DISTANCE_WITH_BIAS_KM=1200
+GEOCODING_MAX_DISTANCE_PER_CANDIDATE_KM=1800
+```
+
+Practical guidance:
+
+- Increase `GEOCODING_MIN_CANDIDATE_CONFIDENCE` and/or lower `GEOCODING_MAX_CANDIDATES_PER_DOC` if you see too many false positives.
+- Decrease `GEOCODING_MIN_CANDIDATE_CONFIDENCE` or raise candidate budget if recall is too low.
+- Reduce distance limits to be stricter about far-away mismatches; raise them if your papers span broader regions.
+- Keep phrase/noise toggles enabled unless you are diagnosing a specific false-negative pattern.
+
+## Map location search
+
+The map location search endpoint is available at:
+
+`GET /api/v1/study-sites/geocode-search`
+
+The frontend uses this endpoint for place lookup when creating manual study sites.
+
+Suggested backend settings:
+
+```env
+# location search provider: nominatim (default) or mapbox
+GEOCODING_SEARCH_PROVIDER=nominatim
+
+# Nominatim endpoint (you can replace with your self-hosted instance)
+GEOCODING_SEARCH_NOMINATIM_URL=https://nominatim.openstreetmap.org/search
+
+# max number of results returned per request
+GEOCODING_SEARCH_DEFAULT_LIMIT=8
+GEOCODING_SEARCH_MAX_LIMIT=20
+
+# outbound request pacing + cache
+GEOCODING_SEARCH_RATE_LIMIT=1.0
+GEOCODING_SEARCH_CACHE_TTL=600
+
+# optional: restrict to countries (ISO 3166-1 alpha-2)
+GEOCODING_SEARCH_COUNTRYCODES=
+
+# only needed when GEOCODING_SEARCH_PROVIDER=mapbox
+GEOCODING_SEARCH_MAPBOX_ACCESS_TOKEN=
+```
+
 ### Test running stack
 
 If your stack is already up and you just want to run the tests, you can use:

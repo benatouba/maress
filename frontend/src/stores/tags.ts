@@ -103,7 +103,7 @@ export const useTagStore = defineStore('tags', (): TagStore => {
       return newTag
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to create tag',
+        (error as any).response?.data?.detail || 'Failed to create tag',
         'error',
       )
       return null
@@ -135,7 +135,7 @@ export const useTagStore = defineStore('tags', (): TagStore => {
       return updatedTag
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to update tag',
+        (error as any).response?.data?.detail || 'Failed to update tag',
         'error',
       )
       return null
@@ -173,7 +173,7 @@ export const useTagStore = defineStore('tags', (): TagStore => {
       return true
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to delete tag',
+        (error as any).response?.data?.detail || 'Failed to delete tag',
         'error',
       )
       return false
@@ -205,7 +205,7 @@ export const useTagStore = defineStore('tags', (): TagStore => {
       return true
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to add item to tag',
+        (error as any).response?.data?.detail || 'Failed to add item to tag',
         'error',
       )
       return false
@@ -238,7 +238,7 @@ export const useTagStore = defineStore('tags', (): TagStore => {
       return true
     } catch (error) {
       notificationStore.showNotification(
-        error.response?.data?.detail || 'Failed to remove item from tag',
+        (error as any).response?.data?.detail || 'Failed to remove item from tag',
         'error',
       )
       return false

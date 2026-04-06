@@ -158,7 +158,7 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
-  const processTaskStatusResponse = (tasks, summary) => {
+  const processTaskStatusResponse = (tasks: Record<string, any>, summary: any) => {
 
     // Update each task
     Object.entries(tasks).forEach(([taskId, taskInfo]: [string, any]) => {

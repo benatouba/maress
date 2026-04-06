@@ -566,6 +566,35 @@
                   </v-list>
                 </div>
               </template>
+
+              <!-- Export -->
+              <div class="text-caption text-medium-emphasis mt-3 mb-2">Export</div>
+              <v-btn
+                block
+                variant="outlined"
+                size="small"
+                prepend-icon="mdi-map-marker-path"
+                class="mb-1"
+                @click="exportStudySites('geojson')">
+                Export Sites (GeoJSON)
+              </v-btn>
+              <v-btn
+                block
+                variant="outlined"
+                size="small"
+                prepend-icon="mdi-file-delimited"
+                class="mb-1"
+                @click="exportStudySites('csv')">
+                Export Sites (CSV)
+              </v-btn>
+              <v-btn
+                block
+                variant="outlined"
+                size="small"
+                prepend-icon="mdi-book-open-variant"
+                @click="exportItems('bibtex')">
+                Export Papers (BibTeX)
+              </v-btn>
             </v-card-text>
 
             <v-divider />
@@ -857,7 +886,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import api from '@/services/api'
 import { useAuthStore } from '../stores/auth'
+import { useNotificationStore } from '../stores/notification'
 import { useStudySitesStore, type MapPoint } from '../stores/studySites'
 import { useRegionsStore, type Region } from '../stores/regions'
 import { useGisStore, type GISMetric } from '../stores/gis'
@@ -886,6 +917,7 @@ const route = useRoute()
 
 // Stores
 const authStore = useAuthStore()
+const notificationStore = useNotificationStore()
 const studySitesStore = useStudySitesStore()
 const regionsStore = useRegionsStore()
 const gisStore = useGisStore()
@@ -1212,6 +1244,43 @@ const clearGisResults = () => {
   useClippedResult.value = false
   useWithinDistanceResult.value = false
   gisStore.clearResults()
+}
+
+// --- Export ---
+
+const triggerDownload = (data: string, filename: string, mimeType: string) => {
+  const blob = new Blob([data], { type: mimeType })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const exportStudySites = async (format: 'geojson' | 'csv') => {
+  try {
+    const params: Record<string, string> = { format }
+    if (selectedPaper.value?.id) {
+      params.item_id = selectedPaper.value.id
+    }
+    const response = await api.get('/export/study-sites', { params })
+    const ext = format === 'geojson' ? 'geojson' : 'csv'
+    const mime = format === 'geojson' ? 'application/geo+json' : 'text/csv'
+    const content = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
+    triggerDownload(content, `study_sites.${ext}`, mime)
+  } catch {
+    notificationStore.showNotification('Export failed', 'error')
+  }
+}
+
+const exportItems = async (format: 'bibtex') => {
+  try {
+    const response = await api.get('/export/items', { params: { format } })
+    triggerDownload(response.data, 'references.bib', 'application/x-bibtex')
+  } catch {
+    notificationStore.showNotification('Export failed', 'error')
+  }
 }
 
 /**
