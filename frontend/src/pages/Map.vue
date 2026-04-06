@@ -359,6 +359,214 @@
               </v-btn>
             </v-card-text>
 
+            <!-- GIS Tools -->
+            <v-card-text
+              v-if="authStore.isAuthenticated"
+              class="flex-grow-0 pt-0">
+              <div class="text-caption text-medium-emphasis mb-2">GIS Tools</div>
+
+              <v-select
+                v-model="gisOperation"
+                :items="gisOperationOptions"
+                label="Operation"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="mb-2" />
+
+              <v-alert
+                v-if="gisOperationOptions.length === 0"
+                type="info"
+                variant="tonal"
+                density="compact">
+                No GIS operations are available for your account.
+              </v-alert>
+
+              <template v-else>
+                <v-select
+                  v-model="selectedRegionIdForClip"
+                  :items="regionSelectOptions"
+                  label="Region filter / target (optional)"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  class="mb-2" />
+
+                <template v-if="gisOperation === 'buffer'">
+                  <v-text-field
+                    v-model.number="bufferDistance"
+                    type="number"
+                    min="1"
+                    label="Distance"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="mb-2" />
+
+                  <v-select
+                    v-model="bufferUnit"
+                    :items="bufferUnitOptions"
+                    label="Unit"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="mb-2" />
+
+                  <v-btn
+                    block
+                    variant="text"
+                    size="small"
+                    class="mb-2"
+                    @click="bufferDissolve = !bufferDissolve">
+                    Dissolve Regions: {{ bufferDissolve ? 'On' : 'Off' }}
+                  </v-btn>
+
+                  <v-btn
+                    block
+                    color="primary"
+                    prepend-icon="mdi-layers-plus"
+                    :loading="runningOperation"
+                    :disabled="!canRunBuffer || bufferDistance <= 0"
+                    @click="runBufferOperation">
+                    Run Buffer
+                  </v-btn>
+                </template>
+
+                <template v-else-if="gisOperation === 'clip'">
+                  <v-btn
+                    block
+                    color="primary"
+                    prepend-icon="mdi-content-cut"
+                    :loading="runningOperation"
+                    :disabled="!canRunClip || !selectedRegionIdForClip"
+                    @click="runClipOperation">
+                    Run Clip
+                  </v-btn>
+                </template>
+
+                <template v-else-if="gisOperation === 'within-distance'">
+                  <v-text-field
+                    v-model.number="withinDistanceDistance"
+                    type="number"
+                    min="1"
+                    label="Distance"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="mb-2" />
+
+                  <v-select
+                    v-model="withinDistanceUnit"
+                    :items="bufferUnitOptions"
+                    label="Unit"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="mb-2" />
+
+                  <v-select
+                    v-model="withinDistanceReturnLayer"
+                    :items="withinDistanceReturnOptions"
+                    label="Return Layer"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="mb-2" />
+
+                  <v-btn
+                    block
+                    color="primary"
+                    prepend-icon="mdi-map-search"
+                    :loading="runningOperation"
+                    :disabled="!canRunWithinDistance || withinDistanceDistance <= 0"
+                    @click="runWithinDistanceOperation">
+                    Run Within Distance
+                  </v-btn>
+                </template>
+
+                <template v-else>
+                  <v-select
+                    v-model="summaryGroupBy"
+                    :items="summaryGroupByOptions"
+                    label="Group By"
+                    density="compact"
+                    variant="outlined"
+                    hide-details
+                    class="mb-2" />
+
+                  <v-btn
+                    block
+                    variant="text"
+                    size="small"
+                    class="mb-1"
+                    @click="summaryIncludeCount = !summaryIncludeCount">
+                    Include Site Count: {{ summaryIncludeCount ? 'On' : 'Off' }}
+                  </v-btn>
+
+                  <v-btn
+                    block
+                    variant="text"
+                    size="small"
+                    class="mb-2"
+                    @click="summaryIncludeAvgConfidence = !summaryIncludeAvgConfidence">
+                    Include Avg Confidence: {{ summaryIncludeAvgConfidence ? 'On' : 'Off' }}
+                  </v-btn>
+
+                  <v-btn
+                    block
+                    color="primary"
+                    prepend-icon="mdi-chart-box-outline"
+                    :loading="runningOperation"
+                    :disabled="!canRunSummaryStats || selectedSummaryMetrics.length === 0"
+                    @click="runSummaryStatsOperation">
+                    Run Summary Stats
+                  </v-btn>
+                </template>
+
+                <v-btn
+                  block
+                  variant="outlined"
+                  color="secondary"
+                  size="small"
+                  class="mt-2"
+                  @click="clearGisResults">
+                  Clear GIS Results
+                </v-btn>
+
+                <div
+                  v-if="withinDistanceRegions.length > 0"
+                  class="mt-3">
+                  <div class="text-caption text-medium-emphasis mb-1">Within-distance Regions:</div>
+                  <v-chip
+                    v-for="region in withinDistanceRegions"
+                    :key="region.id"
+                    size="x-small"
+                    class="mr-1 mb-1"
+                    @click="handleRegionSelected(region.id)">
+                    {{ region.name }}
+                  </v-chip>
+                </div>
+
+                <div
+                  v-if="summaryStatsRows.length > 0"
+                  class="mt-3">
+                  <div class="text-caption text-medium-emphasis mb-1">
+                    Summary rows: {{ summaryStatsCount }}
+                  </div>
+                  <v-list density="compact" class="bg-transparent pa-0">
+                    <v-list-item
+                      v-for="(row, idx) in summaryStatsRows"
+                      :key="`summary-row-${idx}`"
+                      class="px-0">
+                      <v-list-item-title class="text-caption text-wrap">
+                        {{ formatSummaryRow(row) }}
+                      </v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </div>
+              </template>
+            </v-card-text>
+
             <v-divider />
 
             <!-- Region Stats Panel (shown when region selected) -->
@@ -651,6 +859,7 @@ import { storeToRefs } from 'pinia'
 import { useAuthStore } from '../stores/auth'
 import { useStudySitesStore, type MapPoint } from '../stores/studySites'
 import { useRegionsStore, type Region } from '../stores/regions'
+import { useGisStore, type GISMetric } from '../stores/gis'
 import { useZoteroStore } from '../stores/zotero'
 import StudySiteMap from '../components/maps/StudySiteMap.vue'
 import ShapefileUploadDialog from '../components/maps/ShapefileUploadDialog.vue'
@@ -678,8 +887,19 @@ const route = useRoute()
 const authStore = useAuthStore()
 const studySitesStore = useStudySitesStore()
 const regionsStore = useRegionsStore()
+const gisStore = useGisStore()
 const zoteroStore = useZoteroStore()
 const { mapPoints, loading } = storeToRefs(studySitesStore)
+const {
+  capabilities,
+  bufferFeatures,
+  clippedStudySites,
+  withinDistanceStudySites,
+  withinDistanceRegions,
+  summaryStatsRows,
+  summaryStatsCount,
+  runningOperation,
+} = storeToRefs(gisStore)
 
 // State - Study Sites
 const selectedSite = ref<MapPoint | null>(null)
@@ -698,6 +918,21 @@ const mapPapers = ref<MapPaperSummary[]>([])
 const mapPapersLoading = ref(false)
 const paperStudySitesLoading = ref(false)
 const activeViewport = ref<ViewportBounds | null>(null)
+const useClippedResult = ref(false)
+const useWithinDistanceResult = ref(false)
+
+// State - GIS operations
+const gisOperation = ref<'buffer' | 'clip' | 'within-distance' | 'summary-stats'>('buffer')
+const bufferDistance = ref(1000)
+const bufferUnit = ref<'meter' | 'kilometer'>('meter')
+const bufferDissolve = ref(false)
+const selectedRegionIdForClip = ref<string | null>(null)
+const withinDistanceDistance = ref(1000)
+const withinDistanceUnit = ref<'meter' | 'kilometer'>('meter')
+const withinDistanceReturnLayer = ref<'source' | 'against'>('source')
+const summaryGroupBy = ref<string>('is_manual')
+const summaryIncludeCount = ref(true)
+const summaryIncludeAvgConfidence = ref(true)
 
 // State - Right sidebar
 const rightTab = ref('sites')
@@ -718,6 +953,38 @@ const paperFilterOptions = [
   { title: 'With Study Sites', value: 'with_sites' },
   { title: 'Without Study Sites', value: 'without_sites' },
 ]
+
+const gisOperationOptions = computed(() => {
+  const options = [
+    { title: 'Buffer', value: 'buffer' as const },
+    { title: 'Clip', value: 'clip' as const },
+    { title: 'Within Distance', value: 'within-distance' as const },
+    { title: 'Summary Stats', value: 'summary-stats' as const },
+  ]
+  const enabledIds = new Set(capabilities.value.filter((op) => op.enabled).map((op) => op.id))
+  return options.filter((option) => enabledIds.has(option.value))
+})
+
+const bufferUnitOptions = [
+  { title: 'Meters', value: 'meter' },
+  { title: 'Kilometers', value: 'kilometer' },
+]
+
+const withinDistanceReturnOptions = [
+  { title: 'Study Sites', value: 'source' },
+  { title: 'Regions', value: 'against' },
+]
+
+const summaryGroupByOptions = [
+  { title: 'Manual vs Auto', value: 'is_manual' },
+  { title: 'Extraction Method', value: 'extraction_method' },
+  { title: 'Paper Title', value: 'item_title' },
+]
+
+const regionSelectOptions = computed(() => regionsStore.regions.map((region) => ({
+  title: region.name,
+  value: region.id,
+})))
 
 // Computed - Papers
 const papers = computed(() => mapPapers.value)
@@ -748,11 +1015,19 @@ const filteredPapers = computed(() => {
   return result
 })
 
+const activeSites = computed(() =>
+  useClippedResult.value
+    ? clippedStudySites.value
+    : (useWithinDistanceResult.value && withinDistanceReturnLayer.value === 'source')
+      ? withinDistanceStudySites.value
+      : mapPoints.value,
+)
+
 // Computed - Study Sites (uses lightweight MapPoint[])
-const totalSites = computed(() => mapPoints.value.length)
+const totalSites = computed(() => activeSites.value.length)
 
 const filteredSites = computed(() => {
-  let sites = mapPoints.value
+  let sites = activeSites.value
 
   // Filter by selected paper
   if (selectedPaper.value) {
@@ -779,6 +1054,26 @@ const filteredSites = computed(() => {
   return sites
 })
 
+const availableOperationIds = computed(() =>
+  capabilities.value.filter((op) => op.enabled).map((op) => op.id),
+)
+
+const canRunBuffer = computed(() => availableOperationIds.value.includes('buffer'))
+const canRunClip = computed(() => availableOperationIds.value.includes('clip'))
+const canRunWithinDistance = computed(() => availableOperationIds.value.includes('within-distance'))
+const canRunSummaryStats = computed(() => availableOperationIds.value.includes('summary-stats'))
+
+const selectedSummaryMetrics = computed<GISMetric[]>(() => {
+  const metrics: GISMetric[] = []
+  if (summaryIncludeCount.value) {
+    metrics.push({ type: 'count', field: 'id', alias: 'site_count' })
+  }
+  if (summaryIncludeAvgConfidence.value) {
+    metrics.push({ type: 'avg', field: 'confidence_score', alias: 'avg_confidence' })
+  }
+  return metrics
+})
+
 const fetchMapPapers = async () => {
   mapPapersLoading.value = true
   try {
@@ -796,6 +1091,118 @@ const fetchMapPointsForViewport = async (bounds: ViewportBounds) => {
 
 const handleViewportChanged = async (bounds: ViewportBounds) => {
   await fetchMapPointsForViewport(bounds)
+}
+
+const runBufferOperation = async () => {
+  if (!canRunBuffer.value) return
+  useWithinDistanceResult.value = false
+
+  const target = selectedRegionIdForClip.value
+    ? {
+        layer_id: 'regions' as const,
+        selection: {
+          type: 'ids' as const,
+          ids: [selectedRegionIdForClip.value],
+        },
+      }
+    : {
+        layer_id: 'study-sites' as const,
+        selection: { type: 'all' as const },
+      }
+
+  await gisStore.runBuffer(target, {
+    distance: bufferDistance.value,
+    unit: bufferUnit.value,
+    dissolve: bufferDissolve.value,
+  })
+}
+
+const runClipOperation = async () => {
+  if (!canRunClip.value || !selectedRegionIdForClip.value) return
+  useWithinDistanceResult.value = false
+
+  const result = await gisStore.runClip(
+    {
+      layer_id: 'study-sites',
+      selection: { type: 'all' },
+    },
+    {
+      layer_id: 'regions',
+      selection: { type: 'ids', ids: [selectedRegionIdForClip.value] },
+    },
+  )
+
+  if (result) {
+    useClippedResult.value = true
+    rightTab.value = 'sites'
+  }
+}
+
+const runWithinDistanceOperation = async () => {
+  if (!canRunWithinDistance.value || withinDistanceDistance.value <= 0) return
+
+  const regionRef = selectedRegionIdForClip.value
+    ? {
+        layer_id: 'regions' as const,
+        selection: {
+          type: 'ids' as const,
+          ids: [selectedRegionIdForClip.value],
+        },
+      }
+    : {
+        layer_id: 'regions' as const,
+        selection: { type: 'all' as const },
+      }
+
+  const result = await gisStore.runWithinDistance(
+    {
+      layer_id: 'study-sites',
+      selection: { type: 'all' },
+    },
+    regionRef,
+    {
+      distance: withinDistanceDistance.value,
+      unit: withinDistanceUnit.value,
+      return: withinDistanceReturnLayer.value,
+    },
+  )
+
+  if (!result) return
+
+  useClippedResult.value = false
+  useWithinDistanceResult.value = result.return_layer_id === 'study-sites'
+  rightTab.value = result.return_layer_id === 'study-sites' ? 'sites' : 'regions'
+}
+
+const runSummaryStatsOperation = async () => {
+  if (!canRunSummaryStats.value || selectedSummaryMetrics.value.length === 0) return
+
+  const spatialFilter = selectedRegionIdForClip.value
+    ? {
+        layer_id: 'regions' as const,
+        selection: {
+          type: 'ids' as const,
+          ids: [selectedRegionIdForClip.value],
+        },
+        predicate: 'within' as const,
+      }
+    : undefined
+
+  await gisStore.runSummaryStats({
+    target: {
+      layer_id: 'study-sites',
+      selection: { type: 'all' },
+    },
+    group_by: summaryGroupBy.value ? [summaryGroupBy.value] : [],
+    metrics: selectedSummaryMetrics.value,
+    spatial_filter: spatialFilter,
+  })
+}
+
+const clearGisResults = () => {
+  useClippedResult.value = false
+  useWithinDistanceResult.value = false
+  gisStore.clearResults()
 }
 
 /**
@@ -984,6 +1391,27 @@ const formatExtractionMethod = (method: string): string => {
     .join(' ')
 }
 
+const formatSummaryRow = (row: Record<string, any>): string => {
+  const groupParts: string[] = []
+  const metricParts: string[] = []
+
+  Object.entries(row).forEach(([key, value]) => {
+    if (key === 'site_count' || key === 'avg_confidence') {
+      metricParts.push(`${key}: ${value}`)
+      return
+    }
+    groupParts.push(`${key}: ${value}`)
+  })
+
+  if (metricParts.length === 0) {
+    return groupParts.join(' | ')
+  }
+  if (groupParts.length === 0) {
+    return metricParts.join(' | ')
+  }
+  return `${groupParts.join(' | ')} -> ${metricParts.join(' | ')}`
+}
+
 /**
  * Handle region selected from map click
  */
@@ -1046,6 +1474,7 @@ const handleShapefileUploaded = () => {
 
 // Lifecycle
 onMounted(async () => {
+  await gisStore.fetchCapabilities()
   await fetchMapPapers()
   if (authStore.isAuthenticated) {
     await regionsStore.fetchRegions()
@@ -1056,6 +1485,27 @@ onMounted(async () => {
     searchQuery.value = route.query.itemTitle as string
   }
 })
+
+watch(gisOperation, (operation) => {
+  useClippedResult.value = false
+  useWithinDistanceResult.value = false
+  if (!gisOperationOptions.value.some((option) => option.value === operation)) {
+    gisOperation.value = gisOperationOptions.value[0]?.value ?? 'buffer'
+    return
+  }
+  if (operation !== 'buffer') {
+    bufferDissolve.value = false
+  }
+})
+
+watch(
+  () => gisOperationOptions.value,
+  (options) => {
+    if (!options.some((option) => option.value === gisOperation.value)) {
+      gisOperation.value = options[0]?.value ?? 'buffer'
+    }
+  },
+)
 
 watch(
   () => route.query.itemTitle,
@@ -1083,6 +1533,18 @@ watch(studySitesDialog, (open) => {
   if (!open) {
     paperStudySitesLoading.value = false
   }
+})
+
+watch(
+  () => selectedRegionIdForClip.value,
+  () => {
+    useClippedResult.value = false
+    useWithinDistanceResult.value = false
+  },
+)
+
+watch(withinDistanceReturnLayer, () => {
+  useWithinDistanceResult.value = false
 })
 </script>
 
