@@ -103,8 +103,19 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const params = { limit }
 
       const response = await axios.get('/items/', { params })
-      items.value = response.data
-      itemsCount.value = response.data.length
+      // Backend returns paginated shape: { data: Item[], count: number }
+      // Keep compatibility with any legacy array-only payloads.
+      const responseData = response.data
+      const fetchedItems = Array.isArray(responseData)
+        ? responseData
+        : Array.isArray(responseData?.data)
+          ? responseData.data
+          : []
+
+      items.value = fetchedItems
+      itemsCount.value = typeof responseData?.count === 'number'
+        ? responseData.count
+        : fetchedItems.length
       return items.value
     } catch (error) {
       const notificationStore = useNotificationStore()
