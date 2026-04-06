@@ -8,7 +8,19 @@ import { setupTest, teardownTest } from '../utils/test-utils'
 
 describe('StudySiteEditDialog', () => {
   let wrapper: any
+  let pinia: any
   let store: ReturnType<typeof useStudySitesStore>
+
+  const mockMapPoint = {
+    id: mockStudySite.id,
+    name: mockStudySite.name,
+    item_id: mockStudySite.item_id,
+    item_title: mockStudySite.item_title,
+    latitude: mockStudySite.location.latitude,
+    longitude: mockStudySite.location.longitude,
+    is_manual: mockStudySite.is_manual,
+    confidence_score: mockStudySite.confidence_score,
+  }
 
   const createWrapper = (props = {}) => {
     return mount(StudySiteEditDialog, {
@@ -18,7 +30,7 @@ describe('StudySiteEditDialog', () => {
         ...props
       },
       global: {
-        plugins: [createPinia()],
+        plugins: [pinia],
         stubs: {
           VDialog: { template: '<div v-if="modelValue"><slot /></div>', props: ['modelValue'] },
           VCard: { template: '<div><slot /></div>' },
@@ -54,8 +66,10 @@ describe('StudySiteEditDialog', () => {
 
   beforeEach(() => {
     setupTest()
-    setActivePinia(createPinia())
+    pinia = createPinia()
+    setActivePinia(pinia)
     store = useStudySitesStore()
+    vi.spyOn(store, 'fetchStudySite').mockResolvedValue(mockStudySite as any)
   })
 
   afterEach(() => {
@@ -69,7 +83,7 @@ describe('StudySiteEditDialog', () => {
     it('should render when modelValue is true', () => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
 
       expect(wrapper.find('[data-test="edit-dialog"]').exists()).toBe(false) // Stubbed, won't have data-test
@@ -79,7 +93,7 @@ describe('StudySiteEditDialog', () => {
     it('should not render when modelValue is false', () => {
       wrapper = createWrapper({
         modelValue: false,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
 
       // With stubbed VDialog, it won't render content when modelValue is false
@@ -89,7 +103,7 @@ describe('StudySiteEditDialog', () => {
     it('should display study site data', () => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
 
       const inputs = wrapper.findAll('input')
@@ -103,7 +117,7 @@ describe('StudySiteEditDialog', () => {
     it('should show manual badge for manual sites', () => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: { ...mockStudySite, is_manual: true }
+        studySite: { ...mockMapPoint, is_manual: true }
       })
 
       expect(wrapper.text()).toContain('Manual')
@@ -112,7 +126,7 @@ describe('StudySiteEditDialog', () => {
     it('should show automatic badge for automatic sites', () => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: { ...mockStudySite, is_manual: false }
+        studySite: { ...mockMapPoint, is_manual: false }
       })
 
       expect(wrapper.text()).toContain('Automatic')
@@ -123,7 +137,7 @@ describe('StudySiteEditDialog', () => {
     beforeEach(() => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
     })
 
@@ -132,8 +146,8 @@ describe('StudySiteEditDialog', () => {
 
       // Check that form is initialized (internal state)
       expect(wrapper.vm.form.name).toBe(mockStudySite.name)
-      expect(wrapper.vm.form.latitude).toBe(mockStudySite.location.latitude)
-      expect(wrapper.vm.form.longitude).toBe(mockStudySite.location.longitude)
+      expect(wrapper.vm.form.latitude).toBe(mockMapPoint.latitude)
+      expect(wrapper.vm.form.longitude).toBe(mockMapPoint.longitude)
     })
 
     it('should update form data on input', async () => {
@@ -148,25 +162,30 @@ describe('StudySiteEditDialog', () => {
     beforeEach(() => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
     })
 
     it('should call updateStudySite on save', async () => {
       vi.spyOn(store, 'updateStudySite').mockResolvedValue(mockStudySite)
 
-      const saveButton = wrapper.findAll('button').find((btn: any) =>
-        btn.text().includes('Save')
-      )
-      await saveButton.trigger('click')
+      wrapper.vm.formValid = true
+      wrapper.vm.formRef = {
+        validate: vi.fn().mockResolvedValue({ valid: true })
+      }
 
-      await wrapper.vm.$nextTick()
+      await wrapper.vm.handleSave()
 
       expect(store.updateStudySite).toHaveBeenCalled()
     })
 
     it('should emit saved event on successful save', async () => {
       vi.spyOn(store, 'updateStudySite').mockResolvedValue(mockStudySite)
+
+      wrapper.vm.formValid = true
+      wrapper.vm.formRef = {
+        validate: vi.fn().mockResolvedValue({ valid: true })
+      }
 
       await wrapper.vm.handleSave()
       await wrapper.vm.$nextTick()
@@ -176,6 +195,11 @@ describe('StudySiteEditDialog', () => {
 
     it('should emit update:modelValue on successful save', async () => {
       vi.spyOn(store, 'updateStudySite').mockResolvedValue(mockStudySite)
+
+      wrapper.vm.formValid = true
+      wrapper.vm.formRef = {
+        validate: vi.fn().mockResolvedValue({ valid: true })
+      }
 
       await wrapper.vm.handleSave()
       await wrapper.vm.$nextTick()
@@ -201,7 +225,7 @@ describe('StudySiteEditDialog', () => {
     beforeEach(() => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
       global.confirm = vi.fn(() => true)
     })
@@ -246,7 +270,7 @@ describe('StudySiteEditDialog', () => {
     it('should emit update:modelValue on cancel', () => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
 
       wrapper.vm.handleCancel()
@@ -260,7 +284,7 @@ describe('StudySiteEditDialog', () => {
     beforeEach(() => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
     })
 
@@ -292,7 +316,7 @@ describe('StudySiteEditDialog', () => {
     it('should format dates correctly', () => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
 
       const formatted = wrapper.vm.formatDate('2024-01-15T10:30:00Z')
@@ -303,7 +327,7 @@ describe('StudySiteEditDialog', () => {
     it('should return N/A for invalid dates', () => {
       wrapper = createWrapper({
         modelValue: true,
-        studySite: mockStudySite
+        studySite: mockMapPoint
       })
 
       expect(wrapper.vm.formatDate(null)).toBe('N/A')

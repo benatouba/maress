@@ -244,7 +244,6 @@ describe('Map Page', () => {
         geojson: null,
       },
     ]
-    regionsStore.regionCount = 1
     regionsStore.selectedRegion = null
     regionsStore.regionStats = null
     vi.spyOn(regionsStore, 'fetchRegions').mockImplementation(async () => {})
@@ -663,7 +662,7 @@ describe('Map Page', () => {
 
       await wrapper.vm.panToStudySite(mockStudySite)
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith('Map component not initialized yet')
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Map component not initialized yet'))
     })
 
     it('should handle invalid location data', async () => {

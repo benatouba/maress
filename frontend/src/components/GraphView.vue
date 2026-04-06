@@ -707,6 +707,12 @@ const setupAdaptiveZoom = () => {
   addZoomControls()
 }
 
+const setGraphCursor = (cursor) => {
+  if (cytoscapeContainer.value) {
+    cytoscapeContainer.value.style.cursor = cursor
+  }
+}
+
 // Optimize the updateGraph function with better batching
 const updateGraph = async () => {
   if (!cy) return
@@ -715,7 +721,7 @@ const updateGraph = async () => {
     await nextTick()
 
     // Show loading state
-    cytoscapeContainer.value.style.cursor = 'wait'
+    setGraphCursor('wait')
 
     const { nodes, edges } = buildGraphData.value
 
@@ -760,10 +766,10 @@ const updateGraph = async () => {
       implementViewportCulling()
     }
 
-    cytoscapeContainer.value.style.cursor = 'default'
+    setGraphCursor('default')
   } catch (error) {
     logger.error('Failed to update graph:', error)
-    cytoscapeContainer.value.style.cursor = 'default'
+    setGraphCursor('default')
   }
 }
 
@@ -813,8 +819,14 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (updateTimeout) {
+    clearTimeout(updateTimeout)
+    updateTimeout = null
+  }
+
   if (cy) {
     cy.destroy()
+    cy = null
   }
 })
 

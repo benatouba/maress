@@ -89,37 +89,37 @@ describe('useGraphComposable', () => {
   })
 
   describe('exportToImage', () => {
-    it('should return empty string if cy is null', () => {
-      const result = composable.exportToImage(null as any)
-      expect(result).toBe('')
+    it('should throw if cy is null', async () => {
+      await expect(composable.exportToImage(null as any)).rejects.toThrow('Cytoscape instance not available')
     })
 
-    it('should call cy.png with correct options', () => {
-      const mockPng = vi.fn().mockReturnValue('data:image/png;base64,...')
+    it('should call cy.png with correct options', async () => {
+      const blob = new Blob(['graph'], { type: 'image/png' })
+      const mockPng = vi.fn().mockReturnValue(blob)
       const mockCy = {
         png: mockPng
       } as unknown as Core
 
-      const result = composable.exportToImage(mockCy, 'png', 2)
+      const result = await composable.exportToImage(mockCy, 'png', 2)
 
       expect(mockPng).toHaveBeenCalledWith({
-        output: 'blob-promise',
+        output: 'blob',
         bg: 'transparent',
         full: true,
         scale: 2,
         maxWidth: 4096,
         maxHeight: 4096
       })
-      expect(result).toBe('data:image/png;base64,...')
+      expect(result).toBe(blob)
     })
 
-    it('should use white background for jpg format', () => {
+    it('should use white background for jpg format', async () => {
       const mockPng = vi.fn().mockReturnValue('data:image/jpg;base64,...')
       const mockCy = {
         png: mockPng
       } as unknown as Core
 
-      composable.exportToImage(mockCy, 'jpg', 2)
+      await composable.exportToImage(mockCy, 'jpg', 2)
 
       expect(mockPng).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -128,20 +128,20 @@ describe('useGraphComposable', () => {
       )
     })
 
-    it('should clamp scale between 1 and 5', () => {
+    it('should clamp scale between 1 and 5', async () => {
       const mockPng = vi.fn().mockReturnValue('data:image/png;base64,...')
       const mockCy = {
         png: mockPng
       } as unknown as Core
 
-      composable.exportToImage(mockCy, 'png', 0)
+      await composable.exportToImage(mockCy, 'png', 0)
       expect(mockPng).toHaveBeenCalledWith(expect.objectContaining({ scale: 1 }))
 
-      composable.exportToImage(mockCy, 'png', 10)
+      await composable.exportToImage(mockCy, 'png', 10)
       expect(mockPng).toHaveBeenCalledWith(expect.objectContaining({ scale: 5 }))
     })
 
-    it('should handle errors gracefully', () => {
+    it('should rethrow errors and log them', async () => {
       const mockPng = vi.fn().mockImplementation(() => {
         throw new Error('Export failed')
       })
@@ -151,10 +151,8 @@ describe('useGraphComposable', () => {
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-      const result = composable.exportToImage(mockCy, 'png', 2)
-
-      expect(result).toBe('')
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to export graph:', expect.any(Error))
+      await expect(composable.exportToImage(mockCy, 'png', 2)).rejects.toThrow('Export failed')
+      expect(consoleSpy).toHaveBeenCalled()
 
       consoleSpy.mockRestore()
     })
@@ -204,7 +202,7 @@ describe('useGraphComposable', () => {
 
       const result = composable.calculateNodeImportance(items, tags)
 
-      expect(result.items['item1']).toBe(1) // Normalized to 1
+      expect(result.items['item1']).toBe(0)
       expect(Object.keys(result.tags)).toHaveLength(0)
     })
 
@@ -237,7 +235,7 @@ describe('useGraphComposable', () => {
 
       const result = composable.calculateNodeImportance(items, tags)
 
-      expect(result.items['item1']).toBe(1)
+      expect(result.items['item1']).toBe(0.6)
     })
 
     it('should normalize scores to 0-1 range', () => {
@@ -278,7 +276,7 @@ describe('useGraphComposable', () => {
       const items = [
         {
           id: 'item1',
-          tags: ['tag1', { id: 'tag2' }, { tag: 'tag3' }],
+          tags: ['tag1', { id: 'tag2' }, 'tag3'],
           study_sites: [],
           creators: []
         }

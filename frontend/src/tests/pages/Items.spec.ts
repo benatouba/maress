@@ -3,9 +3,10 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import Items from '@/pages/Items.vue'
-import { useZoteroStore } from '@/stores/zoteroStore'
+import { useZoteroStore } from '@/stores/zotero'
+import { useAuthStore } from '@/stores/auth'
 import { useNotificationStore } from '@/stores/notification'
-import { mockItem, mockItemWithoutSites, mockItemsResponse } from '../mocks/api-mocks'
+import { mockItem, mockItemWithoutSites } from '../mocks/api-mocks'
 import { setupTest, teardownTest } from '../utils/test-utils'
 
 // Create mock router
@@ -20,13 +21,15 @@ const router = createRouter({
 
 describe('Items Page', () => {
   let wrapper: any
+  let pinia: any
   let zoteroStore: any
+  let authStore: any
   let notificationStore: ReturnType<typeof useNotificationStore>
 
   const createWrapper = () => {
     return mount(Items, {
       global: {
-        plugins: [createPinia(), router],
+        plugins: [pinia, router],
         stubs: {
           VContainer: { template: '<div><slot /></div>' },
           VRow: { template: '<div><slot /></div>' },
@@ -35,19 +38,26 @@ describe('Items Page', () => {
           VCardText: { template: '<div><slot /></div>' },
           VCardTitle: { template: '<div><slot /></div>' },
           VCardActions: { template: '<div><slot /></div>' },
+          VSwitch: {
+            template: '<input type="checkbox" :checked="modelValue" @change="$emit(\'update:modelValue\', $event.target.checked)" />',
+            props: ['modelValue']
+          },
           VBtn: {
             template: '<button @click="$emit(\'click\')" :disabled="disabled"><slot /></button>',
             props: ['disabled', 'loading', 'icon']
           },
           VTextField: {
-            template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+            template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value); $emit(\'update:model-value\', $event.target.value)" />',
             props: ['modelValue']
           },
           VSelect: {
             template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><slot /></select>',
             props: ['modelValue', 'items']
           },
+          VChipGroup: { template: '<div><slot /></div>', props: ['modelValue'] },
+          VChip: { template: '<span @click="$emit(\'click\')"><slot /></span>' },
           VDataTable: {
+            name: 'VDataTable',
             template: '<table><slot /></table>',
             props: ['headers', 'items', 'loading', 'itemsPerPage', 'page']
           },
@@ -56,13 +66,18 @@ describe('Items Page', () => {
             props: ['modelValue']
           },
           VList: { template: '<ul><slot /></ul>' },
-          VListItem: { template: '<li><slot /></li>' },
+          VListItem: { template: '<li @click="$emit(\'click\')"><slot /><slot name="prepend" /></li>' },
+          VListItemTitle: { template: '<span><slot /></span>' },
+          VListItemSubtitle: { template: '<span><slot /></span>' },
           VIcon: { template: '<i />' },
-          VChip: { template: '<span><slot /></span>' },
-          VMenu: { template: '<div><slot name="activator" /><slot /></div>' },
+          VMenu: { template: '<div><slot name="activator" :props="{}" /><slot /></div>' },
           VDivider: { template: '<hr />' },
           VPagination: { template: '<div />' },
-          VSpacer: { template: '<div />' }
+          VSpacer: { template: '<div />' },
+          VAlert: { template: '<div><slot /><slot name="prepend" /></div>' },
+          VAlertTitle: { template: '<div><slot /></div>' },
+          VProgressCircular: { template: '<div />' },
+          ExtractionResults: { template: '<div />', props: ['itemId'] },
         }
       }
     })
@@ -70,16 +85,28 @@ describe('Items Page', () => {
 
   beforeEach(() => {
     setupTest()
-    setActivePinia(createPinia())
+    pinia = createPinia()
+    setActivePinia(pinia)
+
+    authStore = useAuthStore()
+    authStore.token = 'test-token'
 
     // Mock Zotero store
     zoteroStore = useZoteroStore()
-    zoteroStore.items = { data: [mockItem, mockItemWithoutSites], count: 2 }
+    zoteroStore.items = [mockItem, mockItemWithoutSites]
+    zoteroStore.zoteroCollections = [{ key: 'collection-1', name: 'Collection 1' }]
     zoteroStore.loading = false
     zoteroStore.syncing = false
-    vi.spyOn(zoteroStore, 'fetchItems').mockResolvedValue(mockItemsResponse)
+    zoteroStore.downloading = false
+    vi.spyOn(zoteroStore, 'fetchItems').mockImplementation(async () => {
+      zoteroStore.items = [mockItem, mockItemWithoutSites]
+      return [mockItem, mockItemWithoutSites]
+    })
+    vi.spyOn(zoteroStore, 'fetchZoteroCollections').mockResolvedValue()
     vi.spyOn(zoteroStore, 'syncLibrary').mockResolvedValue(true)
     vi.spyOn(zoteroStore, 'downloadAttachments').mockResolvedValue(true)
+    vi.spyOn(zoteroStore, 'extractStudySites').mockResolvedValue({ count: 1, tasks: [] })
+    vi.spyOn(zoteroStore, 'enrichItems').mockResolvedValue({ count: 1, tasks: [] })
 
     notificationStore = useNotificationStore()
     vi.spyOn(notificationStore, 'showNotification')
@@ -163,7 +190,7 @@ describe('Items Page', () => {
     })
 
     it('should update search value on input', async () => {
-      const searchInput = wrapper.find('input')
+      const searchInput = wrapper.findAll('input').find((input: any) => input.element.type !== 'checkbox')
       await searchInput.setValue('test query')
 
       expect(wrapper.vm.search).toBe('test query')
@@ -171,7 +198,7 @@ describe('Items Page', () => {
 
     it('should reset page to 1 on search', async () => {
       wrapper.vm.page = 5
-      const searchInput = wrapper.find('input')
+      const searchInput = wrapper.findAll('input').find((input: any) => input.element.type !== 'checkbox')
       await searchInput.setValue('test')
 
       // Wait for debounce
@@ -243,6 +270,9 @@ describe('Items Page', () => {
     })
 
     it('should sync library on button click', async () => {
+      wrapper.vm.selectedCollectionIndex = 0
+      await wrapper.vm.$nextTick()
+
       const syncButton = wrapper.findAll('button').find((btn: any) =>
         btn.text().includes('Sync')
       )
@@ -252,13 +282,13 @@ describe('Items Page', () => {
 
       expect(zoteroStore.syncLibrary).toHaveBeenCalled()
       expect(notificationStore.showNotification).toHaveBeenCalledWith(
-        'Library synced successfully',
+        'Collection "Collection 1" synced successfully',
         'success'
       )
     })
 
-    it('should download attachments after sync', async () => {
-      await wrapper.vm.handleSync()
+    it('should download attachments on download action', async () => {
+      await wrapper.vm.handleDownloadAttachments()
       await flushPromises()
 
       expect(zoteroStore.downloadAttachments).toHaveBeenCalled()
@@ -312,14 +342,14 @@ describe('Items Page', () => {
       await flushPromises()
     })
 
-    it('should navigate to map with item ID', async () => {
+    it('should navigate to map with item title', async () => {
       const pushSpy = vi.spyOn(router, 'push')
 
       await wrapper.vm.viewOnMap(mockItem)
 
       expect(pushSpy).toHaveBeenCalledWith({
         path: '/map',
-        query: { itemId: mockItem.id }
+        query: { itemTitle: mockItem.title }
       })
     })
   })
@@ -330,13 +360,10 @@ describe('Items Page', () => {
       await flushPromises()
     })
 
-    it('should show notification when extraction starts', async () => {
-      await wrapper.vm.extractStudySites(mockItem)
+    it('should extract study sites for a single item', async () => {
+      await wrapper.vm.handleExtractStudySites(mockItem)
 
-      expect(notificationStore.showNotification).toHaveBeenCalledWith(
-        'Study site extraction started',
-        'info'
-      )
+      expect(zoteroStore.extractStudySites).toHaveBeenCalledWith([mockItem.id], false)
     })
   })
 
