@@ -257,3 +257,8 @@ TODO.md
 **/*.pdf
 ecolog.toml
 project-presentation/
+**/*benchmark*.md
+
+# LLMs
+AGENTS.md
+CLAUDE.md

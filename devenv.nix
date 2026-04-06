@@ -72,7 +72,7 @@
   env = {
     MAGIC = "${pkgs.file}/share/misc/magic.mgc";
     UV_LINK_MODE = "copy";
-    UV_WORKING_DIR = "./backend";
+    # UV_WORKING_DIR = "./backend";
     PGDATABASE = "maress";
   };
 

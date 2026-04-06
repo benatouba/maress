@@ -9,7 +9,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "lint": "oxlint --fix . && eslint --fix src/**/*.vue",
-    "type-check": "vue-tsc --build --force",
+    "type-check": "vue-tsc --noEmit -p tsconfig.app.json",
     "format": "oxfmt .",
     "format:check": "oxfmt --check ."
   },
@@ -41,6 +41,7 @@
     "eslint-plugin-oxlint": "^1.58.0",
     "eslint-plugin-vue": "^10.8.0",
     "eslint-plugin-vuetify": "^2.7.2",
+    "jsdom": "^29.0.1",
     "oxfmt": "^0.42.0",
     "oxlint": "^1.58.0",
     "sass": "^1.98.0",
