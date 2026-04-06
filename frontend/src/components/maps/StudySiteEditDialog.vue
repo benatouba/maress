@@ -147,6 +147,13 @@
         <div>
           <v-btn
             variant="text"
+            prepend-icon="mdi-crosshairs-gps"
+            @click="handleReposition"
+          >
+            Reposition on Map
+          </v-btn>
+          <v-btn
+            variant="text"
             @click="handleCancel"
           >
             Cancel
@@ -179,7 +186,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const emit = defineEmits(['update:modelValue', 'saved', 'deleted'])
+const emit = defineEmits(['update:modelValue', 'saved', 'deleted', 'reposition'])
 
 // Store
 const studySitesStore = useStudySitesStore()
@@ -312,6 +319,14 @@ const handleDelete = async () => {
   } finally {
     deleting.value = false
   }
+}
+
+/**
+ * Switch to map-based reposition mode
+ */
+const handleReposition = () => {
+  emit('reposition')
+  emit('update:modelValue', false)
 }
 
 /**

@@ -10,6 +10,7 @@ export interface User {
   id: string
   email: string
   full_name: string
+  avatar?: string | null
   is_active: boolean
   is_superuser: boolean
   zotero_id: string | null

@@ -168,6 +168,7 @@
           :initial-zoom="2"
           :sites="filteredSites"
           :regions="regionsStore.regions"
+          :buffer-features="bufferFeatures"
           @site-selected="handleSiteSelected"
           @viewport-changed="handleViewportChanged"
           @map-ready="handleMapReady"
@@ -543,7 +544,7 @@
               </template>
 
               <v-list-item-title class="text-h6 mb-2">
-                {{ site.name || `Study Site ${index + 1}` }}
+                {{ site.name || `Study Site ${Number(index) + 1}` }}
               </v-list-item-title>
 
               <v-list-item-subtitle class="text-body-2">

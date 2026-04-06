@@ -495,7 +495,7 @@ const detailsDialog = ref(false)
 const extractionResultsDialog = ref(false)
 const selectedItem = ref<any>(null)
 const forceReload = ref(false)
-const selectedItems = ref<any[]>([])
+const selectedItems = ref<string[]>([])
 
 // Filter options
 const itemTypeOptions = [
@@ -530,7 +530,7 @@ const headers = computed(() => {
 
 // Computed
 const filteredItems = computed(() => {
-  let result = items.value.data || []
+  let result = items.value || []
 
   // Filter by item type
   if (filterType.value) {
@@ -645,7 +645,7 @@ const handleExtractAll = async () => {
       logger.debug('Selected item IDs:', itemIds)
 
       try {
-        const result = await zoteroStore.extractStudySites(itemIds, forceReload.value)
+        const result = await zoteroStore.extractStudySites(itemIds as string[], forceReload.value)
         if (result && result.tasks) {
           // Add tasks to task store for tracking
           taskStore.addTasks(result.tasks)
@@ -672,7 +672,7 @@ const handleExtractAll = async () => {
       }, 5000)
     } else {
       // Extract for all items
-      const result = await zoteroStore.extractStudySites(null, forceReload.value)
+      const result = await zoteroStore.extractStudySites(undefined, forceReload.value)
       if (result && result.tasks) {
         // Add tasks to task store for tracking
         taskStore.addTasks(result.tasks)
@@ -751,7 +751,7 @@ const handleExtractStudySites = async (item: any) => {
   }
 
   try {
-    const result = await zoteroStore.extractStudySites(item.id, forceReload.value)
+    const result = await zoteroStore.extractStudySites([item.id], forceReload.value)
     if (result && result.tasks) {
       // Add tasks to task store for tracking
       taskStore.addTasks(result.tasks)

@@ -96,19 +96,19 @@ export function useGraphComposable() {
    * @param scale - Scale factor for export (1-5)
    * @returns Data URL of the exported image
    */
-  const exportToImage = (
+  const exportToImage = async (
     cy: Core,
     format: 'png' | 'jpg' = 'png',
     scale: number = 2
-  ): string => {
+  ): Promise<Blob> => {
     if (!cy) {
       logger.error('Cytoscape instance not available')
-      return ''
+      throw new Error('Cytoscape instance not available')
     }
 
     try {
       const options = {
-        output: 'blob-promise' as const,
+        output: 'blob' as const,
         bg: format === 'jpg' ? '#FFFFFF' : 'transparent',
         full: true,
         scale: Math.min(Math.max(scale, 1), 5), // Clamp between 1 and 5
@@ -116,12 +116,11 @@ export function useGraphComposable() {
         maxHeight: 4096
       }
 
-      // Get image as data URL
-      const dataUrl = cy.png(options)
-      return dataUrl
+      const blob = cy.png(options) as Blob
+      return blob
     } catch (error) {
       logger.error('Failed to export graph:', error)
-      return ''
+      throw error
     }
   }
 

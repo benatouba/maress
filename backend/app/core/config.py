@@ -108,6 +108,26 @@ class Settings(BaseSettings):
     # Geocoding Configuration
     GEOCODING_CACHE_TTL: int = 60 * 60 * 24 * 30  # 30 days in seconds
     GEOCODING_RATE_LIMIT: float = 1.0  # requests per second for Nominatim
+    GEOCODING_ALLOW_LIVE_REQUESTS: bool = True
+    GEOCODING_MAX_CANDIDATES_PER_DOC: int = 20
+    GEOCODING_MIN_CANDIDATE_CONFIDENCE: float = 0.55
+    GEOCODING_STRICT_OTHER_SECTION_MIN_CONFIDENCE: float = 0.8
+    GEOCODING_REJECT_DETERMINER_PREFIX: bool = True
+    GEOCODING_REJECT_NON_LOCATION_CONTENT: bool = True
+    GEOCODING_REQUIRE_CAPITALIZED_MULTI_TOKEN: bool = True
+    GEOCODING_MAX_DISTANCE_WITHOUT_BIAS_KM: float = 3000.0
+    GEOCODING_MAX_DISTANCE_WITH_BIAS_KM: float = 1200.0
+    GEOCODING_MAX_DISTANCE_PER_CANDIDATE_KM: float = 1800.0
+
+    # Map location-search API configuration
+    GEOCODING_SEARCH_PROVIDER: Literal["nominatim", "mapbox"] = "nominatim"
+    GEOCODING_SEARCH_NOMINATIM_URL: str = "https://nominatim.openstreetmap.org/search"
+    GEOCODING_SEARCH_MAPBOX_ACCESS_TOKEN: str | None = None
+    GEOCODING_SEARCH_DEFAULT_LIMIT: int = 8
+    GEOCODING_SEARCH_MAX_LIMIT: int = 20
+    GEOCODING_SEARCH_RATE_LIMIT: float = 1.0
+    GEOCODING_SEARCH_CACHE_TTL: int = 60 * 10
+    GEOCODING_SEARCH_COUNTRYCODES: str | None = None
 
     # GeoNames Configuration (for entity linking/disambiguation)
     # Register free account at: https://www.geonames.org/login

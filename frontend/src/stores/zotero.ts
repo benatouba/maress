@@ -26,15 +26,16 @@ export interface ZoteroStore {
   downloadProgress: Ref<{ current: number; total: number; downloaded: number; skipped: number; failed: number } | null>
   fetchCollections: () => Promise<void>
   fetchZoteroCollections: (libraryType?: 'user' | 'group') => Promise<void>
-  fetchItems: (limit?: number, silent?: boolean) => Promise<void>
+  fetchItems: (limit?: number, silent?: boolean) => Promise<any[]>
   fetchMapItems: (limit?: number) => Promise<{ data: any[]; count: number } | null>
   syncLibrary: (reload?: boolean, collectionId?: string | null) => Promise<boolean>
   downloadAttachments: (itemIds?: string[]) => Promise<any | null>
+  getLocations: () => Promise<any[]>
   importItem: (itemId: string) => Promise<any | null>
   updateStudySite: (studySiteId: string, updateData: object) => Promise<any>
   importFileFromZotero: (itemId: string) => Promise<any | null>
   getExtractionResults: (itemId: string) => Promise<any | null>
-  extractStudySites: (itemId?: string | null, force?: boolean) => Promise<any | null>
+  extractStudySites: (itemIds?: string | string[] | null, force?: boolean) => Promise<any | null>
   enrichItems: (itemIds?: string[]) => Promise<any | null>
 }
 export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {

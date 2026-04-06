@@ -10,13 +10,19 @@ Allows users to:
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import uuid
+from urllib.parse import quote
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from sqlmodel import func, select
 
 from app.api.deps import CurrentUser, OptionalCurrentUser, SessionDep
+from app.core.config import settings
 from app.crud import create_location_if_needed
 from app.models import (
     Item,
@@ -38,6 +44,209 @@ from maress_types import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/study-sites", tags=["study-sites"])
+
+_search_cache: dict[str, tuple[float, list["GeocodeSearchResult"]]] = {}
+_search_lock = threading.Lock()
+_last_search_request_time = 0.0
+
+
+class GeocodeSearchResult(BaseModel):
+    id: str
+    label: str
+    latitude: float
+    longitude: float
+
+
+class GeocodeSearchPublic(BaseModel):
+    data: list[GeocodeSearchResult]
+    count: int
+
+
+def _normalized_countrycodes(countrycodes: str | None) -> str | None:
+    if not countrycodes:
+        return None
+
+    codes = [code.strip().lower() for code in countrycodes.split(",") if code.strip()]
+    return ",".join(codes) if codes else None
+
+
+def _search_cache_key(
+    provider: str,
+    query_text: str,
+    limit: int,
+    language: str | None,
+    countrycodes: str | None,
+) -> str:
+    normalized_language = (language or "").strip().lower()
+    normalized_countrycodes = _normalized_countrycodes(countrycodes) or ""
+    normalized_query = " ".join(query_text.strip().lower().split())
+    return f"{provider}|{limit}|{normalized_language}|{normalized_countrycodes}|{normalized_query}"
+
+
+def _get_cached_search_results(cache_key: str) -> list[GeocodeSearchResult] | None:
+    cached_entry = _search_cache.get(cache_key)
+    if not cached_entry:
+        return None
+
+    cached_at, results = cached_entry
+    if (time.time() - cached_at) > settings.GEOCODING_SEARCH_CACHE_TTL:
+        _search_cache.pop(cache_key, None)
+        return None
+
+    return results
+
+
+def _cache_search_results(cache_key: str, results: list[GeocodeSearchResult]) -> None:
+    _search_cache[cache_key] = (time.time(), results)
+
+
+def _respect_search_rate_limit() -> None:
+    global _last_search_request_time
+
+    delay = 0.0
+    now = time.time()
+
+    with _search_lock:
+        elapsed = now - _last_search_request_time
+        required = settings.GEOCODING_SEARCH_RATE_LIMIT
+        if elapsed < required:
+            delay = required - elapsed
+        else:
+            _last_search_request_time = now
+
+    if delay > 0:
+        time.sleep(delay)
+        with _search_lock:
+            _last_search_request_time = time.time()
+
+
+def _search_with_nominatim(
+    query_text: str,
+    limit: int,
+    language: str | None,
+    countrycodes: str | None,
+) -> list[GeocodeSearchResult]:
+    params: dict[str, str | int] = {
+        "q": query_text,
+        "format": "jsonv2",
+        "limit": limit,
+        "addressdetails": 1,
+    }
+
+    normalized_countrycodes = _normalized_countrycodes(countrycodes)
+    if normalized_countrycodes:
+        params["countrycodes"] = normalized_countrycodes
+    if language:
+        params["accept-language"] = language
+
+    headers = {
+        "User-Agent": f"{settings.PROJECT_NAME}/1.0 geocode-search",
+        "Accept": "application/json",
+    }
+
+    _respect_search_rate_limit()
+    response = httpx.get(
+        settings.GEOCODING_SEARCH_NOMINATIM_URL,
+        params=params,
+        headers=headers,
+        timeout=15.0,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    if not isinstance(payload, list):
+        return []
+
+    results: list[GeocodeSearchResult] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+
+        lat_raw = item.get("lat")
+        lon_raw = item.get("lon")
+        label = item.get("display_name")
+        place_id = item.get("place_id")
+
+        if lat_raw is None or lon_raw is None or not isinstance(label, str):
+            continue
+
+        try:
+            latitude = float(lat_raw)
+            longitude = float(lon_raw)
+        except (TypeError, ValueError):
+            continue
+
+        results.append(
+            GeocodeSearchResult(
+                id=str(place_id) if place_id is not None else f"{latitude},{longitude}",
+                label=label,
+                latitude=latitude,
+                longitude=longitude,
+            )
+        )
+
+    return results
+
+
+def _search_with_mapbox(
+    query_text: str,
+    limit: int,
+    language: str | None,
+    countrycodes: str | None,
+) -> list[GeocodeSearchResult]:
+    if not settings.GEOCODING_SEARCH_MAPBOX_ACCESS_TOKEN:
+        raise HTTPException(status_code=503, detail="Mapbox search provider is not configured")
+
+    encoded_query = quote(query_text, safe="")
+    endpoint = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{encoded_query}.json"
+    params: dict[str, str | int] = {
+        "access_token": settings.GEOCODING_SEARCH_MAPBOX_ACCESS_TOKEN,
+        "limit": limit,
+    }
+
+    normalized_countrycodes = _normalized_countrycodes(countrycodes)
+    if normalized_countrycodes:
+        params["country"] = normalized_countrycodes
+    if language:
+        params["language"] = language
+
+    response = httpx.get(endpoint, params=params, timeout=15.0)
+    response.raise_for_status()
+
+    payload = response.json()
+    features = payload.get("features", []) if isinstance(payload, dict) else []
+    if not isinstance(features, list):
+        return []
+
+    results: list[GeocodeSearchResult] = []
+    for feature in features:
+        if not isinstance(feature, dict):
+            continue
+
+        center = feature.get("center")
+        if not isinstance(center, list) or len(center) != 2:
+            continue
+
+        try:
+            longitude = float(center[0])
+            latitude = float(center[1])
+        except (TypeError, ValueError):
+            continue
+
+        label = feature.get("place_name")
+        if not isinstance(label, str):
+            continue
+
+        results.append(
+            GeocodeSearchResult(
+                id=str(feature.get("id") or f"{latitude},{longitude}"),
+                label=label,
+                latitude=latitude,
+                longitude=longitude,
+            )
+        )
+
+    return results
 
 
 def _parse_bbox(bbox: str) -> tuple[float, float, float, float]:
@@ -121,6 +330,66 @@ def get_map_points(
     ]
 
     return StudySiteMapPointsPublic(data=points, count=len(points))
+
+
+@router.get("/geocode-search", response_model=GeocodeSearchPublic)
+def geocode_search(
+    *,
+    session: SessionDep,
+    current_user: OptionalCurrentUser,
+    q: str = Query(min_length=3, max_length=120, description="Location search query"),
+    limit: int = Query(default=8, ge=1, le=20),
+    provider: str | None = Query(default=None, pattern="^(nominatim|mapbox)$"),
+    language: str | None = Query(default=None, max_length=20),
+    countrycodes: str | None = Query(default=None, max_length=120),
+) -> GeocodeSearchPublic:
+    del session, current_user
+
+    normalized_query = " ".join(q.split())
+    if len(normalized_query) < 3:
+        raise HTTPException(status_code=400, detail="Query must contain at least 3 characters")
+
+    effective_provider = provider or settings.GEOCODING_SEARCH_PROVIDER
+    effective_limit = min(limit, settings.GEOCODING_SEARCH_MAX_LIMIT)
+    effective_countrycodes = countrycodes or settings.GEOCODING_SEARCH_COUNTRYCODES
+
+    cache_key = _search_cache_key(
+        effective_provider,
+        normalized_query,
+        effective_limit,
+        language,
+        effective_countrycodes,
+    )
+    cached_results = _get_cached_search_results(cache_key)
+    if cached_results is not None:
+        return GeocodeSearchPublic(data=cached_results, count=len(cached_results))
+
+    try:
+        if effective_provider == "mapbox":
+            results = _search_with_mapbox(
+                normalized_query,
+                effective_limit,
+                language,
+                effective_countrycodes,
+            )
+        else:
+            results = _search_with_nominatim(
+                normalized_query,
+                effective_limit,
+                language,
+                effective_countrycodes,
+            )
+    except HTTPException:
+        raise
+    except httpx.HTTPStatusError as exc:
+        logger.warning("Geocoding search request failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Search provider returned an error") from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Geocoding search transport error: %s", exc)
+        raise HTTPException(status_code=502, detail="Unable to reach search provider") from exc
+
+    _cache_search_results(cache_key, results)
+    return GeocodeSearchPublic(data=results, count=len(results))
 
 
 def study_site_to_public(study_site: StudySite) -> StudySitePublic:

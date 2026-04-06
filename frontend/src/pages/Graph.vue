@@ -38,7 +38,7 @@
     <v-row>
       <v-col cols="12">
         <GraphView
-          :items="items.data || []"
+          :items="items || []"
           :tags="tags"
           @graph-updated="handleGraphUpdated" />
       </v-col>
@@ -47,7 +47,7 @@
     <!-- Tag Create Dialog -->
     <TagCreateDialog
       v-model="showCreateDialog"
-      :items="items.data || []"
+      :items="items || []"
       @created="handleTagCreated" />
   </div>
 </template>

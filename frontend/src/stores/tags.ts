@@ -19,6 +19,7 @@ export interface Tag {
 export interface TagCreate {
   name: string
   description?: string
+  item_ids?: string[]
 }
 
 export interface TagsPublic {

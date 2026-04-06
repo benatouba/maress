@@ -412,7 +412,7 @@ const headers = [
   { title: 'Result', key: 'result', sortable: false },
   { title: 'Started', key: 'timestamp', sortable: true },
   { title: 'Actions', key: 'actions', sortable: false, align: 'end' },
-]
+] as const
 
 const getStatusColor = (status: string): string => {
   const colorMap: Record<string, string> = {
