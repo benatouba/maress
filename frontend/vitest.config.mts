@@ -1,14 +1,10 @@
 import { fileURLToPath } from 'node:url'
 import { mergeConfig, defineConfig, configDefaults } from 'vitest/config'
 import viteConfig from './vite.config.mts'
-import Layouts from 'vite-plugin-vue-layouts-next'
 
 export default mergeConfig(
   viteConfig,
   defineConfig({
-    plugins: [
-      Layouts(),
-    ],
     test: {
       environment: 'jsdom',
       exclude: [...configDefaults.exclude, 'e2e/*'],
