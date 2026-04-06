@@ -166,6 +166,10 @@ const editMode = ref(false)
 const loading = ref(false)
 const passwordLoading = ref(false)
 const showPasswordDialog = ref(false)
+const passwordData = reactive({
+  current_password: '',
+  new_password: '',
+})
 
 const formData = reactive({
   full_name: '',
@@ -194,8 +198,21 @@ const getInitials = (name: string): string => {
 onMounted(() => {
   if (authStore.user) {
     fullName.value = authStore.user.full_name || ''
+    formData.full_name = authStore.user.full_name || ''
+    formData.email = authStore.user.email || ''
   }
 })
+
+const cancelEdit = () => {
+  if (!authStore.user) {
+    editMode.value = false
+    return
+  }
+
+  formData.full_name = authStore.user.full_name || ''
+  formData.email = authStore.user.email || ''
+  editMode.value = false
+}
 
 const handleUpdate = async () => {
   const updated = await authStore.updateProfile({
@@ -204,6 +221,19 @@ const handleUpdate = async () => {
   })
   if (updated) {
     editMode.value = false
+  }
+}
+
+const handlePasswordUpdate = async () => {
+  const updated = await authStore.updatePassword({
+    current_password: passwordData.current_password,
+    new_password: passwordData.new_password,
+  })
+
+  if (updated) {
+    passwordData.current_password = ''
+    passwordData.new_password = ''
+    showPasswordDialog.value = false
   }
 }
 </script>
