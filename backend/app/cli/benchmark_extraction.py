@@ -45,6 +45,7 @@ class PaperResult:
     close_5km: int  # <5 km
     close_10km: int  # <10 km
     min_distances: list[float] = field(default_factory=list)  # km, one per manual site
+    runtime_seconds: float | None = None
 
     @property
     def mean_min_distance(self) -> float:
@@ -75,8 +76,8 @@ def find_matched_papers(
     # Get all items with manual study sites
     manual_items_query = (
         select(Item)
-        .join(StudySite, StudySite.item_id == Item.id)
-        .where(StudySite.is_manual.is_(True))  # noqa: FBT003
+        .join(StudySite, StudySite.item_id == Item.id)  # pyright: ignore[reportArgumentType]
+        .where(StudySite.is_manual.is_(True))  # noqa: FBT003  # pyright: ignore[reportAttributeAccessIssue]
         .distinct()
     )
     manual_items = session.exec(manual_items_query).all()
@@ -95,8 +96,8 @@ def find_matched_papers(
     for doi, manual_item in doi_to_manual.items():
         zotero_items = session.exec(
             select(Item).where(
-                Item.doi.isnot(None),
-                Item.attachment.isnot(None),
+                Item.doi.isnot(None),  # pyright: ignore[reportAttributeAccessIssue,reportOptionalMemberAccess]
+                Item.attachment.isnot(None),  # pyright: ignore[reportAttributeAccessIssue,reportOptionalMemberAccess]
                 Item.id != manual_item.id,
             )
         ).all()
@@ -113,13 +114,13 @@ def get_site_coords(session, item: Item, *, manual_only: bool = False) -> list[S
     """Get coordinates for an item's study sites."""
     query = (
         select(StudySite)
-        .options(selectinload(StudySite.location))
+        .options(selectinload(StudySite.location))  # pyright: ignore[reportArgumentType]
         .where(StudySite.item_id == item.id)
     )
     if manual_only:
-        query = query.where(StudySite.is_manual.is_(True))  # noqa: FBT003
+        query = query.where(StudySite.is_manual.is_(True))  # noqa: FBT003  # pyright: ignore[reportAttributeAccessIssue]
     else:
-        query = query.where(StudySite.is_manual.is_(False))  # noqa: FBT003
+        query = query.where(StudySite.is_manual.is_(False))  # noqa: FBT003  # pyright: ignore[reportAttributeAccessIssue]
 
     sites = session.exec(query).all()
     coords = []
@@ -227,17 +228,36 @@ def print_report(results: list[PaperResult]) -> None:
     print("BENCHMARK REPORT: NLP Extraction vs Manual Ground Truth")
     print("=" * 90)
 
+    has_runtime = any(r.runtime_seconds is not None for r in results)
+
     # Per-paper summary
-    print(f"\n{'DOI':<40} {'Manual':>6} {'Auto':>6} {'Exact':>6} {'<1km':>6} {'<5km':>6} {'Mean km':>8}")
+    if has_runtime:
+        print(
+            f"\n{'DOI':<40} {'Manual':>6} {'Auto':>6} {'Exact':>6} "
+            f"{'<1km':>6} {'<5km':>6} {'Mean km':>8} {'Runtime s':>9}"
+        )
+    else:
+        print(
+            f"\n{'DOI':<40} {'Manual':>6} {'Auto':>6} {'Exact':>6} "
+            f"{'<1km':>6} {'<5km':>6} {'Mean km':>8}"
+        )
     print("-" * 90)
 
     for r in results:
         doi_short = (r.doi[:37] + "...") if len(r.doi) > 40 else r.doi
         mean_d = f"{r.mean_min_distance:.1f}" if r.mean_min_distance != float("inf") else "N/A"
-        print(
-            f"{doi_short:<40} {r.manual_count:>6} {r.auto_count:>6} "
-            f"{r.exact_matches:>6} {r.close_1km:>6} {r.close_5km:>6} {mean_d:>8}"
-        )
+        runtime_s = f"{r.runtime_seconds:.2f}" if r.runtime_seconds is not None else "N/A"
+        if has_runtime:
+            print(
+                f"{doi_short:<40} {r.manual_count:>6} {r.auto_count:>6} "
+                f"{r.exact_matches:>6} {r.close_1km:>6} {r.close_5km:>6} "
+                f"{mean_d:>8} {runtime_s:>9}"
+            )
+        else:
+            print(
+                f"{doi_short:<40} {r.manual_count:>6} {r.auto_count:>6} "
+                f"{r.exact_matches:>6} {r.close_1km:>6} {r.close_5km:>6} {mean_d:>8}"
+            )
 
     # Aggregate statistics
     total_papers = len(results)
@@ -249,6 +269,7 @@ def print_report(results: list[PaperResult]) -> None:
     total_close_10 = sum(r.close_10km for r in results)
 
     all_dists = [d for r in results for d in r.min_distances if d != float("inf")]
+    runtime_values = [r.runtime_seconds for r in results if r.runtime_seconds is not None]
 
     print("\n" + "=" * 90)
     print("AGGREGATE STATISTICS")
@@ -273,6 +294,21 @@ def print_report(results: list[PaperResult]) -> None:
         print(f"  Median min distance:   {median_d:.2f} km")
         print(f"  Min distance:          {sorted_dists[0]:.2f} km")
         print(f"  Max distance:          {sorted_dists[-1]:.2f} km")
+
+    if runtime_values:
+        runtime_sorted = sorted(runtime_values)
+        runtime_n = len(runtime_sorted)
+        runtime_mean = sum(runtime_sorted) / runtime_n
+        runtime_median = (
+            runtime_sorted[runtime_n // 2]
+            if runtime_n % 2 == 1
+            else (runtime_sorted[runtime_n // 2 - 1] + runtime_sorted[runtime_n // 2]) / 2
+        )
+        print(f"\n  Total extraction runtime: {sum(runtime_values):.2f} s")
+        print(f"  Mean extraction runtime:  {runtime_mean:.2f} s")
+        print(f"  Median extraction runtime:{runtime_median:.2f} s")
+        print(f"  Min extraction runtime:   {runtime_sorted[0]:.2f} s")
+        print(f"  Max extraction runtime:   {runtime_sorted[-1]:.2f} s")
 
     # Over/under detection
     over = sum(1 for r in results if r.auto_count > r.manual_count)
@@ -308,19 +344,37 @@ def write_markdown_report(
         return
 
     # Per-paper table
+    has_runtime = any(r.runtime_seconds is not None for r in results)
+
     lines.append("## Per-Paper Results")
     lines.append("")
-    lines.append("| DOI | Title | Manual | Auto | Exact | <1km | <5km | <10km | Mean dist (km) |")
-    lines.append("|-----|-------|-------:|-----:|------:|-----:|-----:|------:|---------------:|")
+    if has_runtime:
+        lines.append(
+            "| DOI | Title | Manual | Auto | Exact | <1km | <5km | <10km | Mean dist (km) | Runtime (s) |"
+        )
+        lines.append(
+            "|-----|-------|-------:|-----:|------:|-----:|-----:|------:|---------------:|------------:|"
+        )
+    else:
+        lines.append("| DOI | Title | Manual | Auto | Exact | <1km | <5km | <10km | Mean dist (km) |")
+        lines.append("|-----|-------|-------:|-----:|------:|-----:|-----:|------:|---------------:|")
 
     for r in results:
         doi_short = (r.doi[:35] + "...") if len(r.doi) > 38 else r.doi
         title_short = ((r.title[:40] + "...") if len(r.title) > 43 else r.title) if r.title else ""
         mean_d = f"{r.mean_min_distance:.1f}" if r.mean_min_distance != float("inf") else "N/A"
-        lines.append(
-            f"| {doi_short} | {title_short} | {r.manual_count} | {r.auto_count} "
-            f"| {r.exact_matches} | {r.close_1km} | {r.close_5km} | {r.close_10km} | {mean_d} |"
-        )
+        runtime_s = f"{r.runtime_seconds:.2f}" if r.runtime_seconds is not None else "N/A"
+        if has_runtime:
+            lines.append(
+                f"| {doi_short} | {title_short} | {r.manual_count} | {r.auto_count} "
+                f"| {r.exact_matches} | {r.close_1km} | {r.close_5km} | {r.close_10km} "
+                f"| {mean_d} | {runtime_s} |"
+            )
+        else:
+            lines.append(
+                f"| {doi_short} | {title_short} | {r.manual_count} | {r.auto_count} "
+                f"| {r.exact_matches} | {r.close_1km} | {r.close_5km} | {r.close_10km} | {mean_d} |"
+            )
 
     lines.append("")
 
@@ -333,6 +387,7 @@ def write_markdown_report(
     total_close_10 = sum(r.close_10km for r in results)
 
     all_dists = [d for r in results for d in r.min_distances if d != float("inf")]
+    runtime_values = [r.runtime_seconds for r in results if r.runtime_seconds is not None]
 
     lines.append("## Aggregate Statistics")
     lines.append("")
@@ -360,6 +415,21 @@ def write_markdown_report(
         lines.append(f"| Min distance | {sorted_dists[0]:.2f} km |")
         lines.append(f"| Max distance | {sorted_dists[-1]:.2f} km |")
 
+    if runtime_values:
+        runtime_sorted = sorted(runtime_values)
+        runtime_n = len(runtime_sorted)
+        runtime_mean = sum(runtime_sorted) / runtime_n
+        runtime_median = (
+            runtime_sorted[runtime_n // 2]
+            if runtime_n % 2 == 1
+            else (runtime_sorted[runtime_n // 2 - 1] + runtime_sorted[runtime_n // 2]) / 2
+        )
+        lines.append(f"| Total extraction runtime | {sum(runtime_values):.2f} s |")
+        lines.append(f"| Mean extraction runtime | {runtime_mean:.2f} s |")
+        lines.append(f"| Median extraction runtime | {runtime_median:.2f} s |")
+        lines.append(f"| Min extraction runtime | {runtime_sorted[0]:.2f} s |")
+        lines.append(f"| Max extraction runtime | {runtime_sorted[-1]:.2f} s |")
+
     lines.append("")
 
     # Detection balance
@@ -382,9 +452,11 @@ def write_markdown_report(
 
 def write_csv(results: list[PaperResult], output_path: str) -> None:
     """Write per-paper results to CSV."""
+    has_runtime = any(r.runtime_seconds is not None for r in results)
+
     with open(output_path, "w", newline="") as f:  # noqa: PTH123
         writer = csv.writer(f)
-        writer.writerow([
+        header = [
             "doi",
             "title",
             "manual_item_id",
@@ -397,11 +469,14 @@ def write_csv(results: list[PaperResult], output_path: str) -> None:
             "close_10km",
             "mean_min_distance_km",
             "median_min_distance_km",
-        ])
+        ]
+        if has_runtime:
+            header.append("runtime_seconds")
+        writer.writerow(header)
         for r in results:
             mean_d = r.mean_min_distance if r.mean_min_distance != float("inf") else ""
             median_d = r.median_min_distance if r.median_min_distance != float("inf") else ""
-            writer.writerow([
+            row = [
                 r.doi,
                 r.title or "",
                 r.manual_item_id,
@@ -414,7 +489,10 @@ def write_csv(results: list[PaperResult], output_path: str) -> None:
                 r.close_10km,
                 mean_d,
                 median_d,
-            ])
+            ]
+            if has_runtime:
+                row.append(r.runtime_seconds if r.runtime_seconds is not None else "")
+            writer.writerow(row)
     print(f"\nCSV written to: {output_path}")
 
 

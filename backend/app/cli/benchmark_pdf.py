@@ -21,6 +21,7 @@ Usage
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sys
@@ -29,6 +30,8 @@ from dataclasses import dataclass
 from datetime import date
 from difflib import SequenceMatcher
 from pathlib import Path
+from time import perf_counter
+from typing import TYPE_CHECKING
 
 import pymupdf
 import spacy
@@ -54,7 +57,53 @@ from app.cli.benchmark_extraction import (
 
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from app.nlp.orchestrator import StudySiteExtractionPipeline
+
 _DOI_RE = re.compile(r'10\.\d{4,9}/\S+')
+
+
+def _load_geocode_cache(cache_path: Path) -> int:
+    """Load serialized geocoding cache entries from *cache_path*.
+
+    Returns the number of entries imported.
+    """
+    from app.nlp.geocoding import get_geocoder
+
+    if not cache_path.exists():
+        return 0
+
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to read geocode cache %s: %s", cache_path, exc)
+        return 0
+
+    if not isinstance(payload, dict):
+        logger.warning("Ignoring geocode cache %s: expected top-level object", cache_path)
+        return 0
+
+    entries: dict[str, list[float] | tuple[float, float] | None] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            continue
+        if value is None:
+            entries[key] = None
+            continue
+        if isinstance(value, list | tuple) and len(value) == 2:
+            entries[key] = value
+
+    return get_geocoder().import_cache_entries(entries)
+
+
+def _save_geocode_cache(cache_path: Path) -> int:
+    """Save geocoding cache entries to *cache_path* and return entry count."""
+    from app.nlp.geocoding import get_geocoder
+
+    entries = get_geocoder().export_cache_entries()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache_path.write_text(json.dumps(entries, indent=2, sort_keys=True), encoding="utf-8")
+    return len(entries)
 
 
 # ---------------------------------------------------------------------------
@@ -115,47 +164,47 @@ def _title_from_pymupdf(path: Path) -> str | None:
 def _extract_pdf_metadata(path: Path) -> tuple[str | None, str | None]:
     """Return ``(title, doi)`` by parsing the PDF with the app's standard pipeline.
 
-    Title extraction uses the Docling-based ``DoclingPDFParser`` (the same parser
-    the app uses for NLP extraction).  The parser produces a spaCy Doc whose
-    ``doc.spans["layout"]`` contains typed layout spans; the first span with
-    ``label_ == "title"`` is used as the paper title.
+    For performance, metadata extraction is two-stage:
 
-    DOI is extracted cheaply via PyMuPDF metadata / first-page regex before the
-    heavier Docling parse.  PyMuPDF also provides the title fallback when Docling
-    cannot identify a title span.
+    1. Fast pass via PyMuPDF (title + DOI from metadata and first page text)
+    2. Docling fallback only when PyMuPDF cannot provide a usable title
+
+    This avoids expensive OCR/layout parsing during the matching phase for most
+    PDFs while still keeping robust fallback behavior.
+
+    The Docling fallback parser produces a spaCy Doc whose
+    ``doc.spans["layout"]`` contains typed layout spans; the first span with
+    ``label_ == "title"`` is used as paper title.
 
     Falls back to the normalised filename stem if no title is found at all.
     """
-    # --- DOI: quick PyMuPDF pass (no OCR needed) ---
+    # --- Fast pass: PyMuPDF (no OCR/layout parse needed) ---
     doi = _doi_from_pymupdf(path)
+    title: str | None = _title_from_pymupdf(path)
 
-    # --- Title: Docling-based parse (same as app pipeline) ---
-    title: str | None = None
-    try:
-        nlp = spacy.blank("en")
-        parser = DoclingPDFParser(nlp, enable_ocr_fallback=True, enable_pymupdf_fallback=True)
-        doc = parser.parse(path)
-
-        # First "title" layout span
-        for span in doc.spans.get("layout", []):
-            if span.label_ == "title":
-                candidate = span.text.strip()
-                if 5 < len(candidate) < 350:
-                    title = candidate
-                    break
-
-        # Also scan for DOI in parsed text if not yet found
-        if not doi:
-            m = _DOI_RE.search(doc.text)
-            if m:
-                doi = m.group(0).rstrip(".")
-
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Docling title extraction failed for %s: %s", path.name, exc)
-
-    # --- Title fallback: PyMuPDF ---
+    # --- Fallback: Docling title extraction (only when needed) ---
     if not title:
-        title = _title_from_pymupdf(path)
+        try:
+            nlp = spacy.blank("en")
+            parser = DoclingPDFParser(nlp, enable_ocr_fallback=True, enable_pymupdf_fallback=True)
+            doc = parser.parse(path)
+
+            # First "title" layout span
+            for span in doc.spans.get("layout", []):
+                if span.label_ == "title":
+                    candidate = span.text.strip()
+                    if 5 < len(candidate) < 350:
+                        title = candidate
+                        break
+
+            # Also scan for DOI in parsed text if not yet found
+            if not doi:
+                m = _DOI_RE.search(doc.text)
+                if m:
+                    doi = m.group(0).rstrip(".")
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Docling title extraction failed for %s: %s", path.name, exc)
 
     # --- Absolute fallback: filename ---
     if not title:
@@ -255,10 +304,15 @@ def _find_match(
 # NLP extraction (no DB writes)
 # ---------------------------------------------------------------------------
 
-def _run_extraction(path: Path, title: str | None) -> list[SiteCoord]:
+def _run_extraction(
+    path: Path,
+    title: str | None,
+    *,
+    pipeline: StudySiteExtractionPipeline,
+    config: ModelConfig,
+) -> tuple[list[SiteCoord], float]:
     """Run the full NLP pipeline on *path* and return extracted site coords."""
-    config = ModelConfig()
-    pipeline = PipelineFactory.create_pipeline_for_api(config=config)
+    started_at = perf_counter()
 
     print(f"  Extracting from: {path.name}")
     result = pipeline.extract_from_pdf(path, title=title or None)
@@ -270,22 +324,27 @@ def _run_extraction(path: Path, title: str | None) -> list[SiteCoord]:
     )
 
     top_sites = study_sites[: config.MAX_STUDY_SITES]
+    runtime_seconds = perf_counter() - started_at
     print(f"  Found {len(top_sites)} study sites ({len(study_sites)} total candidates)")
+    print(f"  Extraction runtime: {runtime_seconds:.2f}s")
 
-    return [
-        SiteCoord(name=s.name, lat=float(s.latitude), lon=float(s.longitude))
-        for s in top_sites
-        if s.latitude is not None and s.longitude is not None
-    ]
+    return (
+        [
+            SiteCoord(name=s.name, lat=float(s.latitude), lon=float(s.longitude))
+            for s in top_sites
+            if s.latitude is not None and s.longitude is not None
+        ],
+        runtime_seconds,
+    )
 
 
 def _get_manual_site_coords(session, item: Item) -> list[SiteCoord]:  # noqa: ANN001
     """Fetch manual study site coordinates for *item* from the DB."""
     query = (
         select(StudySite)
-        .options(selectinload(StudySite.location))
+        .options(selectinload(StudySite.location))  # pyright: ignore[reportArgumentType]
         .where(StudySite.item_id == item.id)
-        .where(StudySite.is_manual.is_(True))  # noqa: FBT003
+        .where(StudySite.is_manual.is_(True))  # noqa: FBT003  # pyright: ignore[reportAttributeAccessIssue]
     )
     sites = session.exec(query).all()
     return [
@@ -299,9 +358,9 @@ def _get_auto_site_coords(session, item: Item) -> list[SiteCoord]:  # noqa: ANN0
     """Fetch auto-extracted study site coordinates for *item* from the DB."""
     query = (
         select(StudySite)
-        .options(selectinload(StudySite.location))
+        .options(selectinload(StudySite.location))  # pyright: ignore[reportArgumentType]
         .where(StudySite.item_id == item.id)
-        .where(StudySite.is_manual.is_(False))  # noqa: FBT003
+        .where(StudySite.is_manual.is_(False))  # noqa: FBT003  # pyright: ignore[reportAttributeAccessIssue]
     )
     sites = session.exec(query).all()
     return [
@@ -388,6 +447,59 @@ def main() -> None:  # noqa: C901
         action="store_true",
         help="Print a list of PDFs that could not be matched to any DB item.",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Process at most N PDFs after collection. Useful for fast "
+            "model-comparison smoke tests."
+        ),
+    )
+    parser.add_argument(
+        "--spacy-model",
+        default=None,
+        metavar="MODEL",
+        help=(
+            "Override NLP spaCy model for extraction, e.g. "
+            "en_core_web_sm, en_core_web_lg, en_core_web_trf."
+        ),
+    )
+    parser.add_argument(
+        "--geocode-cache-file",
+        default=None,
+        type=Path,
+        metavar="FILE",
+        help=(
+            "Path to geocoding cache JSON. When provided, cache entries are "
+            "loaded before extraction and saved after extraction."
+        ),
+    )
+    parser.add_argument(
+        "--offline-geocoding",
+        action="store_true",
+        help=(
+            "Disable live geocoding requests and use only cached geocoding "
+            "entries (deterministic benchmark mode)."
+        ),
+    )
+    parser.add_argument(
+        "--read-only-geocode-cache",
+        action="store_true",
+        help=(
+            "Do not write back geocoding cache when --geocode-cache-file is set. "
+            "Useful for deterministic benchmark comparisons."
+        ),
+    )
+    parser.add_argument(
+        "--vision-extraction",
+        action="store_true",
+        help=(
+            "Enable local OCR-based map/image coordinate extraction "
+            "(uses Tesseract HOCR, CPU-only)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -400,15 +512,51 @@ def main() -> None:  # noqa: C901
     pdfs = _collect_pdfs(args.path)
     if not pdfs:
         sys.exit(1)
+
+    if args.limit is not None:
+        if args.limit <= 0:
+            print(f"ERROR: --limit must be positive (got {args.limit})")
+            sys.exit(2)
+        pdfs = pdfs[: args.limit]
+
     print(f"Found {len(pdfs)} PDF file(s) under {args.path}")
+
+    from app.nlp.geocoding import get_geocoder
+
+    geocoder = get_geocoder()
+
+    if args.geocode_cache_file is not None:
+        imported_cache_entries = _load_geocode_cache(args.geocode_cache_file)
+        print(
+            f"Loaded {imported_cache_entries} geocoding cache entr"
+            f"{'y' if imported_cache_entries == 1 else 'ies'} from {args.geocode_cache_file}"
+        )
+
+    if args.offline_geocoding:
+        geocoder.set_live_requests_enabled(False)
+        print("Geocoding mode: offline (cache-only)")
+    else:
+        geocoder.set_live_requests_enabled(True)
+        print("Geocoding mode: live")
+
+    config = ModelConfig()
+    if args.spacy_model:
+        config = config.model_copy(update={"SPACY_MODEL": args.spacy_model})
+
+    pipeline: StudySiteExtractionPipeline | None = None
+    if not args.no_extract:
+        pipeline = PipelineFactory.create_pipeline_for_api(
+            config=config,
+            enable_vision_extraction=args.vision_extraction,
+        )
 
     with SessionLocal() as session:
         # Load all DB items that have at least one manual study site
         print("\nLoading items with manual study sites from database…")
         candidate_items: list[Item] = list(session.exec(
             select(Item)
-            .join(StudySite, StudySite.item_id == Item.id)
-            .where(StudySite.is_manual.is_(True))  # noqa: FBT003
+            .join(StudySite, StudySite.item_id == Item.id)  # pyright: ignore[reportArgumentType]
+            .where(StudySite.is_manual.is_(True))  # noqa: FBT003  # pyright: ignore[reportAttributeAccessIssue]
             .distinct()
         ).all())
 
@@ -466,6 +614,7 @@ def main() -> None:  # noqa: C901
             print(f"  Match:    {mr.match_method}  (score={mr.similarity:.2f})")
 
             # --- get auto-extracted sites ---
+            runtime_seconds: float | None = None
             if args.no_extract:
                 auto_sites = _get_auto_site_coords(session, item)
                 if not auto_sites:
@@ -474,7 +623,15 @@ def main() -> None:  # noqa: C901
                 print(f"  Using {len(auto_sites)} existing auto-extracted site(s) from DB")
             else:
                 try:
-                    auto_sites = _run_extraction(mr.pdf_path, title=mr.pdf_title)
+                    if pipeline is None:
+                        msg = "Extraction pipeline is not initialised"
+                        raise RuntimeError(msg)
+                    auto_sites, runtime_seconds = _run_extraction(
+                        mr.pdf_path,
+                        title=mr.pdf_title,
+                        pipeline=pipeline,
+                        config=config,
+                    )
                 except Exception as exc:
                     print(f"  ERROR during extraction: {exc}")
                     logger.exception("Extraction failed for %s", mr.pdf_path)
@@ -494,6 +651,7 @@ def main() -> None:  # noqa: C901
             paper_result.title = item.title
             paper_result.manual_item_id = str(item.id)
             paper_result.zotero_item_id = str(item.id)
+            paper_result.runtime_seconds = runtime_seconds
             results.append(paper_result)
 
             print(
@@ -509,3 +667,12 @@ def main() -> None:  # noqa: C901
     write_markdown_report(results, md_output)
     if csv_output:
         write_csv(results, csv_output)
+
+    if args.geocode_cache_file is not None and not args.read_only_geocode_cache:
+        exported = _save_geocode_cache(args.geocode_cache_file)
+        print(
+            f"Saved {exported} geocoding cache entr"
+            f"{'y' if exported == 1 else 'ies'} to {args.geocode_cache_file}"
+        )
+    elif args.geocode_cache_file is not None and args.read_only_geocode_cache:
+        print(f"Skipped saving geocoding cache (read-only): {args.geocode_cache_file}")
