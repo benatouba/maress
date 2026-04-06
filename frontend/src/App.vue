@@ -2,17 +2,17 @@
   <v-app>
     <top-bar />
     <task-progress-banner />
-    <v-main>
+    <v-main class="app-main">
         <router-view />
     </v-main>
-    <v-footer app class="text-center text-medium-emphasis text-body-2 flex-column pa-4" style="gap: 4px;">
-      <div class="d-flex align-center justify-center flex-wrap" style="gap: 12px;">
+    <v-footer class="app-footer text-center text-medium-emphasis text-body-2 py-2 px-4">
+      <div class="d-flex align-center justify-center flex-wrap" style="gap: 10px;">
         <span>MaRESS &mdash; Mapping Research in Earth System Sciences &copy; {{ new Date().getFullYear() }}</span>
         <v-divider vertical class="mx-1" style="max-height: 16px;" />
         <span class="d-inline-flex align-center" style="gap: 6px;">
           Funded by
           <a href="https://www.nfdi4earth.de/" target="_blank" rel="noopener noreferrer">
-            <v-img src="/logo.png" alt="NFDI4Earth" width="120" inline />
+            <v-img src="/logo.png" alt="NFDI4Earth" width="96" inline />
           </a>
           (DFG)
         </span>
@@ -57,3 +57,14 @@ onUnmounted(() => {
   window.removeEventListener('auth:expired', handleAuthExpired as EventListener)
 })
 </script>
+
+<style scoped>
+.app-main {
+  min-height: 0;
+}
+
+.app-footer {
+  min-height: 48px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+}
+</style>

@@ -231,6 +231,7 @@
 
             <!-- Info Banner -->
             <v-alert
+              v-if="showExtractionInfoBanner"
               type="info"
               variant="tonal"
               density="compact"
@@ -1052,6 +1053,14 @@ const filteredSites = computed(() => {
   }
 
   return sites
+})
+
+const showExtractionInfoBanner = computed(() => {
+  if (!authStore.isAuthenticated) {
+    return false
+  }
+
+  return totalSites.value === 0
 })
 
 const availableOperationIds = computed(() =>
