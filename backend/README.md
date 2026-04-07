@@ -182,6 +182,13 @@ GEOCODING_RATE_LIMIT=1.0
 GEOCODING_MAX_CANDIDATES_PER_DOC=20
 GEOCODING_MIN_CANDIDATE_CONFIDENCE=0.55
 GEOCODING_STRICT_OTHER_SECTION_MIN_CONFIDENCE=0.80
+GEOCODING_STRICT_LOW_SIGNAL_SECTION_MIN_CONFIDENCE=0.93
+GEOCODING_REQUIRE_CONTEXT_CUE_FOR_LOW_SIGNAL_SECTION=true
+
+# geocoder acceptance + ambiguity guards
+GEOCODING_MIN_TOP_CANDIDATE_SCORE=0.95
+GEOCODING_AMBIGUITY_SCORE_MARGIN=0.45
+GEOCODING_AMBIGUITY_DISTANCE_KM=200
 
 # phrase/noise filtering toggles
 GEOCODING_REJECT_DETERMINER_PREFIX=true
@@ -197,6 +204,8 @@ GEOCODING_MAX_DISTANCE_PER_CANDIDATE_KM=1800
 Practical guidance:
 
 - Increase `GEOCODING_MIN_CANDIDATE_CONFIDENCE` and/or lower `GEOCODING_MAX_CANDIDATES_PER_DOC` if you see too many false positives.
+- Keep `GEOCODING_REQUIRE_CONTEXT_CUE_FOR_LOW_SIGNAL_SECTION=true` for precision-first behavior in abstract/results/discussion-like sections.
+- Raise `GEOCODING_MIN_TOP_CANDIDATE_SCORE`, `GEOCODING_STRICT_LOW_SIGNAL_SECTION_MIN_CONFIDENCE`, and/or `GEOCODING_AMBIGUITY_SCORE_MARGIN` to reduce ambiguous geocoding assignments.
 - Decrease `GEOCODING_MIN_CANDIDATE_CONFIDENCE` or raise candidate budget if recall is too low.
 - Reduce distance limits to be stricter about far-away mismatches; raise them if your papers span broader regions.
 - Keep phrase/noise toggles enabled unless you are diagnosing a specific false-negative pattern.

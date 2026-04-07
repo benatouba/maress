@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from geopy.point import Point
 
 from app.nlp.domain_models import GeoEntity
@@ -47,6 +49,40 @@ class DummyGeocoder(CachedGeocoder):
             return None
         self._last_error_was_rate_limit = False
         return (10.0, 20.0)
+
+
+class AmbiguousDummyGeocoder(CachedGeocoder):
+    """Deterministic candidate scorer for ambiguity tests."""
+
+    def __init__(self) -> None:
+        super().__init__(user_agent="test", rate_limit=0.0)
+
+    def _score_geocode_candidate(  # type: ignore[override]
+        self,
+        *,
+        query_name: str,
+        candidate: Any,
+        candidate_bias,
+        country_hints,
+    ) -> float:
+        name = str(candidate.address or "")
+        if name.startswith("Best"):
+            return 1.0
+        return 0.75
+
+
+class _Candidate:
+    """Minimal geopy-like candidate for private helper tests."""
+
+    def __init__(self, *, address: str, latitude: float, longitude: float) -> None:
+        self.address = address
+        self.latitude = latitude
+        self.longitude = longitude
+        self.raw = {
+            "address": {},
+            "importance": 0.5,
+            "place_rank": 16,
+        }
 
 
 def test_filters_low_signal_candidates() -> None:
@@ -228,3 +264,150 @@ def test_toggleable_phrase_filters_can_be_disabled() -> None:
     _ = geocoder.geocode_entities(entities, max_candidates=20, min_confidence=0.55)
 
     assert sorted(geocoder.calls) == ["sampling equipment", "the study site"]
+
+
+def test_strict_low_signal_section_confidence_gate() -> None:
+    geocoder = DummyGeocoder()
+    geocoder.strict_low_signal_section_min_confidence = 0.9
+    geocoder.require_context_cue_for_low_signal_section = False
+
+    entities = [
+        _entity("Quito", confidence=0.89, section="results"),
+        _entity("Cuenca", confidence=0.92, section="results"),
+    ]
+
+    _ = geocoder.geocode_entities(entities, max_candidates=20, min_confidence=0.55)
+
+    assert geocoder.calls == ["Cuenca"]
+
+
+def test_low_signal_section_context_cue_gate() -> None:
+    geocoder = DummyGeocoder()
+    geocoder.strict_low_signal_section_min_confidence = 0.9
+    geocoder.require_context_cue_for_low_signal_section = True
+
+    entities = [
+        GeoEntity(
+            text="Quito",
+            entity_type="GPE",
+            context="Quito is mentioned in previous studies.",
+            section="results",
+            confidence=0.95,
+            start_char=0,
+            end_char=5,
+        ),
+        GeoEntity(
+            text="Cuenca",
+            entity_type="GPE",
+            context="Study sites were located in Cuenca and sampled monthly.",
+            section="results",
+            confidence=0.95,
+            start_char=0,
+            end_char=6,
+        ),
+    ]
+
+    _ = geocoder.geocode_entities(entities, max_candidates=20, min_confidence=0.55)
+
+    assert geocoder.calls == ["Cuenca"]
+
+
+def test_rejects_ambiguous_close_score_far_candidates() -> None:
+    geocoder = AmbiguousDummyGeocoder()
+    geocoder.min_top_candidate_score = 0.7
+    geocoder.ambiguity_score_margin = 0.35
+    geocoder.ambiguity_distance_km = 200.0
+
+    best = _Candidate(address="Best Candidate", latitude=0.0, longitude=0.0)
+    second = _Candidate(address="Second Candidate", latitude=8.0, longitude=8.0)
+
+    selected = geocoder._select_best_location_from_candidates(  # type: ignore[attr-defined]
+        location_name="Test Place",
+        candidates=cast("list[Any]", [best, second]),
+        country_hints=set(),
+        bias_point=None,
+    )
+
+    assert selected is None
+
+
+def test_accepts_unambiguous_top_candidate() -> None:
+    geocoder = AmbiguousDummyGeocoder()
+    geocoder.min_top_candidate_score = 0.7
+    geocoder.ambiguity_score_margin = 0.2
+    geocoder.ambiguity_distance_km = 200.0
+
+    best = _Candidate(address="Best Candidate", latitude=0.0, longitude=0.0)
+    second = _Candidate(address="Second Candidate", latitude=0.2, longitude=0.2)
+
+    selected = geocoder._select_best_location_from_candidates(  # type: ignore[attr-defined]
+        location_name="Test Place",
+        candidates=cast("list[Any]", [best, second]),
+        country_hints=set(),
+        bias_point=None,
+    )
+
+    assert selected is not None
+    assert selected.address == "Best Candidate"
+
+
+def test_rejects_when_top_candidate_score_below_threshold() -> None:
+    geocoder = AmbiguousDummyGeocoder()
+    geocoder.min_top_candidate_score = 1.1
+
+    best = _Candidate(address="Best Candidate", latitude=0.0, longitude=0.0)
+    second = _Candidate(address="Second Candidate", latitude=0.2, longitude=0.2)
+
+    selected = geocoder._select_best_location_from_candidates(  # type: ignore[attr-defined]
+        location_name="Test Place",
+        candidates=cast("list[Any]", [best, second]),
+        country_hints=set(),
+        bias_point=None,
+    )
+
+    assert selected is None
+
+
+def test_geocoding_telemetry_records_rejection_reasons() -> None:
+    geocoder = CachedGeocoder(user_agent="test", rate_limit=0.0, allow_live_requests=False)
+    geocoder.strict_low_signal_section_min_confidence = 0.9
+    geocoder.require_context_cue_for_low_signal_section = True
+
+    entities = [
+        GeoEntity(
+            text="Quito",
+            entity_type="GPE",
+            context="Quito is discussed in prior work.",
+            section="results",
+            confidence=0.95,
+            start_char=0,
+            end_char=5,
+        ),
+        GeoEntity(
+            text="Study site",
+            entity_type="GPE",
+            context="Study site was monitored.",
+            section="methods",
+            confidence=0.95,
+            start_char=0,
+            end_char=10,
+        ),
+        GeoEntity(
+            text="Laguna Verde",
+            entity_type="GPE",
+            context="Study site located in Laguna Verde.",
+            section="methods",
+            confidence=0.95,
+            start_char=0,
+            end_char=12,
+        ),
+    ]
+
+    _ = geocoder.geocode_entities(entities)
+    stats = geocoder.get_last_document_stats()
+
+    assert stats["entities_total"] == 3
+    assert stats["candidate_mentions_accepted"] == 1
+    assert stats["candidate_reject_low_signal_section_without_context_cue"] == 1
+    assert stats["candidate_reject_generic_location_term"] == 1
+    assert stats["unique_candidates_total"] == 1

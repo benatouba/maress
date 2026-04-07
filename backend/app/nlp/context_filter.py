@@ -42,6 +42,7 @@ class ContextFilter:
         # ISBN/ISSN
         re.compile(r"ISBN[-:\s]*[\d-]+", re.IGNORECASE),
         re.compile(r"ISSN[-:\s]*[\d-]+", re.IGNORECASE),
+        re.compile(r"\b(?:references?|bibliography)\b", re.IGNORECASE),
     ]
 
     # Patterns indicating affiliation/address context
@@ -64,8 +65,11 @@ class ContextFilter:
     CAPTION_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
         # Figure/table labels at start
         re.compile(r"^(?:fig(?:ure)?|table|tab\.?)\s*\.?\s*\d+", re.IGNORECASE),
+        # Figure/table labels inline
+        re.compile(r"\b(?:fig(?:ure)?|table|tab\.?)\s*\.?\s*\d+[a-z]?\b", re.IGNORECASE),
         # Supplementary material
         re.compile(r"^(?:supplementary|supporting)\s+(?:fig|table|material)", re.IGNORECASE),
+        re.compile(r"\b(?:supplementary|supporting)\s+(?:fig|figure|table|material)\b", re.IGNORECASE),
         # Graph/chart descriptions (likely not location data)
         re.compile(r"(?:x[-\s]?axis|y[-\s]?axis|legend|scale\s+bar)", re.IGNORECASE),
     ]
@@ -95,7 +99,59 @@ class ContextFilter:
         re.compile(r"(?:study|sampling|research)\s+(?:site|area|location)", re.IGNORECASE),
         re.compile(r"(?:map|location)\s+of\s+(?:the\s+)?(?:study|sampling|field)", re.IGNORECASE),
         re.compile(r"(?:overview|satellite)\s+(?:image|view)\s+of", re.IGNORECASE),
+        re.compile(r"\b(?:located|location)\s+at\b", re.IGNORECASE),
+        re.compile(r"\b\d{1,2}(?:\.\d+)?\s*[°º]?\s*[NS]\b", re.IGNORECASE),
     ]
+
+    # Section-level precision filtering
+    SECTION_BLOCKLIST: ClassVar[set[str]] = {
+        "references",
+        "bibliography",
+        "acknowledgments",
+        "acknowledgements",
+        "author information",
+        "author contributions",
+        "funding",
+        "appendix",
+        "supplementary",
+    }
+
+    LOW_SIGNAL_SECTIONS: ClassVar[set[str]] = {
+        "introduction",
+        "background",
+        "discussion",
+        "conclusion",
+        "conclusions",
+        "other",
+    }
+
+    STUDY_SITE_CUE_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
+        re.compile(
+            r"(?:study|sampling|field|research)\s+(?:site|sites|area|location|station|plot)",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\b(?:located|situated|established|collected|sampled)\s+(?:at|in|near)\b", re.IGNORECASE),
+        re.compile(r"\b(?:coordinates?|latitude|longitude|lat\.?|lon\.?)\b", re.IGNORECASE),
+        re.compile(r"\b\d{1,2}(?:\.\d+)?\s*[°º]?\s*[NS]\b", re.IGNORECASE),
+    ]
+
+    GENERIC_LOCATION_TERMS: ClassVar[set[str]] = {
+        "study area",
+        "study site",
+        "study sites",
+        "study location",
+        "study region",
+        "site",
+        "sites",
+        "area",
+        "region",
+        "location",
+        "locations",
+        "station",
+        "stations",
+        "this study",
+        "our study",
+    }
 
     def __init__(
         self,
@@ -130,7 +186,23 @@ class ContextFilter:
         Returns:
             True if entity should be filtered out, False if it should be kept
         """
-        context = entity.context
+        context = entity.context or ""
+        section = entity.section.lower().strip()
+
+        # Hard section-level exclusions
+        if section in self.SECTION_BLOCKLIST:
+            return True
+
+        # Generic placeholders are almost always false positives when extracted
+        # as location entities.
+        if self._is_generic_location_entity(entity):
+            return True
+
+        # In low-signal sections, require explicit study-site cues unless this
+        # is an explicit coordinate.
+        if section in self.LOW_SIGNAL_SECTIONS and entity.entity_type != "COORDINATE":
+            if not self._matches_any(context, self.STUDY_SITE_CUE_PATTERNS):
+                return True
 
         if not context:
             return False
@@ -183,6 +255,14 @@ class ContextFilter:
         """
         return any(pattern.search(text) for pattern in patterns)
 
+    def _is_generic_location_entity(self, entity: GeoEntity) -> bool:
+        """Return whether the entity text is a generic non-toponym phrase."""
+        if entity.entity_type not in {"LOC", "GPE", "CONTEXTUAL_LOCATION", "STUDY_SITE"}:
+            return False
+
+        normalized = " ".join(entity.text.lower().split())
+        return normalized in self.GENERIC_LOCATION_TERMS
+
     def get_filter_reason(self, entity: GeoEntity) -> str | None:
         """Get the reason why an entity would be filtered.
 
@@ -194,7 +274,18 @@ class ContextFilter:
         Returns:
             Filter reason string, or None if not filtered
         """
-        context = entity.context
+        context = entity.context or ""
+        section = entity.section.lower().strip()
+
+        if section in self.SECTION_BLOCKLIST:
+            return "blocked_section"
+
+        if self._is_generic_location_entity(entity):
+            return "generic_location_term"
+
+        if section in self.LOW_SIGNAL_SECTIONS and entity.entity_type != "COORDINATE":
+            if not self._matches_any(context, self.STUDY_SITE_CUE_PATTERNS):
+                return "low_signal_section_without_study_cue"
 
         if not context:
             return None

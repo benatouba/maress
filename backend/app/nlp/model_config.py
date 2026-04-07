@@ -39,6 +39,13 @@ class ModelConfig(BaseSettings):
         le=1.0,
         description="Minimum confidence threshold",
     )
+    STRICT_SECTION_FILTERING: bool = Field(
+        default=True,
+        description=(
+            "When enabled, only study-site-relevant sections are processed by default. "
+            "Unknown sections are processed only when they contain strong study-site cues."
+        ),
+    )
     DEFAULT_COORDINATE_CONFIDENCE: float = Field(
         default=1.0,
         ge=0.0,

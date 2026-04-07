@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from time import perf_counter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from geopy.point import Point
 
@@ -41,6 +42,25 @@ class StudySiteExtractionPipeline:
 
     Uses dependency injection for testability and maintainability.
     """
+
+    LOW_SIGNAL_SECTIONS: ClassVar[set[str]] = {
+        "introduction",
+        "background",
+        "discussion",
+        "conclusion",
+        "conclusions",
+        "other",
+    }
+
+    STUDY_SITE_CUE_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
+        re.compile(
+            r"(?:study|sampling|field|research)\s+(?:site|sites|area|location|station|plot)",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\b(?:located|situated|established|collected|sampled)\s+(?:at|in|near)\b", re.IGNORECASE),
+        re.compile(r"\b(?:coordinates?|latitude|longitude|lat\.?|lon\.?)\b", re.IGNORECASE),
+        re.compile(r"\b\d{1,2}(?:\.\d+)?\s*[°º]?\s*[NS]\b", re.IGNORECASE),
+    ]
 
     def __init__(
         self,
@@ -214,7 +234,7 @@ class StudySiteExtractionPipeline:
                 continue
 
             # NLP best practice: Filter to study-site-relevant sections only
-            if not self._is_study_site_relevant_section(section_name):
+            if not self._is_study_site_relevant_section(section_name, section_text):
                 logger.debug(
                     f"Skipping section '{section_name}' - not relevant for study site extraction"
                 )
@@ -552,7 +572,7 @@ class StudySiteExtractionPipeline:
                 continue
 
             # Only process study-site-relevant sections
-            if not self._is_study_site_relevant_section(section_name):
+            if not self._is_study_site_relevant_section(section_name, section_text):
                 continue
 
             # Extract bounding boxes
@@ -750,6 +770,22 @@ class StudySiteExtractionPipeline:
             if keyword in heading_lower or keyword in text_lower[:80]:
                 return "study_area"  # Normalize to study_area
 
+        # Figure/table captions and supplementary snippets
+        if any(
+            word in heading_lower for word in ["figure", "fig.", "fig ", "table", "tab.", "supplementary"]
+        ) or text_lower.startswith(("figure", "fig.", "fig ", "table", "tab.", "supplementary")):
+            return "caption"
+
+        # Author metadata and affiliations
+        if any(
+            word in heading_lower
+            for word in ["author", "affiliation", "correspondence", "funding", "conflict of interest"]
+        ):
+            return "author_information"
+
+        if "appendix" in heading_lower:
+            return "appendix"
+
         # Check for methods sections (high priority for study site mentions)
         if any(
             word in heading_lower for word in ["method", "material", "experiment", "data", "sampling"]
@@ -794,15 +830,18 @@ class StudySiteExtractionPipeline:
 
         return "other"
 
-    def _is_study_site_relevant_section(self, section_name: str) -> bool:
+    def _is_study_site_relevant_section(self, section_name: str, section_text: str = "") -> bool:
         """Check if a section is relevant for study site extraction.
 
-        Uses a blacklist approach: process all sections except those known
-        to be irrelevant (references, acknowledgments). Section classification
-        is used for confidence scoring, not filtering.
+        Precision-first behavior:
+        - Always skip known-irrelevant sections
+        - In strict mode, only include high-signal sections by default
+        - Low-signal sections are included only when they contain strong
+          study-site cues (coordinates or explicit study-site language)
 
         Args:
             section_name: Classified section name
+            section_text: Raw section text (used for cue-based checks)
 
         Returns:
             True if section should be processed for study site extraction
@@ -810,8 +849,61 @@ class StudySiteExtractionPipeline:
         section_normalized = section_name.lower().strip()
 
         # Only skip known-irrelevant sections
-        skip_sections = {"references", "bibliography", "acknowledgments", "acknowledgements"}
-        return section_normalized not in skip_sections
+        skip_sections = {
+            "references",
+            "bibliography",
+            "acknowledgments",
+            "acknowledgements",
+            "author_information",
+            "appendix",
+        }
+        if section_normalized in skip_sections:
+            return False
+
+        if not self.config.STRICT_SECTION_FILTERING:
+            return True
+
+        normalized_target_sections = {s.lower().strip() for s in self.config.STUDY_SITE_SECTIONS}
+        normalized_target_sections.update(
+            {
+                "study_area",
+                "study site",
+                "study_site",
+                "methods",
+                "materials",
+                "materials and methods",
+                "data",
+                "data collection",
+                "sampling",
+            }
+        )
+
+        if section_normalized in normalized_target_sections:
+            return True
+
+        if any(
+            keyword in section_normalized
+            for keyword in ["study", "method", "material", "sampling", "field", "data"]
+        ):
+            return True
+
+        if section_normalized in self.LOW_SIGNAL_SECTIONS:
+            return self._has_strong_study_site_signal(section_text)
+
+        # Keep abstract/results only when explicit site cues are present
+        if section_normalized in {"abstract", "results", "caption"}:
+            return self._has_strong_study_site_signal(section_text)
+
+        # Unknown sections must have strong cues in strict mode
+        return self._has_strong_study_site_signal(section_text)
+
+    def _has_strong_study_site_signal(self, section_text: str) -> bool:
+        """Return whether text has strong, precision-preserving site cues."""
+        if not section_text:
+            return False
+
+        text_sample = section_text[:800]
+        return any(pattern.search(text_sample) for pattern in self.STUDY_SITE_CUE_PATTERNS)
 
     def _deduplicate_entities(self, entities: list[GeoEntity]) -> list[GeoEntity]:
         """Remove duplicate entities based on text and position."""

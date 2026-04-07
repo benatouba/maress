@@ -8,6 +8,7 @@ This module provides a geocoding service that:
 
 from __future__ import annotations
 
+from collections import Counter
 import re
 import time
 from typing import TYPE_CHECKING, ClassVar, Mapping
@@ -271,6 +272,26 @@ class CachedGeocoder:
     MAX_GEOCODE_DISTANCE_WITH_BIAS_KM: ClassVar[float] = 1200.0
     MAX_GEOCODE_DISTANCE_PER_CANDIDATE_KM: ClassVar[float] = 1800.0
     GEOCODER_TOP_K: ClassVar[int] = 5
+    LOW_SIGNAL_SECTIONS: ClassVar[set[str]] = {
+        "other",
+        "introduction",
+        "background",
+        "discussion",
+        "conclusion",
+        "conclusions",
+        "abstract",
+        "results",
+        "caption",
+    }
+    STUDY_SITE_CONTEXT_CUE_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
+        re.compile(
+            r"(?:study|sampling|field|research)\s+(?:site|sites|area|location|station|plot)",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\b(?:located|situated|established|collected|sampled)\s+(?:at|in|near)\b", re.IGNORECASE),
+        re.compile(r"\b(?:coordinates?|latitude|longitude|lat\.?|lon\.?)\b", re.IGNORECASE),
+        re.compile(r"\b\d{1,2}(?:\.\d+)?\s*[°º]?\s*[NS]\b", re.IGNORECASE),
+    ]
 
     @staticmethod
     def _tokenize_text(value: str) -> set[str]:
@@ -372,6 +393,20 @@ class CachedGeocoder:
         union = len(q_tokens.union(c_tokens))
         return intersection / union
 
+    @staticmethod
+    def _candidate_distance_km(first: GeopyLocation, second: GeopyLocation) -> float:
+        """Return geodesic distance between two geocoding candidates."""
+        return geodesic(
+            (float(first.latitude), float(first.longitude)),
+            (float(second.latitude), float(second.longitude)),
+        ).km
+
+    def _has_study_site_context_cue(self, context: str) -> bool:
+        """Return whether context has explicit study-site cues."""
+        if not context:
+            return False
+        return any(pattern.search(context) for pattern in self.STUDY_SITE_CONTEXT_CUE_PATTERNS)
+
     def _score_geocode_candidate(
         self,
         *,
@@ -451,8 +486,10 @@ class CachedGeocoder:
         bias_radius_km: float,
     ) -> GeopyLocation | None:
         """Fetch and select best location from geocoder candidates."""
+        self._last_selection_rejection_reason = None
         query_variants = self._build_query_variants(location_name, country_hints)
         if not query_variants:
+            self._last_selection_rejection_reason = "no_query_variants"
             return None
 
         viewbox: tuple[Point, Point] | None = None
@@ -506,6 +543,27 @@ class CachedGeocoder:
                 break
 
         if not candidates:
+            self._last_selection_rejection_reason = "no_candidates"
+            return None
+
+        return self._select_best_location_from_candidates(
+            location_name=location_name,
+            candidates=candidates,
+            country_hints=country_hints,
+            bias_point=bias_point,
+        )
+
+    def _select_best_location_from_candidates(
+        self,
+        *,
+        location_name: str,
+        candidates: list[GeopyLocation],
+        country_hints: set[str],
+        bias_point: Point | None,
+    ) -> GeopyLocation | None:
+        """Select the best geocoding candidate with precision guards."""
+        if not candidates:
+            self._last_selection_rejection_reason = "no_candidates"
             return None
 
         scored = [
@@ -521,7 +579,38 @@ class CachedGeocoder:
             for c in candidates
         ]
         scored.sort(key=lambda item: item[0], reverse=True)
-        return scored[0][1]
+
+        top_score, top_candidate = scored[0]
+        if top_score < self.min_top_candidate_score:
+            self._last_selection_rejection_reason = "top_score_below_threshold"
+            logger.debug(
+                "Rejecting geocode for '%s': top score %.3f below %.3f",
+                location_name,
+                top_score,
+                self.min_top_candidate_score,
+            )
+            return None
+
+        if len(scored) > 1:
+            second_score, second_candidate = scored[1]
+            score_margin = top_score - second_score
+            if score_margin < self.ambiguity_score_margin:
+                candidate_distance = self._candidate_distance_km(top_candidate, second_candidate)
+                if candidate_distance >= self.ambiguity_distance_km:
+                    self._last_selection_rejection_reason = "ambiguous_top_candidates"
+                    logger.info(
+                        "Rejecting ambiguous geocode for '%s': margin %.3f < %.3f and "
+                        "candidate distance %.1f km >= %.1f km",
+                        location_name,
+                        score_margin,
+                        self.ambiguity_score_margin,
+                        candidate_distance,
+                        self.ambiguity_distance_km,
+                    )
+                    return None
+
+        self._last_selection_rejection_reason = None
+        return top_candidate
 
     @staticmethod
     def _compute_centroid(points: list[tuple[float, float]]) -> tuple[float, float] | None:
@@ -596,6 +685,11 @@ class CachedGeocoder:
         max_distance_without_bias_km: float = 3000.0,
         max_distance_with_bias_km: float = 1200.0,
         max_distance_per_candidate_km: float = 1800.0,
+        strict_low_signal_section_min_confidence: float = 0.9,
+        require_context_cue_for_low_signal_section: bool = True,
+        min_top_candidate_score: float = 0.85,
+        ambiguity_score_margin: float = 0.35,
+        ambiguity_distance_km: float = 250.0,
     ) -> None:
         """Initialize geocoder.
 
@@ -612,6 +706,11 @@ class CachedGeocoder:
             max_distance_without_bias_km: Max allowed distance from document bias
             max_distance_with_bias_km: Max allowed distance from per-candidate bias
             max_distance_per_candidate_km: Distance scale used for candidate scoring
+            strict_low_signal_section_min_confidence: Minimum confidence for low-signal sections
+            require_context_cue_for_low_signal_section: Require explicit study cues in low-signal sections
+            min_top_candidate_score: Minimum score required for top geocoding candidate
+            ambiguity_score_margin: Minimum score gap between top and second candidate
+            ambiguity_distance_km: Distance threshold for rejecting close-score ambiguous candidates
         """
         self.geocoder = Nominatim(user_agent=user_agent, timeout=15)
         self.geonames_resolver = get_geonames_resolver()
@@ -627,8 +726,16 @@ class CachedGeocoder:
         self.max_distance_without_bias_km = max_distance_without_bias_km
         self.max_distance_with_bias_km = max_distance_with_bias_km
         self.max_distance_per_candidate_km = max_distance_per_candidate_km
+        self.strict_low_signal_section_min_confidence = strict_low_signal_section_min_confidence
+        self.require_context_cue_for_low_signal_section = require_context_cue_for_low_signal_section
+        self.min_top_candidate_score = min_top_candidate_score
+        self.ambiguity_score_margin = ambiguity_score_margin
+        self.ambiguity_distance_km = ambiguity_distance_km
         self._last_request_time: float = 0.0
         self._last_error_was_rate_limit = False
+        self._last_selection_rejection_reason: str | None = None
+        self._last_geocode_failure_reason: str | None = None
+        self._last_document_stats: dict[str, int] = {}
 
     def set_live_requests_enabled(self, enabled: bool) -> None:
         """Enable or disable outbound geocoding requests."""
@@ -654,6 +761,9 @@ class CachedGeocoder:
         Returns:
             Tuple of (latitude, longitude) or None if not found
         """
+        self._last_selection_rejection_reason = None
+        self._last_geocode_failure_reason = None
+
         # Check cache first
         try:
             cached_result = self.cache.get(location_name, bias_point, country_hints)
@@ -673,6 +783,7 @@ class CachedGeocoder:
         if not self.allow_live_requests:
             logger.debug("Offline geocoding cache miss for %s", location_name)
             self.cache.set(location_name, None, bias_point, country_hints)
+            self._last_geocode_failure_reason = "offline_cache_miss"
             return None
 
         # Rate limiting
@@ -698,11 +809,13 @@ class CachedGeocoder:
                 coords = (geocoded.latitude, geocoded.longitude)
                 self.cache.set(location_name, coords, bias_point, country_hints)
                 logger.info(f"Geocoded {location_name}: {coords}")
+                self._last_geocode_failure_reason = None
                 return coords
 
             # Cache negative result
             self.cache.set(location_name, None, bias_point, country_hints)
             logger.info(f"Could not geocode {location_name}")
+            self._last_geocode_failure_reason = self._last_selection_rejection_reason or "not_found"
             return None
 
         except (GeocoderServiceError, AdapterHTTPError, TimeoutError, OSError) as e:
@@ -711,10 +824,113 @@ class CachedGeocoder:
             if self._last_error_was_rate_limit:
                 logger.warning("Geocoding provider rate limit hit (429); applying cooldown")
                 self._last_request_time = time.time() + max(self.rate_limit, 2.0)
+                self._last_geocode_failure_reason = "provider_rate_limited"
+            else:
+                self._last_geocode_failure_reason = "provider_error"
             logger.warning(f"Geocoding error for {location_name}: {e}")
             # Cache failure to avoid retrying
             self.cache.set(location_name, None, bias_point, country_hints)
             return None
+
+    def _geocoding_candidate_decision(
+        self,
+        entity: GeoEntity,
+        min_confidence: float | None = None,
+    ) -> tuple[bool, str]:
+        """Return candidate acceptance decision and reason.
+
+        The reason value is used for per-document telemetry.
+        """
+        if entity.coordinates is not None:
+            return (False, "already_has_coordinates")
+        if entity.entity_type not in {"LOC", "GPE"}:
+            return (False, "unsupported_entity_type")
+
+        effective_min_confidence = (
+            self.min_candidate_confidence if min_confidence is None else min_confidence
+        )
+
+        if entity.confidence < effective_min_confidence:
+            return (False, "below_min_confidence")
+
+        candidate = " ".join(entity.text.strip().split())
+        if not candidate:
+            return (False, "empty_candidate")
+        if len(candidate) > self.MAX_LOCATION_NAME_CHARS:
+            return (False, "name_too_long")
+
+        tokens = [token for token in re.split(r"[\s,]+", candidate) if token]
+        if not tokens:
+            return (False, "empty_token_list")
+        if len(tokens) > self.MAX_LOCATION_NAME_TOKENS:
+            return (False, "too_many_tokens")
+
+        section_normalized = entity.section.lower().strip()
+        if section_normalized in self.LOW_SIGNAL_SECTIONS:
+            section_min_confidence = self.strict_low_signal_section_min_confidence
+            if section_normalized == "other":
+                section_min_confidence = max(
+                    section_min_confidence,
+                    self.strict_other_section_min_confidence,
+                )
+            if entity.confidence < max(effective_min_confidence, section_min_confidence):
+                return (False, "low_signal_section_confidence")
+
+            if self.require_context_cue_for_low_signal_section and not self._has_study_site_context_cue(
+                entity.context,
+            ):
+                return (False, "low_signal_section_without_context_cue")
+
+        # Reject obviously malformed candidates
+        if any(char.isdigit() for char in candidate):
+            return (False, "contains_digit")
+        if re.search(r"[;:=\[\]{}<>|]", candidate):
+            return (False, "contains_symbol_noise")
+
+        alpha_tokens = re.findall(r"[A-Za-z]+", candidate)
+        if not alpha_tokens:
+            return (False, "no_alpha_tokens")
+
+        alpha_tokens_lower = [token.lower() for token in alpha_tokens]
+
+        candidate_lower = candidate.lower()
+        if candidate_lower in self.GENERIC_LOCATION_TERMS:
+            return (False, "generic_location_term")
+
+        if self.reject_determiner_prefix and alpha_tokens_lower[0] in self.DETERMINER_PREFIXES:
+            return (False, "determiner_prefix")
+
+        if self.reject_non_location_content and any(
+            token in self.NON_LOCATION_CONTENT_TOKENS for token in alpha_tokens_lower
+        ):
+            return (False, "non_location_content")
+
+        # OCR often fuses a leading article into generic nouns
+        # (for example: "thebanks").
+        if len(tokens) == 1 and candidate_lower.startswith("the"):
+            fused_suffix = candidate_lower[3:]
+            if fused_suffix in self.GENERIC_FUSED_PREFIX_TERMS:
+                return (False, "generic_fused_prefix")
+
+        # Very short single-token strings are usually OCR fragments/noise.
+        if len(alpha_tokens) == 1 and len(alpha_tokens[0]) <= 2:
+            return (False, "single_token_too_short")
+
+        # Most valid toponyms retain capitalization even in noisy OCR. Reject
+        # multi-token all-lowercase strings that look like sentence fragments.
+        if self.require_capitalized_multi_token and len(alpha_tokens) > 1:
+            has_capitalized = any(token[0].isupper() for token in alpha_tokens if token)
+            if not has_capitalized:
+                return (False, "multi_token_not_capitalized")
+
+        # Reject all-lowercase short phrases made only of stopword-like tokens.
+        if (
+            all(token.islower() for token in alpha_tokens)
+            and all(token.lower() in self.STOPWORD_LIKE_TOKENS for token in alpha_tokens)
+        ):
+            return (False, "stopword_like_phrase")
+
+        return (True, "accepted")
 
     def _is_geocoding_candidate(self, entity: GeoEntity, min_confidence: float | None = None) -> bool:
         """Return whether an entity is worth geocoding.
@@ -722,83 +938,8 @@ class CachedGeocoder:
         Filters low-signal candidates that commonly produce API noise and
         false positives during live geocoding.
         """
-        if entity.coordinates is not None:
-            return False
-        if entity.entity_type not in {"LOC", "GPE"}:
-            return False
-        effective_min_confidence = (
-            self.min_candidate_confidence if min_confidence is None else min_confidence
-        )
-
-        if entity.confidence < effective_min_confidence:
-            return False
-
-        candidate = " ".join(entity.text.strip().split())
-        if not candidate:
-            return False
-        if len(candidate) > self.MAX_LOCATION_NAME_CHARS:
-            return False
-
-        tokens = [token for token in re.split(r"[\s,]+", candidate) if token]
-        if not tokens or len(tokens) > self.MAX_LOCATION_NAME_TOKENS:
-            return False
-
-        if entity.section.lower().strip() == "other" and entity.confidence < max(
-            effective_min_confidence,
-            self.strict_other_section_min_confidence,
-        ):
-            return False
-
-        # Reject obviously malformed candidates
-        if any(char.isdigit() for char in candidate):
-            return False
-        if re.search(r"[;:=\[\]{}<>|]", candidate):
-            return False
-
-        alpha_tokens = re.findall(r"[A-Za-z]+", candidate)
-        if not alpha_tokens:
-            return False
-
-        alpha_tokens_lower = [token.lower() for token in alpha_tokens]
-
-        candidate_lower = candidate.lower()
-        if candidate_lower in self.GENERIC_LOCATION_TERMS:
-            return False
-
-        if self.reject_determiner_prefix and alpha_tokens_lower[0] in self.DETERMINER_PREFIXES:
-            return False
-
-        if self.reject_non_location_content and any(
-            token in self.NON_LOCATION_CONTENT_TOKENS for token in alpha_tokens_lower
-        ):
-            return False
-
-        # OCR often fuses a leading article into generic nouns
-        # (for example: "thebanks").
-        if len(tokens) == 1 and candidate_lower.startswith("the"):
-            fused_suffix = candidate_lower[3:]
-            if fused_suffix in self.GENERIC_FUSED_PREFIX_TERMS:
-                return False
-
-        # Very short single-token strings are usually OCR fragments/noise.
-        if len(alpha_tokens) == 1 and len(alpha_tokens[0]) <= 2:
-            return False
-
-        # Most valid toponyms retain capitalization even in noisy OCR. Reject
-        # multi-token all-lowercase strings that look like sentence fragments.
-        if self.require_capitalized_multi_token and len(alpha_tokens) > 1:
-            has_capitalized = any(token[0].isupper() for token in alpha_tokens if token)
-            if not has_capitalized:
-                return False
-
-        # Reject all-lowercase short phrases made only of stopword-like tokens.
-        if (
-            all(token.islower() for token in alpha_tokens)
-            and all(token.lower() in self.STOPWORD_LIKE_TOKENS for token in alpha_tokens)
-        ):
-            return False
-
-        return True
+        is_candidate, _reason = self._geocoding_candidate_decision(entity, min_confidence)
+        return is_candidate
 
     def _section_priority_boost(self, section: str) -> float:
         """Bias geocoding toward sections likely containing study sites."""
@@ -831,6 +972,12 @@ class CachedGeocoder:
         from pydantic import ValidationError
 
         updated_entities = list(entities)
+        stats = Counter[str]()
+        stats["entities_total"] = len(entities)
+        stats["entities_already_with_coordinates"] = sum(
+            1 for e in entities if e.coordinates is not None
+        )
+
         document_bias = self._compute_document_bias_point(entities, bias_point)
         country_hints = self._infer_country_hints(entities, document_bias)
         effective_max_candidates = (
@@ -842,12 +989,29 @@ class CachedGeocoder:
 
         candidate_groups: dict[str, list[int]] = {}
         for idx, entity in enumerate(entities):
-            if not self._is_geocoding_candidate(entity, min_confidence=effective_min_confidence):
+            is_candidate, rejection_reason = self._geocoding_candidate_decision(
+                entity,
+                min_confidence=effective_min_confidence,
+            )
+            if not is_candidate:
+                stats[f"candidate_reject_{rejection_reason}"] += 1
                 continue
             normalized_key = GeocodingCache._normalise_location_name(entity.text)
             candidate_groups.setdefault(normalized_key, []).append(idx)
 
+        stats["candidate_mentions_accepted"] = sum(len(v) for v in candidate_groups.values())
+        stats["unique_candidates_total"] = len(candidate_groups)
+
         if not candidate_groups:
+            stats["unique_candidates_budgeted"] = 0
+            stats["unique_candidates_skipped_budget"] = 0
+            stats["unique_candidates_attempted"] = 0
+            stats["unique_candidates_geocoded"] = 0
+            stats["mentions_resolved"] = 0
+            stats["mentions_with_coordinates_after_geocoding"] = sum(
+                1 for e in updated_entities if e.coordinates is not None
+            )
+            self._last_document_stats = dict(stats)
             return updated_entities
 
         def _group_priority(indexes: list[int]) -> tuple[float, int, int]:
@@ -875,6 +1039,8 @@ class CachedGeocoder:
         total_unique_candidates = len(ranked_groups)
         groups_to_geocode = ranked_groups[:effective_max_candidates]
         skipped_candidates = total_unique_candidates - len(groups_to_geocode)
+        stats["unique_candidates_budgeted"] = len(groups_to_geocode)
+        stats["unique_candidates_skipped_budget"] = skipped_candidates
 
         if skipped_candidates > 0:
             logger.info(
@@ -887,6 +1053,7 @@ class CachedGeocoder:
         rate_limited_failures = 0
 
         for indexes in groups_to_geocode:
+            stats["unique_candidates_attempted"] += 1
             representative_index = max(
                 indexes,
                 key=lambda i: (
@@ -911,12 +1078,16 @@ class CachedGeocoder:
 
             if coords is None:
                 if self._last_error_was_rate_limit:
+                    stats["geocode_fail_provider_rate_limited"] += 1
                     rate_limited_failures += 1
                     if rate_limited_failures >= 3:
                         logger.warning(
                             "Stopping geocoding early after repeated 429 responses",
                         )
                         break
+                else:
+                    failure_reason = self._last_geocode_failure_reason or "not_found"
+                    stats[f"geocode_fail_{failure_reason}"] += 1
                 continue
 
             if not self._passes_distance_guard(
@@ -924,6 +1095,7 @@ class CachedGeocoder:
                 document_bias=document_bias,
                 per_candidate_bias=effective_bias,
             ):
+                stats["geocode_reject_distance_guard"] += 1
                 logger.info(
                     "Rejected geocode for %s due to distance guard: %s",
                     representative.text,
@@ -933,6 +1105,8 @@ class CachedGeocoder:
 
             rate_limited_failures = 0
             geocoded_count += 1
+            stats["unique_candidates_geocoded"] += 1
+            stats["mentions_resolved"] += len(indexes)
 
             for entity_index in indexes:
                 source_entity = updated_entities[entity_index]
@@ -957,7 +1131,17 @@ class CachedGeocoder:
             len(groups_to_geocode),
         )
 
+        stats["mentions_with_coordinates_after_geocoding"] = sum(
+            1 for e in updated_entities if e.coordinates is not None
+        )
+        self._last_document_stats = dict(stats)
+        logger.info("Geocoding telemetry: %s", self._last_document_stats)
+
         return updated_entities
+
+    def get_last_document_stats(self) -> dict[str, int]:
+        """Return geocoding telemetry from the most recent document run."""
+        return dict(self._last_document_stats)
 
     def clear_cache(self) -> None:
         """Clear geocoding cache."""
@@ -1033,5 +1217,14 @@ def get_geocoder() -> CachedGeocoder:
             max_distance_without_bias_km=settings.GEOCODING_MAX_DISTANCE_WITHOUT_BIAS_KM,
             max_distance_with_bias_km=settings.GEOCODING_MAX_DISTANCE_WITH_BIAS_KM,
             max_distance_per_candidate_km=settings.GEOCODING_MAX_DISTANCE_PER_CANDIDATE_KM,
+            strict_low_signal_section_min_confidence=(
+                settings.GEOCODING_STRICT_LOW_SIGNAL_SECTION_MIN_CONFIDENCE
+            ),
+            require_context_cue_for_low_signal_section=(
+                settings.GEOCODING_REQUIRE_CONTEXT_CUE_FOR_LOW_SIGNAL_SECTION
+            ),
+            min_top_candidate_score=settings.GEOCODING_MIN_TOP_CANDIDATE_SCORE,
+            ambiguity_score_margin=settings.GEOCODING_AMBIGUITY_SCORE_MARGIN,
+            ambiguity_distance_km=settings.GEOCODING_AMBIGUITY_DISTANCE_KM,
         )
     return _geocoder

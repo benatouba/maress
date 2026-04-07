@@ -1,0 +1,283 @@
+"""Compare baseline vs strict precision geocoding profiles on local PDFs.
+
+This script runs the NLP extraction pipeline in-memory (no DB writes) and
+prints a compact markdown table for quick before/after comparison.
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+from statistics import mean
+from time import perf_counter
+
+from app.core.config import settings
+from app.nlp.factories import PipelineFactory
+from app.nlp.geocoding import CachedGeocoder
+from app.nlp.model_config import ModelConfig
+
+LOW_SIGNAL_SECTIONS = {
+    "other",
+    "introduction",
+    "background",
+    "discussion",
+    "conclusion",
+    "conclusions",
+    "abstract",
+    "results",
+    "caption",
+}
+
+BASELINE_PROFILE = {
+    "strict_low_signal_section_min_confidence": 0.90,
+    "min_top_candidate_score": 0.85,
+    "ambiguity_score_margin": 0.35,
+    "ambiguity_distance_km": 250.0,
+}
+
+STRICT_PROFILE = {
+    "strict_low_signal_section_min_confidence": 0.93,
+    "min_top_candidate_score": 0.95,
+    "ambiguity_score_margin": 0.45,
+    "ambiguity_distance_km": 200.0,
+}
+
+
+@dataclass
+class PdfMetrics:
+    pdf_name: str
+    seconds: float
+    entities_total: int
+    entities_with_coordinates: int
+    loc_gpe_with_coordinates: int
+    low_signal_loc_gpe_with_coordinates: int
+    avg_conf_loc_gpe: float
+    geocode_unique_candidates_total: int
+    geocode_unique_candidates_geocoded: int
+    geocode_rejections: int
+    rejected_by_candidate_filters: int
+
+
+@dataclass
+class PdfFailure:
+    pdf_name: str
+    error: str
+
+
+def _build_geocoder(profile: dict[str, float]) -> CachedGeocoder:
+    return CachedGeocoder(
+        rate_limit=settings.GEOCODING_RATE_LIMIT,
+        allow_live_requests=settings.GEOCODING_ALLOW_LIVE_REQUESTS,
+        max_candidates_per_doc=settings.GEOCODING_MAX_CANDIDATES_PER_DOC,
+        min_candidate_confidence=settings.GEOCODING_MIN_CANDIDATE_CONFIDENCE,
+        strict_other_section_min_confidence=settings.GEOCODING_STRICT_OTHER_SECTION_MIN_CONFIDENCE,
+        reject_determiner_prefix=settings.GEOCODING_REJECT_DETERMINER_PREFIX,
+        reject_non_location_content=settings.GEOCODING_REJECT_NON_LOCATION_CONTENT,
+        require_capitalized_multi_token=settings.GEOCODING_REQUIRE_CAPITALIZED_MULTI_TOKEN,
+        max_distance_without_bias_km=settings.GEOCODING_MAX_DISTANCE_WITHOUT_BIAS_KM,
+        max_distance_with_bias_km=settings.GEOCODING_MAX_DISTANCE_WITH_BIAS_KM,
+        max_distance_per_candidate_km=settings.GEOCODING_MAX_DISTANCE_PER_CANDIDATE_KM,
+        require_context_cue_for_low_signal_section=settings.GEOCODING_REQUIRE_CONTEXT_CUE_FOR_LOW_SIGNAL_SECTION,
+        strict_low_signal_section_min_confidence=profile["strict_low_signal_section_min_confidence"],
+        min_top_candidate_score=profile["min_top_candidate_score"],
+        ambiguity_score_margin=profile["ambiguity_score_margin"],
+        ambiguity_distance_km=profile["ambiguity_distance_km"],
+    )
+
+
+def _select_pdfs(pdf_dir: Path, limit: int, extra_pdfs: list[Path]) -> list[Path]:
+    candidates = [
+        p for p in pdf_dir.glob("*.pdf") if p.is_file() and p.stat().st_size > 0
+    ]
+    candidates.sort(key=lambda p: (p.stat().st_size, p.name))
+
+    selected = candidates[:limit]
+    for extra in extra_pdfs:
+        if extra.exists() and extra not in selected:
+            selected.append(extra)
+
+    return selected
+
+
+def _run_profile(
+    profile_name: str,
+    profile: dict[str, float],
+    pdfs: list[Path],
+) -> tuple[list[PdfMetrics], list[PdfFailure]]:
+    print(f"\n## Running profile: {profile_name}")
+    config = ModelConfig()
+    pipeline = PipelineFactory.create_pipeline_for_api(config=config)
+    pipeline.geocoder = _build_geocoder(profile)
+
+    rows: list[PdfMetrics] = []
+    failures: list[PdfFailure] = []
+
+    for index, pdf_path in enumerate(pdfs, start=1):
+        try:
+            started = perf_counter()
+            result = pipeline.extract_from_pdf(pdf_path)
+            elapsed = perf_counter() - started
+        except Exception as exc:
+            failures.append(PdfFailure(pdf_name=pdf_path.name, error=str(exc)))
+            print(f"[{index:02d}/{len(pdfs):02d}] {pdf_path.name}: FAILED ({exc})")
+            continue
+
+        entities = result.entities
+        entities_with_coords = [e for e in entities if e.coordinates is not None]
+        loc_gpe_with_coords = [
+            e for e in entities_with_coords if e.entity_type in {"LOC", "GPE"}
+        ]
+        low_signal_loc_gpe = [
+            e
+            for e in loc_gpe_with_coords
+            if e.section.lower().strip() in LOW_SIGNAL_SECTIONS
+        ]
+
+        telemetry = pipeline.geocoder.get_last_document_stats()
+        geocode_rejections = sum(
+            value
+            for key, value in telemetry.items()
+            if key.startswith("geocode_fail_") or key.startswith("geocode_reject_")
+        )
+        candidate_filter_rejections = sum(
+            value
+            for key, value in telemetry.items()
+            if key.startswith("candidate_reject_")
+        )
+
+        row = PdfMetrics(
+            pdf_name=pdf_path.name,
+            seconds=elapsed,
+            entities_total=len(entities),
+            entities_with_coordinates=len(entities_with_coords),
+            loc_gpe_with_coordinates=len(loc_gpe_with_coords),
+            low_signal_loc_gpe_with_coordinates=len(low_signal_loc_gpe),
+            avg_conf_loc_gpe=(
+                round(mean([e.confidence for e in loc_gpe_with_coords]), 3)
+                if loc_gpe_with_coords
+                else 0.0
+            ),
+            geocode_unique_candidates_total=telemetry.get("unique_candidates_total", 0),
+            geocode_unique_candidates_geocoded=telemetry.get("unique_candidates_geocoded", 0),
+            geocode_rejections=geocode_rejections,
+            rejected_by_candidate_filters=candidate_filter_rejections,
+        )
+        rows.append(row)
+
+        print(
+            f"[{index:02d}/{len(pdfs):02d}] {pdf_path.name}: "
+            f"{elapsed:.1f}s, loc/gpe coords={row.loc_gpe_with_coordinates}, "
+            f"geocoded unique={row.geocode_unique_candidates_geocoded}/{row.geocode_unique_candidates_total}"
+        )
+
+    return rows, failures
+
+
+def _print_comparison_table(baseline: list[PdfMetrics], strict: list[PdfMetrics]) -> None:
+    by_name = {row.pdf_name: row for row in baseline}
+    strict_by_name = {row.pdf_name: row for row in strict}
+
+    print("\n## Baseline vs Strict (Per PDF)")
+    print(
+        "| PDF | Base LOC/GPE coords | Strict LOC/GPE coords | Delta | "
+        "Base geocoded unique | Strict geocoded unique | Delta |"
+    )
+    print("|---|---:|---:|---:|---:|---:|---:|")
+
+    names = sorted(set(by_name.keys()).union(strict_by_name.keys()))
+    for name in names:
+        b = by_name.get(name)
+        s = strict_by_name.get(name)
+        if b is None or s is None:
+            continue
+        delta_loc = s.loc_gpe_with_coordinates - b.loc_gpe_with_coordinates
+        delta_geo = s.geocode_unique_candidates_geocoded - b.geocode_unique_candidates_geocoded
+        print(
+            f"| {name} | {b.loc_gpe_with_coordinates} | {s.loc_gpe_with_coordinates} | {delta_loc:+d} | "
+            f"{b.geocode_unique_candidates_geocoded}/{b.geocode_unique_candidates_total} | "
+            f"{s.geocode_unique_candidates_geocoded}/{s.geocode_unique_candidates_total} | {delta_geo:+d} |"
+        )
+
+
+def _print_summary(label: str, rows: list[PdfMetrics]) -> None:
+    total_docs = len(rows)
+    total_entities = sum(r.entities_total for r in rows)
+    total_with_coords = sum(r.entities_with_coordinates for r in rows)
+    total_loc_gpe_coords = sum(r.loc_gpe_with_coordinates for r in rows)
+    total_low_signal_loc = sum(r.low_signal_loc_gpe_with_coordinates for r in rows)
+    total_unique = sum(r.geocode_unique_candidates_total for r in rows)
+    total_geocoded = sum(r.geocode_unique_candidates_geocoded for r in rows)
+    total_rejections = sum(r.geocode_rejections for r in rows)
+    total_candidate_filter_rejections = sum(r.rejected_by_candidate_filters for r in rows)
+    avg_seconds = mean([r.seconds for r in rows]) if rows else 0.0
+
+    print(f"\n## Summary: {label}")
+    print(f"- docs: {total_docs}")
+    print(f"- avg runtime seconds: {avg_seconds:.1f}")
+    print(f"- entities total: {total_entities}")
+    print(f"- entities with coordinates: {total_with_coords}")
+    print(f"- LOC/GPE with coordinates: {total_loc_gpe_coords}")
+    print(f"- low-signal LOC/GPE with coordinates: {total_low_signal_loc}")
+    print(f"- geocoded unique candidates: {total_geocoded}/{total_unique}")
+    print(f"- candidate filter rejections: {total_candidate_filter_rejections}")
+    print(f"- geocode rejections (failures + guards): {total_rejections}")
+
+
+def _print_failures(label: str, failures: list[PdfFailure]) -> None:
+    if not failures:
+        return
+    print(f"\n## Skipped due to parse/extraction errors: {label}")
+    for failure in failures:
+        print(f"- {failure.pdf_name}: {failure.error}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Compare baseline vs strict precision geocoding profiles.",
+    )
+    parser.add_argument(
+        "--pdf-dir",
+        default="zotero_files",
+        help="Directory containing PDF files (default: zotero_files)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Number of PDFs to sample from --pdf-dir (default: 10)",
+    )
+    parser.add_argument(
+        "--include",
+        nargs="*",
+        default=["tests/data/35J9RCQ8.pdf"],
+        help="Extra PDF paths to include in comparison",
+    )
+    args = parser.parse_args()
+
+    pdf_dir = Path(args.pdf_dir)
+    if not pdf_dir.exists():
+        raise SystemExit(f"PDF directory not found: {pdf_dir}")
+
+    extra_pdfs = [Path(path) for path in args.include]
+    pdfs = _select_pdfs(pdf_dir, args.limit, extra_pdfs)
+
+    if not pdfs:
+        raise SystemExit("No PDFs selected")
+
+    print(f"Selected {len(pdfs)} PDFs")
+    for pdf in pdfs:
+        print(f"- {pdf}")
+
+    baseline_rows, baseline_failures = _run_profile("baseline", BASELINE_PROFILE, pdfs)
+    strict_rows, strict_failures = _run_profile("strict", STRICT_PROFILE, pdfs)
+
+    _print_summary("baseline", baseline_rows)
+    _print_summary("strict", strict_rows)
+    _print_failures("baseline", baseline_failures)
+    _print_failures("strict", strict_failures)
+    _print_comparison_table(baseline_rows, strict_rows)
+
+
+if __name__ == "__main__":
+    main()
