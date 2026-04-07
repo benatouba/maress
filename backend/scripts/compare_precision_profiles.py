@@ -7,12 +7,14 @@ prints a compact markdown table for quick before/after comparison.
 from __future__ import annotations
 
 import argparse
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
 from time import perf_counter
 
 from app.core.config import settings
+from app.nlp.domain_models import GeoEntity
 from app.nlp.factories import PipelineFactory
 from app.nlp.geocoding import CachedGeocoder
 from app.nlp.model_config import ModelConfig
@@ -28,6 +30,23 @@ LOW_SIGNAL_SECTIONS = {
     "results",
     "caption",
 }
+
+NON_TEXTUAL_SECTIONS = {
+    "caption",
+    "author_information",
+    "references",
+    "appendix",
+}
+
+TEXTUAL_STUDY_SITE_CUE_PATTERNS = [
+    re.compile(
+        r"(?:study|sampling|field|research)\s+(?:site|sites|area|location|station|plot)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:located|situated|established|collected|sampled)\s+(?:at|in|near)\b", re.IGNORECASE),
+    re.compile(r"\b(?:coordinates?|latitude|longitude|lat\.?|lon\.?)\b", re.IGNORECASE),
+    re.compile(r"\b\d{1,2}(?:\.\d+)?\s*[°º]?\s*[NS]\b", re.IGNORECASE),
+]
 
 BASELINE_PROFILE = {
     "strict_low_signal_section_min_confidence": 0.90,
@@ -57,12 +76,51 @@ class PdfMetrics:
     geocode_unique_candidates_geocoded: int
     geocode_rejections: int
     rejected_by_candidate_filters: int
+    textual_coordinates: int
+    map_image_coordinates: int
+    has_textual_study_site_signal: bool
 
 
 @dataclass
 class PdfFailure:
     pdf_name: str
     error: str
+
+
+def _is_map_image_entity(entity: GeoEntity) -> bool:
+    return "[MAP_IMAGE" in entity.context
+
+
+def _is_textual_coordinate_entity(entity: GeoEntity) -> bool:
+    if entity.coordinates is None:
+        return False
+    if _is_map_image_entity(entity):
+        return False
+    section = entity.section.lower().strip()
+    return section not in NON_TEXTUAL_SECTIONS
+
+
+def _has_textual_study_site_signal(entities: list[GeoEntity]) -> bool:
+    for entity in entities:
+        section = entity.section.lower().strip()
+        if section in NON_TEXTUAL_SECTIONS:
+            continue
+        if _is_map_image_entity(entity):
+            continue
+        if entity.coordinates is not None and entity.entity_type in {
+            "COORDINATE",
+            "LOC",
+            "GPE",
+            "SPATIAL_RELATION",
+            "BOUNDING_BOX",
+        }:
+            return True
+        if entity.entity_type in {"LOC", "GPE", "STUDY_SITE", "MULTIWORD_LOCATION", "CONTEXTUAL_LOCATION"}:
+            if section in LOW_SIGNAL_SECTIONS:
+                continue
+            if any(pattern.search(entity.context) for pattern in TEXTUAL_STUDY_SITE_CUE_PATTERNS):
+                return True
+    return False
 
 
 def _build_geocoder(profile: dict[str, float]) -> CachedGeocoder:
@@ -133,6 +191,16 @@ def _run_profile(
             for e in loc_gpe_with_coords
             if e.section.lower().strip() in LOW_SIGNAL_SECTIONS
         ]
+        textual_coordinates = [
+            e
+            for e in entities_with_coords
+            if _is_textual_coordinate_entity(e)
+        ]
+        map_image_coordinates = [
+            e
+            for e in entities_with_coords
+            if _is_map_image_entity(e)
+        ]
 
         telemetry = pipeline.geocoder.get_last_document_stats()
         geocode_rejections = sum(
@@ -162,13 +230,17 @@ def _run_profile(
             geocode_unique_candidates_geocoded=telemetry.get("unique_candidates_geocoded", 0),
             geocode_rejections=geocode_rejections,
             rejected_by_candidate_filters=candidate_filter_rejections,
+            textual_coordinates=len(textual_coordinates),
+            map_image_coordinates=len(map_image_coordinates),
+            has_textual_study_site_signal=_has_textual_study_site_signal(entities),
         )
         rows.append(row)
 
         print(
             f"[{index:02d}/{len(pdfs):02d}] {pdf_path.name}: "
             f"{elapsed:.1f}s, loc/gpe coords={row.loc_gpe_with_coordinates}, "
-            f"geocoded unique={row.geocode_unique_candidates_geocoded}/{row.geocode_unique_candidates_total}"
+            f"geocoded unique={row.geocode_unique_candidates_geocoded}/{row.geocode_unique_candidates_total}, "
+            f"text-signal={'yes' if row.has_textual_study_site_signal else 'no'}"
         )
 
     return rows, failures
@@ -210,6 +282,9 @@ def _print_summary(label: str, rows: list[PdfMetrics]) -> None:
     total_geocoded = sum(r.geocode_unique_candidates_geocoded for r in rows)
     total_rejections = sum(r.geocode_rejections for r in rows)
     total_candidate_filter_rejections = sum(r.rejected_by_candidate_filters for r in rows)
+    docs_with_text_signal = sum(1 for r in rows if r.has_textual_study_site_signal)
+    total_textual_coordinates = sum(r.textual_coordinates for r in rows)
+    total_map_image_coordinates = sum(r.map_image_coordinates for r in rows)
     avg_seconds = mean([r.seconds for r in rows]) if rows else 0.0
 
     print(f"\n## Summary: {label}")
@@ -222,6 +297,22 @@ def _print_summary(label: str, rows: list[PdfMetrics]) -> None:
     print(f"- geocoded unique candidates: {total_geocoded}/{total_unique}")
     print(f"- candidate filter rejections: {total_candidate_filter_rejections}")
     print(f"- geocode rejections (failures + guards): {total_rejections}")
+    print(f"- docs with textual study-site signal: {docs_with_text_signal}/{total_docs}")
+    print(f"- textual coordinates: {total_textual_coordinates}")
+    print(f"- map-image coordinates: {total_map_image_coordinates}")
+
+
+def _print_text_signal_table(rows: list[PdfMetrics]) -> None:
+    if not rows:
+        return
+    print("\n## Baseline textual signal classification")
+    print("| PDF | Textual signal | Textual coords | Map-image coords |")
+    print("|---|---|---:|---:|")
+    for row in sorted(rows, key=lambda r: r.pdf_name):
+        signal = "yes" if row.has_textual_study_site_signal else "no"
+        print(
+            f"| {row.pdf_name} | {signal} | {row.textual_coordinates} | {row.map_image_coordinates} |"
+        )
 
 
 def _print_failures(label: str, failures: list[PdfFailure]) -> None:
@@ -253,6 +344,14 @@ def main() -> None:
         default=["tests/data/35J9RCQ8.pdf"],
         help="Extra PDF paths to include in comparison",
     )
+    parser.add_argument(
+        "--text-only",
+        action="store_true",
+        help=(
+            "Only benchmark PDFs that show textual study-site signal "
+            "(classified from baseline extraction output)."
+        ),
+    )
     args = parser.parse_args()
 
     pdf_dir = Path(args.pdf_dir)
@@ -270,7 +369,28 @@ def main() -> None:
         print(f"- {pdf}")
 
     baseline_rows, baseline_failures = _run_profile("baseline", BASELINE_PROFILE, pdfs)
-    strict_rows, strict_failures = _run_profile("strict", STRICT_PROFILE, pdfs)
+    _print_text_signal_table(baseline_rows)
+
+    benchmark_pdfs = pdfs
+    if args.text_only:
+        baseline_by_name = {row.pdf_name: row for row in baseline_rows}
+        benchmark_pdfs = [
+            pdf
+            for pdf in pdfs
+            if baseline_by_name.get(pdf.name) and baseline_by_name[pdf.name].has_textual_study_site_signal
+        ]
+        selected_names = {pdf.name for pdf in benchmark_pdfs}
+        baseline_rows = [row for row in baseline_rows if row.pdf_name in selected_names]
+
+        print("\n## Text-only benchmark selection")
+        print(f"- selected {len(benchmark_pdfs)} of {len(pdfs)} PDFs for strict-vs-baseline comparison")
+        for pdf in benchmark_pdfs:
+            print(f"- {pdf}")
+
+        if not benchmark_pdfs:
+            raise SystemExit("No PDFs with textual study-site signal in selected sample")
+
+    strict_rows, strict_failures = _run_profile("strict", STRICT_PROFILE, benchmark_pdfs)
 
     _print_summary("baseline", baseline_rows)
     _print_summary("strict", strict_rows)
