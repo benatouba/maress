@@ -51,6 +51,11 @@ export default defineConfig({
       },
     }),
     Fonts({
+      custom: {
+        families: [],
+        preload: false,
+        prefetch: false,
+      },
       fontsource: {
         families: [
           {
