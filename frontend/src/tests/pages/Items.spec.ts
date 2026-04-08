@@ -46,6 +46,10 @@ describe('Items Page', () => {
             template: '<button @click="$emit(\'click\')" :disabled="disabled"><slot /></button>',
             props: ['disabled', 'loading', 'icon']
           },
+          VBtnToggle: {
+            template: '<div><slot /></div>',
+            props: ['modelValue'],
+          },
           VTextField: {
             template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value); $emit(\'update:model-value\', $event.target.value)" />',
             props: ['modelValue']
