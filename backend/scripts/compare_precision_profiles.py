@@ -7,7 +7,10 @@ prints a compact markdown table for quick before/after comparison.
 from __future__ import annotations
 
 import argparse
+import csv
+import json
 import re
+from dataclasses import asdict
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
@@ -247,6 +250,8 @@ def _run_profile(
 
 
 def _print_comparison_table(baseline: list[PdfMetrics], strict: list[PdfMetrics]) -> None:
+    comparison_rows = _build_comparison_rows(baseline, strict)
+
     by_name = {row.pdf_name: row for row in baseline}
     strict_by_name = {row.pdf_name: row for row in strict}
 
@@ -257,14 +262,18 @@ def _print_comparison_table(baseline: list[PdfMetrics], strict: list[PdfMetrics]
     )
     print("|---|---:|---:|---:|---:|---:|---:|")
 
-    names = sorted(set(by_name.keys()).union(strict_by_name.keys()))
-    for name in names:
+    for row in comparison_rows:
+        name = row["pdf_name"]
+        if not isinstance(name, str):
+            continue
+        delta_loc = row["delta_loc_gpe_with_coordinates"]
+        delta_geo = row["delta_geocoded_unique"]
+        if not isinstance(delta_loc, int) or not isinstance(delta_geo, int):
+            continue
         b = by_name.get(name)
         s = strict_by_name.get(name)
         if b is None or s is None:
             continue
-        delta_loc = s.loc_gpe_with_coordinates - b.loc_gpe_with_coordinates
-        delta_geo = s.geocode_unique_candidates_geocoded - b.geocode_unique_candidates_geocoded
         print(
             f"| {name} | {b.loc_gpe_with_coordinates} | {s.loc_gpe_with_coordinates} | {delta_loc:+d} | "
             f"{b.geocode_unique_candidates_geocoded}/{b.geocode_unique_candidates_total} | "
@@ -272,7 +281,7 @@ def _print_comparison_table(baseline: list[PdfMetrics], strict: list[PdfMetrics]
         )
 
 
-def _print_summary(label: str, rows: list[PdfMetrics]) -> None:
+def _build_summary(rows: list[PdfMetrics]) -> dict[str, float | int]:
     total_docs = len(rows)
     total_entities = sum(r.entities_total for r in rows)
     total_with_coords = sum(r.entities_with_coordinates for r in rows)
@@ -287,19 +296,108 @@ def _print_summary(label: str, rows: list[PdfMetrics]) -> None:
     total_map_image_coordinates = sum(r.map_image_coordinates for r in rows)
     avg_seconds = mean([r.seconds for r in rows]) if rows else 0.0
 
+    return {
+        "docs": total_docs,
+        "avg_runtime_seconds": round(avg_seconds, 3),
+        "entities_total": total_entities,
+        "entities_with_coordinates": total_with_coords,
+        "loc_gpe_with_coordinates": total_loc_gpe_coords,
+        "low_signal_loc_gpe_with_coordinates": total_low_signal_loc,
+        "geocoded_unique_candidates": total_geocoded,
+        "geocoded_unique_candidates_total": total_unique,
+        "candidate_filter_rejections": total_candidate_filter_rejections,
+        "geocode_rejections": total_rejections,
+        "docs_with_textual_study_site_signal": docs_with_text_signal,
+        "textual_coordinates": total_textual_coordinates,
+        "map_image_coordinates": total_map_image_coordinates,
+    }
+
+
+def _build_comparison_rows(
+    baseline: list[PdfMetrics],
+    strict: list[PdfMetrics],
+) -> list[dict[str, str | int | float | bool | None]]:
+    by_name = {row.pdf_name: row for row in baseline}
+    strict_by_name = {row.pdf_name: row for row in strict}
+    names = sorted(set(by_name.keys()).union(strict_by_name.keys()))
+
+    rows: list[dict[str, str | int | float | bool | None]] = []
+    for name in names:
+        b = by_name.get(name)
+        s = strict_by_name.get(name)
+
+        base_loc = b.loc_gpe_with_coordinates if b else None
+        strict_loc = s.loc_gpe_with_coordinates if s else None
+        base_geo = b.geocode_unique_candidates_geocoded if b else None
+        strict_geo = s.geocode_unique_candidates_geocoded if s else None
+
+        rows.append(
+            {
+                "pdf_name": name,
+                "baseline_seconds": b.seconds if b else None,
+                "strict_seconds": s.seconds if s else None,
+                "baseline_loc_gpe_with_coordinates": base_loc,
+                "strict_loc_gpe_with_coordinates": strict_loc,
+                "delta_loc_gpe_with_coordinates": (
+                    strict_loc - base_loc
+                    if base_loc is not None and strict_loc is not None
+                    else None
+                ),
+                "baseline_geocoded_unique": base_geo,
+                "baseline_geocoded_unique_total": (
+                    b.geocode_unique_candidates_total if b else None
+                ),
+                "strict_geocoded_unique": strict_geo,
+                "strict_geocoded_unique_total": (
+                    s.geocode_unique_candidates_total if s else None
+                ),
+                "delta_geocoded_unique": (
+                    strict_geo - base_geo
+                    if base_geo is not None and strict_geo is not None
+                    else None
+                ),
+                "baseline_has_textual_study_site_signal": (
+                    b.has_textual_study_site_signal if b else None
+                ),
+                "strict_has_textual_study_site_signal": (
+                    s.has_textual_study_site_signal if s else None
+                ),
+                "baseline_textual_coordinates": b.textual_coordinates if b else None,
+                "strict_textual_coordinates": s.textual_coordinates if s else None,
+                "baseline_map_image_coordinates": (
+                    b.map_image_coordinates if b else None
+                ),
+                "strict_map_image_coordinates": (
+                    s.map_image_coordinates if s else None
+                ),
+            }
+        )
+
+    return rows
+
+
+def _print_summary(label: str, rows: list[PdfMetrics]) -> None:
+    summary = _build_summary(rows)
+
     print(f"\n## Summary: {label}")
-    print(f"- docs: {total_docs}")
-    print(f"- avg runtime seconds: {avg_seconds:.1f}")
-    print(f"- entities total: {total_entities}")
-    print(f"- entities with coordinates: {total_with_coords}")
-    print(f"- LOC/GPE with coordinates: {total_loc_gpe_coords}")
-    print(f"- low-signal LOC/GPE with coordinates: {total_low_signal_loc}")
-    print(f"- geocoded unique candidates: {total_geocoded}/{total_unique}")
-    print(f"- candidate filter rejections: {total_candidate_filter_rejections}")
-    print(f"- geocode rejections (failures + guards): {total_rejections}")
-    print(f"- docs with textual study-site signal: {docs_with_text_signal}/{total_docs}")
-    print(f"- textual coordinates: {total_textual_coordinates}")
-    print(f"- map-image coordinates: {total_map_image_coordinates}")
+    print(f"- docs: {summary['docs']}")
+    print(f"- avg runtime seconds: {summary['avg_runtime_seconds']:.1f}")
+    print(f"- entities total: {summary['entities_total']}")
+    print(f"- entities with coordinates: {summary['entities_with_coordinates']}")
+    print(f"- LOC/GPE with coordinates: {summary['loc_gpe_with_coordinates']}")
+    print(f"- low-signal LOC/GPE with coordinates: {summary['low_signal_loc_gpe_with_coordinates']}")
+    print(
+        "- geocoded unique candidates: "
+        f"{summary['geocoded_unique_candidates']}/{summary['geocoded_unique_candidates_total']}"
+    )
+    print(f"- candidate filter rejections: {summary['candidate_filter_rejections']}")
+    print(f"- geocode rejections (failures + guards): {summary['geocode_rejections']}")
+    print(
+        "- docs with textual study-site signal: "
+        f"{summary['docs_with_textual_study_site_signal']}/{summary['docs']}"
+    )
+    print(f"- textual coordinates: {summary['textual_coordinates']}")
+    print(f"- map-image coordinates: {summary['map_image_coordinates']}")
 
 
 def _print_text_signal_table(rows: list[PdfMetrics]) -> None:
@@ -321,6 +419,92 @@ def _print_failures(label: str, failures: list[PdfFailure]) -> None:
     print(f"\n## Skipped due to parse/extraction errors: {label}")
     for failure in failures:
         print(f"- {failure.pdf_name}: {failure.error}")
+
+
+def _write_json_output(
+    output_path: Path,
+    *,
+    input_pdfs: list[Path],
+    benchmark_pdfs: list[Path],
+    baseline_rows_all: list[PdfMetrics],
+    baseline_rows_compared: list[PdfMetrics],
+    strict_rows: list[PdfMetrics],
+    baseline_failures: list[PdfFailure],
+    strict_failures: list[PdfFailure],
+    text_only: bool,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "selection": {
+            "input_pdfs": [str(pdf) for pdf in input_pdfs],
+            "benchmark_pdfs": [str(pdf) for pdf in benchmark_pdfs],
+            "text_only": text_only,
+        },
+        "baseline": {
+            "summary": _build_summary(baseline_rows_compared),
+            "rows": [asdict(row) for row in baseline_rows_compared],
+        },
+        "strict": {
+            "summary": _build_summary(strict_rows),
+            "rows": [asdict(row) for row in strict_rows],
+        },
+        "baseline_text_signal_classification": [
+            {
+                "pdf_name": row.pdf_name,
+                "has_textual_study_site_signal": row.has_textual_study_site_signal,
+                "textual_coordinates": row.textual_coordinates,
+                "map_image_coordinates": row.map_image_coordinates,
+            }
+            for row in baseline_rows_all
+        ],
+        "comparison_rows": _build_comparison_rows(baseline_rows_compared, strict_rows),
+        "failures": {
+            "baseline": [asdict(failure) for failure in baseline_failures],
+            "strict": [asdict(failure) for failure in strict_failures],
+        },
+    }
+
+    output_path.write_text(f"{json.dumps(payload, indent=2, sort_keys=True)}\n", encoding="utf-8")
+    print(f"\nWrote JSON output: {output_path}")
+
+
+def _write_csv_output(
+    output_path: Path,
+    *,
+    baseline_rows_compared: list[PdfMetrics],
+    strict_rows: list[PdfMetrics],
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    comparison_rows = _build_comparison_rows(baseline_rows_compared, strict_rows)
+    fieldnames = [
+        "pdf_name",
+        "baseline_seconds",
+        "strict_seconds",
+        "baseline_loc_gpe_with_coordinates",
+        "strict_loc_gpe_with_coordinates",
+        "delta_loc_gpe_with_coordinates",
+        "baseline_geocoded_unique",
+        "baseline_geocoded_unique_total",
+        "strict_geocoded_unique",
+        "strict_geocoded_unique_total",
+        "delta_geocoded_unique",
+        "baseline_has_textual_study_site_signal",
+        "strict_has_textual_study_site_signal",
+        "baseline_textual_coordinates",
+        "strict_textual_coordinates",
+        "baseline_map_image_coordinates",
+        "strict_map_image_coordinates",
+    ]
+
+    with output_path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in comparison_rows:
+            writer.writerow(row)
+
+    print(f"Wrote CSV output: {output_path}")
 
 
 def main() -> None:
@@ -352,6 +536,18 @@ def main() -> None:
             "(classified from baseline extraction output)."
         ),
     )
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        default=None,
+        help="Optional path for machine-readable JSON output.",
+    )
+    parser.add_argument(
+        "--output-csv",
+        type=Path,
+        default=None,
+        help="Optional path for machine-readable CSV comparison output.",
+    )
     args = parser.parse_args()
 
     pdf_dir = Path(args.pdf_dir)
@@ -369,7 +565,8 @@ def main() -> None:
         print(f"- {pdf}")
 
     baseline_rows, baseline_failures = _run_profile("baseline", BASELINE_PROFILE, pdfs)
-    _print_text_signal_table(baseline_rows)
+    baseline_rows_all = list(baseline_rows)
+    _print_text_signal_table(baseline_rows_all)
 
     benchmark_pdfs = pdfs
     if args.text_only:
@@ -397,6 +594,26 @@ def main() -> None:
     _print_failures("baseline", baseline_failures)
     _print_failures("strict", strict_failures)
     _print_comparison_table(baseline_rows, strict_rows)
+
+    if args.output_json:
+        _write_json_output(
+            args.output_json,
+            input_pdfs=pdfs,
+            benchmark_pdfs=benchmark_pdfs,
+            baseline_rows_all=baseline_rows_all,
+            baseline_rows_compared=baseline_rows,
+            strict_rows=strict_rows,
+            baseline_failures=baseline_failures,
+            strict_failures=strict_failures,
+            text_only=args.text_only,
+        )
+
+    if args.output_csv:
+        _write_csv_output(
+            args.output_csv,
+            baseline_rows_compared=baseline_rows,
+            strict_rows=strict_rows,
+        )
 
 
 if __name__ == "__main__":
