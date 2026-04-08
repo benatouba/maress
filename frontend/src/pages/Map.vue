@@ -41,6 +41,21 @@
             </div>
           </v-card-title>
 
+          <v-card-text
+            v-if="authStore.isAuthenticated"
+            class="pt-2 pb-0"
+          >
+            <v-btn-toggle
+              v-model="papersScope"
+              mandatory
+              density="compact"
+              class="w-100"
+            >
+              <v-btn value="all" prepend-icon="mdi-earth" class="flex-grow-1">All Papers</v-btn>
+              <v-btn value="mine" prepend-icon="mdi-account" class="flex-grow-1">Just Mine</v-btn>
+            </v-btn-toggle>
+          </v-card-text>
+
           <v-divider />
 
           <!-- Filters -->
@@ -953,6 +968,7 @@ const paperStudySitesLoading = ref(false)
 const activeViewport = ref<ViewportBounds | null>(null)
 const useClippedResult = ref(false)
 const useWithinDistanceResult = ref(false)
+const papersScope = ref<'all' | 'mine'>('all')
 
 // State - GIS operations
 const gisOperation = ref<'buffer' | 'clip' | 'within-distance' | 'summary-stats'>('buffer')
@@ -1118,7 +1134,7 @@ const selectedSummaryMetrics = computed<GISMetric[]>(() => {
 const fetchMapPapers = async () => {
   mapPapersLoading.value = true
   try {
-    const response = await zoteroStore.fetchMapItems(500)
+    const response = await zoteroStore.fetchMapItems(500, papersScope.value)
     mapPapers.value = response?.data || []
   } finally {
     mapPapersLoading.value = false
@@ -1623,6 +1639,11 @@ watch(
 
 watch(withinDistanceReturnLayer, () => {
   useWithinDistanceResult.value = false
+})
+
+watch(papersScope, async () => {
+  selectedPaper.value = null
+  await fetchMapPapers()
 })
 </script>
 

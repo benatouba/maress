@@ -52,10 +52,24 @@ export interface LoginResponse {
 
 export interface RegisterResponse {
   user: User
+  message: string
+  email_sent: boolean
 }
 
 export interface ApiErrorResponse {
-  detail: string
+  detail: string | { msg?: string }[]
+}
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  const axiosError = error as AxiosError<ApiErrorResponse>
+  const detail = axiosError.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) {
+    return detail
+  }
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map((entry) => entry?.msg).filter(Boolean).join(', ') || fallback
+  }
+  return fallback
 }
 
 // Auth store interface for better intellisense
@@ -125,14 +139,10 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       setAuthHeader(access_token)
 
       await fetchUser()
-      notificationStore.showNotification('Successfully logged in!', 'success')
+      notificationStore.showNotification('Successfully logged in.', 'success')
       return true
     } catch (error) {
-      const axiosError = error as AxiosError<ApiErrorResponse>
-      notificationStore.showNotification(
-        axiosError.response?.data?.detail || 'Login failed',
-        'error',
-      )
+      notificationStore.showNotification(getErrorMessage(error, 'Login failed.'), 'error')
       return false
     } finally {
       loading.value = false
@@ -146,10 +156,10 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
 
     try {
       const response = await axios.post<RegisterResponse>('/users/signup', userData)
-      const { user } = response.data
+      const { user, message } = response.data
 
       notificationStore.showNotification(
-        `Registration successful! Welcome ${user.full_name}!`,
+        message || `Registration successful. Welcome ${user.full_name || user.email}.`,
         'success',
       )
 
@@ -162,11 +172,7 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
 
       return loginSuccess
     } catch (error) {
-      const axiosError = error as AxiosError<ApiErrorResponse>
-      notificationStore.showNotification(
-        axiosError.response?.data?.detail || 'Registration failed',
-        'error',
-      )
+      notificationStore.showNotification(getErrorMessage(error, 'Registration failed.'), 'error')
       return false
     } finally {
       loading.value = false
@@ -198,11 +204,7 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       notificationStore.showNotification('Profile updated successfully!', 'success')
       return true
     } catch (error) {
-      const axiosError = error as AxiosError<ApiErrorResponse>
-      notificationStore.showNotification(
-        axiosError.response?.data?.detail || 'Profile update failed',
-        'error',
-      )
+      notificationStore.showNotification(getErrorMessage(error, 'Profile update failed.'), 'error')
       return false
     } finally {
       loading.value = false
@@ -219,11 +221,7 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       notificationStore.showNotification('Password updated successfully!', 'success')
       return true
     } catch (error) {
-      const axiosError = error as AxiosError<ApiErrorResponse>
-      notificationStore.showNotification(
-        axiosError.response?.data?.detail || 'Password update failed',
-        'error',
-      )
+      notificationStore.showNotification(getErrorMessage(error, 'Password update failed.'), 'error')
       return false
     } finally {
       loading.value = false

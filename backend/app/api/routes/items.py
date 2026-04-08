@@ -61,7 +61,7 @@ def read_db_items(
     """
     from sqlalchemy.orm import joinedload, selectinload
 
-    if include_all or current_user is None or current_user.is_superuser:
+    if include_all or current_user is None:
         count_statement = select(func.count()).select_from(Item)
         count = session.exec(count_statement).one()
         statement = (
@@ -126,9 +126,14 @@ def read_items(
     current_user: OptionalCurrentUser,
     skip: int = 0,
     limit: int = 10,
+    scope: Literal["all", "mine"] = Query(default="all"),
 ) -> ItemsPublic:
     """Retrieve items."""
-    items, count = read_db_items(session, current_user, skip, limit, include_all=True)
+    if scope == "mine" and current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required for scope=mine")
+
+    include_all = scope == "all"
+    items, count = read_db_items(session, current_user, skip, limit, include_all=include_all)
     _strip_attachments(items, current_user)
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
 
@@ -139,6 +144,7 @@ def read_items_map_summary(
     current_user: OptionalCurrentUser,
     skip: int = 0,
     limit: int = 500,
+    scope: Literal["all", "mine"] = Query(default="all"),
 ) -> MapItemsPublic:
     """Retrieve lightweight item summaries for map sidebars."""
 
@@ -161,7 +167,10 @@ def read_items_map_summary(
 
     count_statement = select(func.count()).select_from(Item)
 
-    if current_user is not None and not current_user.is_superuser:
+    if scope == "mine" and current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required for scope=mine")
+
+    if scope == "mine" and current_user is not None:
         statement = statement.where(Item.owner_id == current_user.id)
         count_statement = count_statement.where(Item.owner_id == current_user.id)
 

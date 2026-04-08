@@ -39,7 +39,7 @@ def login_access_token(
     )
     if not user:
         logger.warning("Failed login attempt for %s", form_data.username)
-        raise HTTPException(status_code=400, detail="Incorrect email or password")
+        raise HTTPException(status_code=401, detail="Incorrect email or password")
     if not user.is_active:
         logger.warning("Login attempt for inactive user %s", form_data.username)
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -75,11 +75,18 @@ def recover_password(email: str, session: SessionDep) -> Message:
         email=email,
         token=password_reset_token,
     )
-    send_email(
-        email_to=user.email,
-        subject=email_data.subject,
-        html_content=email_data.html_content,
-    )
+    try:
+        send_email(
+            email_to=user.email,
+            subject=email_data.subject,
+            html_content=email_data.html_content,
+        )
+    except Exception as exc:
+        logger.exception("Password recovery email failed for %s", email)
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to send password recovery email right now. Please try again later.",
+        ) from exc
     return Message(message="Password recovery email sent")
 
 

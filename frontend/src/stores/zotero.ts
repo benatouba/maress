@@ -26,8 +26,8 @@ export interface ZoteroStore {
   downloadProgress: Ref<{ current: number; total: number; downloaded: number; skipped: number; failed: number } | null>
   fetchCollections: () => Promise<void>
   fetchZoteroCollections: (libraryType?: 'user' | 'group') => Promise<void>
-  fetchItems: (limit?: number, silent?: boolean) => Promise<any[]>
-  fetchMapItems: (limit?: number) => Promise<{ data: any[]; count: number } | null>
+  fetchItems: (limit?: number, silent?: boolean, scope?: 'all' | 'mine') => Promise<any[]>
+  fetchMapItems: (limit?: number, scope?: 'all' | 'mine') => Promise<{ data: any[]; count: number } | null>
   syncLibrary: (reload?: boolean, collectionId?: string | null) => Promise<boolean>
   downloadAttachments: (itemIds?: string[]) => Promise<any | null>
   getLocations: () => Promise<any[]>
@@ -94,13 +94,17 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   }
 
   // Fetch items
-  const fetchItems = async (limit = 500, silent = false): Promise<any[]> => {
+  const fetchItems = async (
+    limit = 500,
+    silent = false,
+    scope: 'all' | 'mine' = 'all',
+  ): Promise<any[]> => {
     // Don't set loading if it's a silent refresh (polling during download)
     if (!silent && !downloading.value) {
       loading.value = true
     }
     try {
-      const params = { limit }
+      const params = { limit, scope }
 
       const response = await axios.get('/items/', { params })
       // Backend returns paginated shape: { data: Item[], count: number }
@@ -131,9 +135,12 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     }
   }
 
-  const fetchMapItems = async (limit = 500): Promise<{ data: any[]; count: number } | null> => {
+  const fetchMapItems = async (
+    limit = 500,
+    scope: 'all' | 'mine' = 'all',
+  ): Promise<{ data: any[]; count: number } | null> => {
     try {
-      const response = await axios.get('/items/map-summary', { params: { limit } })
+      const response = await axios.get('/items/map-summary', { params: { limit, scope } })
       return response.data
     } catch (error) {
       const notificationStore = useNotificationStore()

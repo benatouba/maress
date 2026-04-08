@@ -841,6 +841,12 @@ class Token(SQLModel):
     token_type: str = "bearer"
 
 
+class SignupResponse(SQLModel):
+    user: "UserPublic"
+    message: str
+    email_sent: bool
+
+
 # Contents of JWT token
 class TokenPayload(SQLModel):
     sub: str | None = None

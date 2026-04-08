@@ -3,7 +3,8 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, delete, func, select
 
 from app import crud
@@ -22,6 +23,7 @@ from app.models import (
     UserCreate,
     UserPublic,
     UserRegister,
+    SignupResponse,
     UsersPublic,
     UserUpdate,
     UserUpdateMe,
@@ -59,19 +61,29 @@ def create_user(*, session: SessionDep, user_in: UserCreate):
             detail="The user with this email already exists in the system.",
         )
 
-    user = crud.create_user(session=session, user_create=user_in)
+    try:
+        user = crud.create_user(session=session, user_create=user_in)
+    except IntegrityError as exc:
+        logger.warning("Admin user creation conflict for email %s", user_in.email)
+        raise HTTPException(
+            status_code=409,
+            detail="The user with this email already exists in the system.",
+        ) from exc
     logger.info("Admin created user %s (%s)", user.id, user_in.email)
     if settings.emails_enabled and user_in.email:
-        email_data = generate_new_account_email(
-            email_to=user_in.email,
-            username=user_in.email,
-            password=user_in.password,
-        )
-        send_email(
-            email_to=user_in.email,
-            subject=email_data.subject,
-            html_content=email_data.html_content,
-        )
+        try:
+            email_data = generate_new_account_email(
+                email_to=user_in.email,
+                username=user_in.email,
+                password=user_in.password,
+            )
+            send_email(
+                email_to=user_in.email,
+                subject=email_data.subject,
+                html_content=email_data.html_content,
+            )
+        except Exception:
+            logger.exception("Failed to send admin-created account email to %s", user_in.email)
     return user
 
 
@@ -146,7 +158,7 @@ def delete_user_me(session: SessionDep, current_user: CurrentUser) -> Any:
     return Message(message="User deleted successfully")
 
 
-@router.post("/signup", response_model=UserPublic)
+@router.post("/signup", response_model=SignupResponse, status_code=status.HTTP_201_CREATED)
 def register_user(session: SessionDep, user_in: UserRegister) -> Any:
     """Create new user without the need to be logged in."""
     user = crud.get_user_by_email(session=session, email=user_in.email)
@@ -156,20 +168,45 @@ def register_user(session: SessionDep, user_in: UserRegister) -> Any:
             detail="The user with this email already exists in the system",
         )
     user_create = UserCreate.model_validate(user_in)
-    user = crud.create_user(session=session, user_create=user_create)
+    try:
+        user = crud.create_user(session=session, user_create=user_create)
+    except IntegrityError as exc:
+        logger.warning("Signup conflict for email %s", user_in.email)
+        raise HTTPException(
+            status_code=409,
+            detail="The user with this email already exists in the system.",
+        ) from exc
     logger.info("New user registered: %s (%s)", user.id, user_in.email)
+
+    email_sent = False
+    response_message = "Account created successfully."
+
     if settings.emails_enabled and user_in.email:
-        email_data = generate_new_account_email(
-            email_to=user_in.email,
-            username=user_in.email,
-            password=user_in.password,
-        )
-        send_email(
-            email_to=user_in.email,
-            subject=email_data.subject,
-            html_content=email_data.html_content,
-        )
-    return user
+        try:
+            email_data = generate_new_account_email(
+                email_to=user_in.email,
+                username=user_in.email,
+                password=user_in.password,
+            )
+            send_email(
+                email_to=user_in.email,
+                subject=email_data.subject,
+                html_content=email_data.html_content,
+            )
+            email_sent = True
+            response_message = "Account created. A welcome email was sent."
+        except Exception:
+            logger.exception("Failed to send signup email to %s", user_in.email)
+            response_message = (
+                "Account created, but we could not send the welcome email right now. "
+                "You can still log in."
+            )
+
+    return SignupResponse(
+        user=UserPublic.model_validate(user),
+        message=response_message,
+        email_sent=email_sent,
+    )
 
 
 @router.get("/{user_id}", response_model=UserPublic)

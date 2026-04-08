@@ -7,6 +7,16 @@
         <p class="text-subtitle-1 text-medium-emphasis">
           Manage your research papers and study sites
         </p>
+        <v-btn-toggle
+          v-if="authStore.isAuthenticated"
+          v-model="itemsScope"
+          mandatory
+          density="compact"
+          class="mt-2"
+        >
+          <v-btn value="all" prepend-icon="mdi-earth">All Papers</v-btn>
+          <v-btn value="mine" prepend-icon="mdi-account">Just Mine</v-btn>
+        </v-btn-toggle>
       </v-col>
       <v-col v-if="authStore.isAuthenticated" cols="12" md="6" class="d-flex justify-end align-center flex-wrap">
         <v-switch
@@ -464,7 +474,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useZoteroStore } from '@/stores/zotero'
@@ -496,6 +506,7 @@ const extractionResultsDialog = ref(false)
 const selectedItem = ref<any>(null)
 const forceReload = ref(false)
 const selectedItems = ref<string[]>([])
+const itemsScope = ref<'all' | 'mine'>('all')
 
 // Filter options
 const itemTypeOptions = [
@@ -689,7 +700,7 @@ const handleExtractAll = async () => {
 }
 
 const handleRefresh = async () => {
-  await zoteroStore.fetchItems()
+  await zoteroStore.fetchItems(500, false, itemsScope.value)
   notificationStore.showNotification('Items refreshed', 'success')
 }
 
@@ -885,10 +896,15 @@ const getStudySitesColor = (studySites: any[]): string => {
 
 // Lifecycle
 onMounted(async () => {
-  await zoteroStore.fetchItems()
+  await zoteroStore.fetchItems(500, false, itemsScope.value)
   if (authStore.isAuthenticated) {
     await zoteroStore.fetchZoteroCollections('group')
   }
+})
+
+watch(itemsScope, async () => {
+  selectedItems.value = []
+  await zoteroStore.fetchItems(500, false, itemsScope.value)
 })
 </script>
 
