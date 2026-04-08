@@ -262,3 +262,7 @@ project-presentation/
 # LLMs
 AGENTS.md
 CLAUDE.md
+
+# Keep compiled backend email templates in VCS for deployments
+!backend/app/email-templates/build/
+!backend/app/email-templates/build/*.html

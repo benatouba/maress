@@ -298,6 +298,29 @@ $ uv run alembic upgrade head
 
 The email templates are in `./backend/app/email-templates/`. Here, there are two directories: `build` and `src`. The `src` directory contains the source files that are used to build the final email templates. The `build` directory contains the final email templates that are used by the application.
 
+Important: the application reads templates from `backend/app/email-templates/build/*.html` at runtime (including `new_account.html`). For deployments, keep these compiled HTML templates present on disk.
+
 Before continuing, ensure you have the [MJML extension](https://marketplace.visualstudio.com/items?itemName=attilabuti.vscode-mjml) installed in your VS Code.
 
 Once you have the MJML extension installed, you can create a new email template in the `src` directory. After creating the new email template and with the `.mjml` file open in your editor, open the command palette with `Ctrl+Shift+P` and search for `MJML: Export to HTML`. This will convert the `.mjml` file to a `.html` file and now you can save it in the build directory.
+
+## Production SMTP (e.g. via TU Berlin)
+
+To send real emails through TU Berlin SMTP, configure these variables in your production environment file (for example `.env.local`):
+
+```env
+SMTP_HOST=<tu-berlin-smtp-host>
+SMTP_PORT=<smtp-port>
+SMTP_TLS=True
+SMTP_SSL=False
+SMTP_USER=<tu-berlin-username>
+SMTP_PASSWORD=<tu-berlin-password-or-app-password>
+EMAILS_FROM_EMAIL=<your-tu-berlin-email>
+emails_from_name=MaRESS
+```
+
+Notes:
+
+- Use STARTTLS on port `587` unless your TU Berlin mail admins explicitly require SSL on another port.
+- If TU Berlin enforces MFA, use an app-specific password if available.
+- The sender address in `EMAILS_FROM_EMAIL` should match the authenticated mailbox/policy to avoid rejection.
