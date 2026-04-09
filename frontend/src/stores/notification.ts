@@ -18,29 +18,17 @@ export interface NotificationStore {
 
 export const useNotificationStore = defineStore('notification', (): NotificationStore => {
   const notification = ref<Notification | null>(null)
-  let clearTimer: ReturnType<typeof setTimeout> | null = null
 
   const showNotification = (message: string, type: NotificationType = 'info', duration: number = 5000): void => {
-    if (clearTimer) {
-      clearTimeout(clearTimer)
-      clearTimer = null
-    }
-
     notification.value = { message, type }
 
-    if (duration > 0) {
-      clearTimer = setTimeout(() => {
-        clearNotification()
-      }, duration)
-    }
+    // Auto-clear notification after duration
+    setTimeout(() => {
+      clearNotification()
+    }, duration)
   }
 
   const clearNotification = (): void => {
-    if (clearTimer) {
-      clearTimeout(clearTimer)
-      clearTimer = null
-    }
-
     notification.value = null
   }
 

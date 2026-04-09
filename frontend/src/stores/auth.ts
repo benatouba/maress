@@ -23,10 +23,6 @@ export interface LoginCredentials {
   password: string
 }
 
-export interface LoginOptions {
-  notifySuccess?: boolean
-}
-
 // Register data
 export interface RegisterData {
   email: string
@@ -76,21 +72,13 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback
 }
 
-const getRegistrationErrorMessage = (error: unknown): string => {
-  const message = getErrorMessage(error, 'Registration failed.')
-  if (message.toLowerCase().includes('already exists')) {
-    return 'An account with this email already exists. Please sign in or use a different email.'
-  }
-  return message
-}
-
 // Auth store interface for better intellisense
 export interface AuthStore {
   user: Ref<User | null>
   token: Ref<string | null>
   loading: Ref<boolean>
   isAuthenticated: ComputedRef<boolean>
-  login: (credentials: LoginCredentials, options?: LoginOptions) => Promise<boolean>
+  login: (credentials: LoginCredentials) => Promise<boolean>
   register: (userData: RegisterData) => Promise<boolean>
   logout: () => void
   fetchUser: () => Promise<void>
@@ -130,12 +118,8 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
   }
 
   // Login
-  const login = async (
-    credentials: LoginCredentials,
-    options?: LoginOptions,
-  ): Promise<boolean> => {
+  const login = async (credentials: LoginCredentials): Promise<boolean> => {
     const notificationStore = useNotificationStore()
-    const shouldNotifySuccess = options?.notifySuccess ?? true
     loading.value = true
 
     try {
@@ -155,9 +139,7 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       setAuthHeader(access_token)
 
       await fetchUser()
-      if (shouldNotifySuccess) {
-        notificationStore.showNotification('Successfully logged in.', 'success')
-      }
+      notificationStore.showNotification('Successfully logged in.', 'success')
       return true
     } catch (error) {
       notificationStore.showNotification(getErrorMessage(error, 'Login failed.'), 'error')
@@ -186,11 +168,11 @@ export const useAuthStore = defineStore('auth', (): AuthStore => {
       const loginSuccess = await login({
         email: userData.email,
         password: userData.password,
-      }, { notifySuccess: false })
+      })
 
       return loginSuccess
     } catch (error) {
-      notificationStore.showNotification(getRegistrationErrorMessage(error), 'error')
+      notificationStore.showNotification(getErrorMessage(error, 'Registration failed.'), 'error')
       return false
     } finally {
       loading.value = false

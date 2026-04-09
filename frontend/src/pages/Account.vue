@@ -23,25 +23,21 @@
                   <v-text-field
                     v-model="profileData.full_name"
                     label="Full Name"
-                    name="full_name"
                     prepend-inner-icon="mdi-account"
                     variant="outlined"
                     :rules="[rules.required]"
                     :disabled="authStore.loading"
-                    autocomplete="name"
                   />
                 </v-col>
                 <v-col cols="12" md="6">
                   <v-text-field
                     v-model="profileData.email"
                     label="Email"
-                    name="email"
                     prepend-inner-icon="mdi-email"
                     variant="outlined"
                     type="email"
                     :rules="[rules.required, rules.email]"
                     :disabled="authStore.loading"
-                    autocomplete="email"
                   />
                 </v-col>
               </v-row>
@@ -58,20 +54,17 @@
                   <v-text-field
                     v-model="profileData.zotero_id"
                     label="Zotero User ID"
-                    name="zotero_id"
                     prepend-inner-icon="mdi-identifier"
                     variant="outlined"
                     hint="Your Zotero user or group ID"
                     persistent-hint
                     :disabled="authStore.loading"
-                    autocomplete="off"
                   />
                 </v-col>
                 <v-col cols="12" md="6">
                   <v-text-field
                     v-model="profileData.zotero_api_key"
                     label="Zotero API Key"
-                    name="zotero_api_key"
                     prepend-inner-icon="mdi-key"
                     variant="outlined"
                     :type="showApiKey ? 'text' : 'password'"
@@ -81,7 +74,6 @@
                     persistent-hint
                     :disabled="authStore.loading"
                     :placeholder="isApiKeySet ? '****' : 'Enter API key'"
-                    autocomplete="off"
                   />
                 </v-col>
               </v-row>
@@ -125,7 +117,6 @@
                   <v-text-field
                     v-model="passwordData.current_password"
                     label="Current Password"
-                    name="current_password"
                     prepend-inner-icon="mdi-lock"
                     variant="outlined"
                     :type="showCurrentPassword ? 'text' : 'password'"
@@ -140,7 +131,6 @@
                   <v-text-field
                     v-model="passwordData.new_password"
                     label="New Password"
-                    name="new_password"
                     prepend-inner-icon="mdi-lock-plus"
                     variant="outlined"
                     :type="showNewPassword ? 'text' : 'password'"
@@ -157,7 +147,6 @@
                   <v-text-field
                     v-model="confirmPassword"
                     label="Confirm New Password"
-                    name="confirm_password"
                     prepend-inner-icon="mdi-lock-check"
                     variant="outlined"
                     :type="showConfirmPassword ? 'text' : 'password'"

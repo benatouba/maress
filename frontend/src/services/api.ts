@@ -1,26 +1,5 @@
 import axios from 'axios'
 
-const getErrorDetailText = (detail: unknown): string => {
-  if (typeof detail === 'string') {
-    return detail.toLowerCase()
-  }
-
-  if (Array.isArray(detail)) {
-    return detail
-      .map((entry) => {
-        if (typeof entry === 'object' && entry !== null && 'msg' in entry) {
-          const message = (entry as { msg?: unknown }).msg
-          return typeof message === 'string' ? message : ''
-        }
-        return ''
-      })
-      .join(' ')
-      .toLowerCase()
-  }
-
-  return ''
-}
-
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_V1_URL || '/api/v1',
   headers: {
@@ -46,7 +25,7 @@ api.interceptors.response.use(
     // Handle authentication errors
     if (error.response?.status === 401 || error.response?.status === 403) {
       // Check if it's an authentication error (not a permission error)
-      const detail = getErrorDetailText(error.response?.data?.detail)
+      const detail = error.response?.data?.detail || ''
       if (
         detail.includes('credentials') ||
         detail.includes('token') ||
