@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+**/package-lock.json -diff linguist-generated=true
+**/uv.lock -diff linguist-generated=true
