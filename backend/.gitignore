@@ -7,3 +7,4 @@ htmlcov
 .cache
 .venv
 zotero_files/*
+benchmark*.json
