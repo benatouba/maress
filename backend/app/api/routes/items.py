@@ -347,6 +347,8 @@ def import_zotero_items(
     for item_data in zot_items_data:
         if item_data["key"] in local_keys or item_data.get("parentItem", None) is not None:
             continue
+        if item_data.get("DOI") is None and item_data.get("doi"):
+            item_data["DOI"] = item_data["doi"]
         # Skip items whose DOI already exists locally (e.g. imported via other sources)
         zot_doi = item_data.get("DOI") or ""
         if zot_doi and zot_doi.lower() in local_dois:
