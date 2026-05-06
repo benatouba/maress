@@ -71,6 +71,7 @@ import-marcos-data = "app.cli.import_marcos_data:main"
 benchmark-extraction = "app.cli.benchmark_extraction:main"
 benchmark-pdf = "app.cli.benchmark_pdf:main"
 enrich-from-zotero = "app.cli.enrich_from_zotero:main"
+backfill-doi-from-marcos = "app.cli.backfill_doi_from_marcos:main"
 
 [build-system]
 build-backend = "hatchling.build"
