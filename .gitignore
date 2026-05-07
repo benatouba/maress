@@ -267,3 +267,4 @@ CLAUDE.md
 !backend/app/email-templates/build/
 !backend/app/email-templates/build/*.html
 frontend/src/typed-router.d.ts
+frontend/src/components.d.ts
