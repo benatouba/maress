@@ -52,6 +52,21 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   // Add polling interval reference
   let pollingInterval: ReturnType<typeof setInterval> | null = null
 
+  const normalizeItem = (item: any) => {
+    const doi = item?.doi ?? item?.DOI ?? null
+    const issn = item?.issn ?? item?.ISSN ?? null
+    const publicationTitle = item?.publicationTitle ?? item?.journal ?? ''
+    const url = item?.url ?? item?.URL ?? ''
+
+    return {
+      ...item,
+      doi,
+      issn,
+      publicationTitle,
+      url,
+    }
+  }
+
   // Fetch collections (legacy - database collections)
   const fetchCollections = async () => {
     loading.value = true
@@ -116,7 +131,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
           ? responseData.data
           : []
 
-      items.value = fetchedItems
+      items.value = fetchedItems.map(normalizeItem)
       itemsCount.value = typeof responseData?.count === 'number'
         ? responseData.count
         : fetchedItems.length
