@@ -200,23 +200,25 @@
           elevation="1">
 
           <!-- Tabs -->
-          <v-tabs
-            v-model="rightTab"
-            density="compact"
-            grow>
-            <v-tab value="sites">
-              <v-icon start size="small">mdi-map-marker</v-icon>
-              Sites
-              <v-chip size="x-small" class="ml-1">{{ totalSites }}</v-chip>
-            </v-tab>
-            <v-tab value="regions">
-              <v-icon start size="small">mdi-shape-polygon-plus</v-icon>
-              Regions
-              <v-chip v-if="regionsStore.regionCount > 0" size="x-small" class="ml-1">{{ regionsStore.regionCount }}</v-chip>
-            </v-tab>
-          </v-tabs>
+          <div class="right-sidebar-header">
+            <v-tabs
+              v-model="rightTab"
+              density="compact"
+              grow>
+              <v-tab value="sites">
+                <v-icon start size="small">mdi-map-marker</v-icon>
+                Sites
+                <v-chip size="x-small" class="ml-1">{{ totalSites }}</v-chip>
+              </v-tab>
+              <v-tab value="regions">
+                <v-icon start size="small">mdi-shape-polygon-plus</v-icon>
+                Regions
+                <v-chip v-if="regionsStore.regionCount > 0" size="x-small" class="ml-1">{{ regionsStore.regionCount }}</v-chip>
+              </v-tab>
+            </v-tabs>
 
-          <v-divider />
+            <v-divider />
+          </div>
 
           <!-- Study Sites Tab -->
           <template v-if="rightTab === 'sites'">
@@ -947,6 +949,8 @@ const {
   summaryStatsRows,
   summaryStatsCount,
   runningOperation,
+  asyncTaskStatus,
+  presets,
 } = storeToRefs(gisStore)
 
 // State - Study Sites
