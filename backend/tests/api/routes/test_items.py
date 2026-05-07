@@ -175,6 +175,28 @@ def test_read_items(
     assert len(content["data"]) >= 2
 
 
+def test_read_items_includes_doi_value(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db_session: Session,
+) -> None:
+    item = create_random_item(db_session)
+    item.doi = "10.1234/example-doi"
+    db_session.add(item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=superuser_token_headers,
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    target = next((entry for entry in content["data"] if entry["id"] == str(item.id)), None)
+    assert target is not None
+    assert target["DOI"] == "10.1234/example-doi"
+
+
 def test_read_items_anonymous_hides_attachment(
     client: TestClient,
     db_session: Session,

@@ -118,6 +118,7 @@ class ItemBase(SQLModel):
     dateAdded: datetime = timestamp_field()
     dateModified: datetime = timestamp_field(onupdate_now=True)
     attachment: str | None = Field(default=None, max_length=512)
+    model_config = ConfigDict(populate_by_name=True)
 
     # get datetime of string if type of dateAdded or dateModified is str
     @classmethod
