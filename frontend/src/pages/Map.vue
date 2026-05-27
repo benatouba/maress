@@ -401,6 +401,42 @@
               </v-alert>
 
               <template v-else>
+                <v-btn
+                  block
+                  variant="text"
+                  size="small"
+                  class="mb-2"
+                  @click="useAsyncOperations = !useAsyncOperations">
+                  Execution Mode: {{ useAsyncOperations ? 'Async' : 'Sync' }}
+                </v-btn>
+
+                <v-btn
+                  block
+                  variant="text"
+                  size="small"
+                  class="mb-2"
+                  @click="useViewportSelection = !useViewportSelection">
+                  Selection Area: {{ useViewportSelection ? 'Viewport' : 'All Sites' }}
+                </v-btn>
+
+                <v-alert
+                  v-if="useViewportSelection && !activeViewport"
+                  type="info"
+                  variant="tonal"
+                  density="compact"
+                  class="mb-2">
+                  Move the map once to capture viewport bounds.
+                </v-alert>
+
+                <v-alert
+                  v-if="useAsyncOperations && asyncTaskStatus"
+                  type="info"
+                  variant="tonal"
+                  density="compact"
+                  class="mb-2">
+                  GIS task {{ asyncTaskStatus.task_id }}: {{ asyncTaskStatus.status }}
+                </v-alert>
+
                 <v-select
                   v-model="selectedRegionIdForClip"
                   :items="regionSelectOptions"
@@ -532,6 +568,33 @@
 
                   <v-btn
                     block
+                    variant="text"
+                    size="small"
+                    class="mb-1"
+                    @click="summaryIncludeMinConfidence = !summaryIncludeMinConfidence">
+                    Include Min Confidence: {{ summaryIncludeMinConfidence ? 'On' : 'Off' }}
+                  </v-btn>
+
+                  <v-btn
+                    block
+                    variant="text"
+                    size="small"
+                    class="mb-1"
+                    @click="summaryIncludeMaxConfidence = !summaryIncludeMaxConfidence">
+                    Include Max Confidence: {{ summaryIncludeMaxConfidence ? 'On' : 'Off' }}
+                  </v-btn>
+
+                  <v-btn
+                    block
+                    variant="text"
+                    size="small"
+                    class="mb-2"
+                    @click="summaryIncludeSumConfidence = !summaryIncludeSumConfidence">
+                    Include Sum Confidence: {{ summaryIncludeSumConfidence ? 'On' : 'Off' }}
+                  </v-btn>
+
+                  <v-btn
+                    block
                     color="primary"
                     prepend-icon="mdi-chart-box-outline"
                     :loading="runningOperation"
@@ -549,6 +612,46 @@
                   class="mt-2"
                   @click="clearGisResults">
                   Clear GIS Results
+                </v-btn>
+
+                <v-divider class="my-3" />
+
+                <div class="text-caption text-medium-emphasis mb-2">Presets</div>
+                <v-select
+                  v-model="selectedPresetId"
+                  :items="presetOptions"
+                  label="Load preset"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  class="mb-2" />
+
+                <v-text-field
+                  v-model="presetName"
+                  label="Preset name"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  class="mb-2" />
+
+                <v-btn
+                  block
+                  variant="outlined"
+                  size="small"
+                  class="mb-2"
+                  @click="saveCurrentPreset">
+                  Save Preset
+                </v-btn>
+
+                <v-btn
+                  block
+                  variant="outlined"
+                  color="error"
+                  size="small"
+                  class="mb-2"
+                  :disabled="!selectedPresetId"
+                  @click="deleteSelectedPreset">
+                  Delete Preset
                 </v-btn>
 
                 <div
@@ -611,6 +714,24 @@
                 prepend-icon="mdi-book-open-variant"
                 @click="exportItems('bibtex')">
                 Export Papers (BibTeX)
+              </v-btn>
+              <v-btn
+                block
+                variant="outlined"
+                size="small"
+                prepend-icon="mdi-shape"
+                class="mt-1"
+                @click="exportRegions('geojson')">
+                Export Regions (GeoJSON)
+              </v-btn>
+              <v-btn
+                block
+                variant="outlined"
+                size="small"
+                prepend-icon="mdi-download"
+                class="mt-1"
+                @click="exportCurrentOperation('csv')">
+                Export Current Result (CSV)
               </v-btn>
             </v-card-text>
 
@@ -986,6 +1107,13 @@ const withinDistanceReturnLayer = ref<'source' | 'against'>('source')
 const summaryGroupBy = ref<string>('is_manual')
 const summaryIncludeCount = ref(true)
 const summaryIncludeAvgConfidence = ref(true)
+const summaryIncludeMinConfidence = ref(false)
+const summaryIncludeMaxConfidence = ref(false)
+const summaryIncludeSumConfidence = ref(false)
+const useAsyncOperations = ref(false)
+const useViewportSelection = ref(false)
+const presetName = ref('')
+const selectedPresetId = ref<string | null>(null)
 
 // State - Right sidebar
 const rightTab = ref('sites')
@@ -1038,6 +1166,26 @@ const regionSelectOptions = computed(() => regionsStore.regions.map((region) => 
   title: region.name,
   value: region.id,
 })))
+
+const presetOptions = computed(() => presets.value.map((preset) => ({
+  title: `${preset.name} (${preset.operation_id})`,
+  value: preset.id,
+})))
+
+const viewportSelectionGeometry = computed(() => {
+  if (!activeViewport.value) return null
+  const b = activeViewport.value
+  return {
+    type: 'Polygon',
+    coordinates: [[
+      [b.minLon, b.minLat],
+      [b.maxLon, b.minLat],
+      [b.maxLon, b.maxLat],
+      [b.minLon, b.maxLat],
+      [b.minLon, b.minLat],
+    ]],
+  }
+})
 
 // Computed - Papers
 const papers = computed(() => mapPapers.value)
@@ -1132,6 +1280,15 @@ const selectedSummaryMetrics = computed<GISMetric[]>(() => {
   if (summaryIncludeAvgConfidence.value) {
     metrics.push({ type: 'avg', field: 'confidence_score', alias: 'avg_confidence' })
   }
+  if (summaryIncludeMinConfidence.value) {
+    metrics.push({ type: 'min', field: 'confidence_score', alias: 'min_confidence' })
+  }
+  if (summaryIncludeMaxConfidence.value) {
+    metrics.push({ type: 'max', field: 'confidence_score', alias: 'max_confidence' })
+  }
+  if (summaryIncludeSumConfidence.value) {
+    metrics.push({ type: 'sum', field: 'confidence_score', alias: 'sum_confidence' })
+  }
   return metrics
 })
 
@@ -1147,51 +1304,138 @@ const fetchMapPapers = async () => {
 
 const fetchMapPointsForViewport = async (bounds: ViewportBounds) => {
   activeViewport.value = bounds
-  await studySitesStore.fetchMapPointsForBounds(bounds, 25000, true)
+  const scope = papersScope.value === 'mine' && !authStore.isAuthenticated ? 'all' : papersScope.value
+  await studySitesStore.fetchMapPointsForBounds(bounds, 25000, true, scope)
 }
 
 const handleViewportChanged = async (bounds: ViewportBounds) => {
   await fetchMapPointsForViewport(bounds)
 }
 
+const buildStudySiteSelection = () => {
+  if (useViewportSelection.value && viewportSelectionGeometry.value) {
+    return { type: 'geometry' as const, geometry: viewportSelectionGeometry.value }
+  }
+  return { type: 'all' as const }
+}
+
+const buildCurrentOperationPayload = () => {
+  if (gisOperation.value === 'buffer') {
+    const target = selectedRegionIdForClip.value
+      ? {
+          layer_id: 'regions' as const,
+          selection: {
+            type: 'ids' as const,
+            ids: [selectedRegionIdForClip.value],
+          },
+        }
+      : {
+          layer_id: 'study-sites' as const,
+          selection: buildStudySiteSelection(),
+        }
+
+    return {
+      target,
+      parameters: {
+        distance: bufferDistance.value,
+        unit: bufferUnit.value,
+        dissolve: bufferDissolve.value,
+      },
+    }
+  }
+
+  if (gisOperation.value === 'clip') {
+    if (!selectedRegionIdForClip.value) return null
+    return {
+      target: {
+        layer_id: 'study-sites' as const,
+        selection: buildStudySiteSelection(),
+      },
+      clip_with: {
+        layer_id: 'regions' as const,
+        selection: { type: 'ids' as const, ids: [selectedRegionIdForClip.value] },
+      },
+    }
+  }
+
+  if (gisOperation.value === 'within-distance') {
+    const regionRef = selectedRegionIdForClip.value
+      ? {
+          layer_id: 'regions' as const,
+          selection: {
+            type: 'ids' as const,
+            ids: [selectedRegionIdForClip.value],
+          },
+        }
+      : {
+          layer_id: 'regions' as const,
+          selection: { type: 'all' as const },
+        }
+
+    return {
+      source: {
+        layer_id: 'study-sites' as const,
+        selection: buildStudySiteSelection(),
+      },
+      against: regionRef,
+      parameters: {
+        distance: withinDistanceDistance.value,
+        unit: withinDistanceUnit.value,
+        return: withinDistanceReturnLayer.value,
+      },
+    }
+  }
+
+  if (gisOperation.value === 'summary-stats') {
+    const spatialFilter = selectedRegionIdForClip.value
+      ? {
+          layer_id: 'regions' as const,
+          selection: {
+            type: 'ids' as const,
+            ids: [selectedRegionIdForClip.value],
+          },
+          predicate: 'within' as const,
+        }
+      : undefined
+
+    return {
+      target: {
+        layer_id: 'study-sites' as const,
+        selection: buildStudySiteSelection(),
+      },
+      group_by: summaryGroupBy.value ? [summaryGroupBy.value] : [],
+      metrics: selectedSummaryMetrics.value,
+      spatial_filter: spatialFilter,
+    }
+  }
+
+  return null
+}
+
 const runBufferOperation = async () => {
   if (!canRunBuffer.value) return
   useWithinDistanceResult.value = false
+  const payload = buildCurrentOperationPayload()
+  if (!payload) return
 
-  const target = selectedRegionIdForClip.value
-    ? {
-        layer_id: 'regions' as const,
-        selection: {
-          type: 'ids' as const,
-          ids: [selectedRegionIdForClip.value],
-        },
-      }
-    : {
-        layer_id: 'study-sites' as const,
-        selection: { type: 'all' as const },
-      }
+  if (useAsyncOperations.value) {
+    await gisStore.runOperationAsync('buffer', payload)
+    return
+  }
 
-  await gisStore.runBuffer(target, {
-    distance: bufferDistance.value,
-    unit: bufferUnit.value,
-    dissolve: bufferDissolve.value,
-  })
+  await gisStore.runBuffer(payload.target, payload.parameters)
 }
 
 const runClipOperation = async () => {
   if (!canRunClip.value || !selectedRegionIdForClip.value) return
   useWithinDistanceResult.value = false
 
-  const result = await gisStore.runClip(
-    {
-      layer_id: 'study-sites',
-      selection: { type: 'all' },
-    },
-    {
-      layer_id: 'regions',
-      selection: { type: 'ids', ids: [selectedRegionIdForClip.value] },
-    },
-  )
+  const payload = buildCurrentOperationPayload()
+  if (!payload) return
+
+  const result = useAsyncOperations.value
+    ? await gisStore.runOperationAsync('clip', payload)
+    : await gisStore.runClip(payload.target, payload.clip_with)
 
   if (result) {
     useClippedResult.value = true
@@ -1202,31 +1446,12 @@ const runClipOperation = async () => {
 const runWithinDistanceOperation = async () => {
   if (!canRunWithinDistance.value || withinDistanceDistance.value <= 0) return
 
-  const regionRef = selectedRegionIdForClip.value
-    ? {
-        layer_id: 'regions' as const,
-        selection: {
-          type: 'ids' as const,
-          ids: [selectedRegionIdForClip.value],
-        },
-      }
-    : {
-        layer_id: 'regions' as const,
-        selection: { type: 'all' as const },
-      }
+  const payload = buildCurrentOperationPayload()
+  if (!payload) return
 
-  const result = await gisStore.runWithinDistance(
-    {
-      layer_id: 'study-sites',
-      selection: { type: 'all' },
-    },
-    regionRef,
-    {
-      distance: withinDistanceDistance.value,
-      unit: withinDistanceUnit.value,
-      return: withinDistanceReturnLayer.value,
-    },
-  )
+  const result = useAsyncOperations.value
+    ? await gisStore.runOperationAsync('within-distance', payload)
+    : await gisStore.runWithinDistance(payload.source, payload.against, payload.parameters)
 
   if (!result) return
 
@@ -1237,27 +1462,15 @@ const runWithinDistanceOperation = async () => {
 
 const runSummaryStatsOperation = async () => {
   if (!canRunSummaryStats.value || selectedSummaryMetrics.value.length === 0) return
+  const payload = buildCurrentOperationPayload()
+  if (!payload) return
 
-  const spatialFilter = selectedRegionIdForClip.value
-    ? {
-        layer_id: 'regions' as const,
-        selection: {
-          type: 'ids' as const,
-          ids: [selectedRegionIdForClip.value],
-        },
-        predicate: 'within' as const,
-      }
-    : undefined
+  if (useAsyncOperations.value) {
+    await gisStore.runOperationAsync('summary-stats', payload)
+    return
+  }
 
-  await gisStore.runSummaryStats({
-    target: {
-      layer_id: 'study-sites',
-      selection: { type: 'all' },
-    },
-    group_by: summaryGroupBy.value ? [summaryGroupBy.value] : [],
-    metrics: selectedSummaryMetrics.value,
-    spatial_filter: spatialFilter,
-  })
+  await gisStore.runSummaryStats(payload)
 }
 
 const clearGisResults = () => {
@@ -1300,6 +1513,127 @@ const exportItems = async (format: 'bibtex') => {
     triggerDownload(response.data, 'references.bib', 'application/x-bibtex')
   } catch {
     notificationStore.showNotification('Export failed', 'error')
+  }
+}
+
+const exportRegions = async (format: 'geojson' | 'csv') => {
+  try {
+    const response = await api.get('/export/regions', { params: { format } })
+    const ext = format === 'geojson' ? 'geojson' : 'csv'
+    const mime = format === 'geojson' ? 'application/geo+json' : 'text/csv'
+    const content = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
+    triggerDownload(content, `regions.${ext}`, mime)
+  } catch {
+    notificationStore.showNotification('Region export failed', 'error')
+  }
+}
+
+const exportCurrentOperation = async (format: 'geojson' | 'csv') => {
+  const payload = buildCurrentOperationPayload()
+  if (!payload) {
+    notificationStore.showNotification('No operation payload to export', 'warning')
+    return
+  }
+  try {
+    const response = await api.post('/export/gis-operation', {
+      operation_id: gisOperation.value,
+      payload,
+    }, { params: { format } })
+
+    const mime = format === 'geojson' ? 'application/geo+json' : 'text/csv'
+    const ext = format === 'geojson' ? 'geojson' : 'csv'
+    const content = typeof response.data === 'string' ? response.data : JSON.stringify(response.data, null, 2)
+    triggerDownload(content, `gis_${gisOperation.value}.${ext}`, mime)
+  } catch {
+    notificationStore.showNotification('GIS operation export failed', 'error')
+  }
+}
+
+const saveCurrentPreset = async () => {
+  const payload = buildCurrentOperationPayload()
+  if (!payload) {
+    notificationStore.showNotification('Cannot save empty preset', 'warning')
+    return
+  }
+  const name = presetName.value.trim() || `${gisOperation.value} preset`
+  const created = await gisStore.createPreset(name, gisOperation.value, payload)
+  if (created) {
+    presetName.value = ''
+    selectedPresetId.value = created.id
+  }
+}
+
+const applyPreset = (presetId: string | null) => {
+  if (!presetId) return
+  const preset = presets.value.find((entry) => entry.id === presetId)
+  if (!preset) return
+
+  const operation = preset.operation_id as 'buffer' | 'clip' | 'within-distance' | 'summary-stats'
+  gisOperation.value = operation
+  const config = preset.config || {}
+
+  if (operation === 'buffer') {
+    const params = config.parameters || {}
+    bufferDistance.value = Number(params.distance ?? bufferDistance.value)
+    bufferUnit.value = (params.unit === 'kilometer' ? 'kilometer' : 'meter')
+    bufferDissolve.value = Boolean(params.dissolve)
+    const target = config.target
+    if (target?.selection?.type === 'ids' && Array.isArray(target.selection.ids)) {
+      selectedRegionIdForClip.value = target.selection.ids[0] || null
+    } else {
+      selectedRegionIdForClip.value = null
+      useViewportSelection.value = target?.selection?.type === 'geometry'
+    }
+    return
+  }
+
+  if (operation === 'clip') {
+    const clipWith = config.clip_with
+    if (clipWith?.selection?.type === 'ids' && Array.isArray(clipWith.selection.ids)) {
+      selectedRegionIdForClip.value = clipWith.selection.ids[0] || null
+    }
+    useViewportSelection.value = config.target?.selection?.type === 'geometry'
+    return
+  }
+
+  if (operation === 'within-distance') {
+    const params = config.parameters || {}
+    withinDistanceDistance.value = Number(params.distance ?? withinDistanceDistance.value)
+    withinDistanceUnit.value = (params.unit === 'kilometer' ? 'kilometer' : 'meter')
+    withinDistanceReturnLayer.value = params.return === 'against' ? 'against' : 'source'
+    const against = config.against
+    if (against?.selection?.type === 'ids' && Array.isArray(against.selection.ids)) {
+      selectedRegionIdForClip.value = against.selection.ids[0] || null
+    } else {
+      selectedRegionIdForClip.value = null
+    }
+    useViewportSelection.value = config.source?.selection?.type === 'geometry'
+    return
+  }
+
+  if (operation === 'summary-stats') {
+    summaryGroupBy.value = config.group_by?.[0] || 'is_manual'
+    const metrics: GISMetric[] = config.metrics || []
+    summaryIncludeCount.value = metrics.some((metric) => metric.type === 'count')
+    summaryIncludeAvgConfidence.value = metrics.some((metric) => metric.type === 'avg')
+    summaryIncludeMinConfidence.value = metrics.some((metric) => metric.type === 'min')
+    summaryIncludeMaxConfidence.value = metrics.some((metric) => metric.type === 'max')
+    summaryIncludeSumConfidence.value = metrics.some((metric) => metric.type === 'sum')
+    const spatial = config.spatial_filter
+    if (spatial?.selection?.type === 'ids' && Array.isArray(spatial.selection.ids)) {
+      selectedRegionIdForClip.value = spatial.selection.ids[0] || null
+    } else {
+      selectedRegionIdForClip.value = null
+    }
+    useViewportSelection.value = config.target?.selection?.type === 'geometry'
+  }
+}
+
+const deleteSelectedPreset = async () => {
+  if (!selectedPresetId.value) return
+  const deleted = await gisStore.deletePreset(selectedPresetId.value)
+  if (deleted) {
+    selectedPresetId.value = null
   }
 }
 
@@ -1356,7 +1690,8 @@ const handleMapReady = (map: any) => {
  */
 const refreshData = async () => {
   if (activeViewport.value) {
-    await studySitesStore.fetchMapPointsForBounds(activeViewport.value, 25000, false)
+    const scope = papersScope.value === 'mine' && !authStore.isAuthenticated ? 'all' : papersScope.value
+    await studySitesStore.fetchMapPointsForBounds(activeViewport.value, 25000, false, scope)
   }
 }
 
@@ -1575,6 +1910,7 @@ onMounted(async () => {
   await gisStore.fetchCapabilities()
   await fetchMapPapers()
   if (authStore.isAuthenticated) {
+    await gisStore.fetchPresets()
     await regionsStore.fetchRegions()
   }
 
@@ -1645,9 +1981,16 @@ watch(withinDistanceReturnLayer, () => {
   useWithinDistanceResult.value = false
 })
 
+watch(selectedPresetId, (presetId) => {
+  applyPreset(presetId)
+})
+
 watch(papersScope, async () => {
   selectedPaper.value = null
   await fetchMapPapers()
+  if (activeViewport.value) {
+    await fetchMapPointsForViewport(activeViewport.value)
+  }
 })
 </script>
 
@@ -1667,6 +2010,13 @@ watch(papersScope, async () => {
 
 .sidebar-right {
   border-left: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.right-sidebar-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: rgb(var(--v-theme-surface));
 }
 
 .overflow-y-auto {

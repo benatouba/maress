@@ -221,9 +221,30 @@ describe('StudySites Store', () => {
         params: {
           bbox: '-10,-5,15,20',
           limit: 25000,
+          scope: 'all',
         },
       })
       expect(store.mapPoints).toEqual(mockMapPointsResponse.data)
+    })
+
+    it('should pass scope when fetching viewport map points', async () => {
+      const mockGet = vi.mocked(api.get)
+      mockGet.mockResolvedValueOnce({ data: mockMapPointsResponse })
+
+      await store.fetchMapPointsForBounds({
+        minLon: -10,
+        minLat: -5,
+        maxLon: 15,
+        maxLat: 20,
+      }, 25000, true, 'mine')
+
+      expect(mockGet).toHaveBeenCalledWith('/study-sites/map-points', {
+        params: {
+          bbox: '-10,-5,15,20',
+          limit: 25000,
+          scope: 'mine',
+        },
+      })
     })
 
     it('should support visible loading state for explicit refresh', async () => {

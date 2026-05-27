@@ -71,6 +71,8 @@ export interface ViewportBounds {
   maxLat: number
 }
 
+export type MapPointsScope = 'all' | 'mine'
+
 export const useStudySitesStore = defineStore('studySites', () => {
   const studySites = ref<StudySiteWithItem[]>([])
   const mapPoints = ref<MapPoint[]>([])
@@ -172,6 +174,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
     bounds: ViewportBounds,
     limit = 25000,
     silent = true,
+    scope: MapPointsScope = 'all',
   ): Promise<void> => {
     if (!silent) {
       loading.value = true
@@ -179,7 +182,7 @@ export const useStudySitesStore = defineStore('studySites', () => {
     try {
       const bbox = `${bounds.minLon},${bounds.minLat},${bounds.maxLon},${bounds.maxLat}`
       const response = await api.get('/study-sites/map-points', {
-        params: { bbox, limit },
+        params: { bbox, limit, scope },
       })
       mapPoints.value = response.data.data || []
     } catch (error: any) {

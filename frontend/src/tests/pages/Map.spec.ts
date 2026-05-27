@@ -367,6 +367,7 @@ describe('Map Page', () => {
         },
         25000,
         true,
+        'all',
       )
     })
 
@@ -752,6 +753,7 @@ describe('Map Page', () => {
         },
         25000,
         false,
+        'all',
       )
     })
   })
