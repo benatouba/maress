@@ -1,4 +1,10 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
+let
+  typstPreviewPackages = pkgs.runCommandLocal "typst-packages-preview" { } ''
+    mkdir -p "$out/preview"
+    ln -s "${pkgs.typstPackages.touying}/lib/typst-packages/touying" "$out/preview/touying"
+  '';
+in
 {
   dotenv = {
     enable = true;
@@ -8,7 +14,9 @@
   # --- Languages ---
   languages.python = {
     enable = true;
-    package = pkgs.python312;
+    package = pkgs.python312.withPackages (ps: [
+      ps.python-magic
+    ]);
     uv = {
       enable = true;
       sync.enable = true; # auto-sync from pyproject.toml
@@ -17,6 +25,9 @@
     venv = {
       enable = true;
       quiet = true;
+    };
+    manylinux = {
+      enable = true;
     };
   };
 
@@ -36,6 +47,7 @@
     file # python-magic (libmagic)
     libGL
     glib
+    gcc
     tesseract
     libc
 
@@ -51,6 +63,7 @@
     jq
     oxlint
     eslint
+    typst
   ];
 
   # --- Services ---
@@ -58,7 +71,7 @@
     enable = true;
     package = pkgs.postgresql_15;
     extensions = ext: [ ext.postgis ];
-    initialDatabases = [{ name = "maress"; }];
+    initialDatabases = [ { name = "maress"; } ];
     listen_addresses = "127.0.0.1";
     port = 5432;
   };
@@ -72,8 +85,15 @@
   env = {
     MAGIC = "${pkgs.file}/share/misc/magic.mgc";
     UV_LINK_MODE = "copy";
-    # UV_WORKING_DIR = "./backend";
     PGDATABASE = "maress";
+    TYPST_PACKAGE_PATH = "${typstPreviewPackages}";
+
+    LD_LIBRARY_PATH = lib.makeLibraryPath [
+      pkgs.stdenv.cc.cc.lib
+      pkgs.libGL
+      pkgs.glib
+      pkgs.tesseract
+    ];
   };
 
   # --- Processes (start with `devenv up`) ---
@@ -105,5 +125,6 @@
     echo "  backend:  cd backend && uv run uvicorn app.main:app --reload"
     echo "  worker:   cd backend && env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND uv run celery -A app.celery_app worker"
     echo "  frontend: cd frontend && pnpm dev"
+    echo "  typst:    typst compile project-presentation/nfdi4earth-dresden-2026.typ"
   '';
 }
