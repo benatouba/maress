@@ -1,5 +1,7 @@
+import os
 import secrets
 import warnings
+from collections.abc import MutableMapping
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
@@ -13,7 +15,6 @@ from pydantic import (
 )
 from pydantic_core import MultiHostUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from logging import Logger
 
 
 def parse_cors(v: list[Any] | str) -> list[str] | str:
@@ -29,6 +30,26 @@ def strip_wrapping_quotes(v: Any) -> Any:
             value = value[1:-1]
         return value
     return v
+
+
+CELERY_CONNECTION_ENV_VARS = (
+    "CELERY_BROKER_URL",
+    "CELERY_RESULT_BACKEND",
+    "CELERY_BROKER_READ_URL",
+    "CELERY_BROKER_WRITE_URL",
+)
+
+
+def normalize_celery_connection_env(
+    environ: MutableMapping[str, str] | None = None,
+) -> None:
+    target_env = os.environ if environ is None else environ
+
+    for key in CELERY_CONNECTION_ENV_VARS:
+        value = target_env.get(key)
+        if value is None:
+            continue
+        target_env[key] = str(strip_wrapping_quotes(value)).strip()
 
 
 class Settings(BaseSettings):
@@ -187,6 +208,7 @@ class Settings(BaseSettings):
         return self
 
 
+normalize_celery_connection_env()
 settings = Settings()  # pyright: ignore[reportCallIssue]
 
 
