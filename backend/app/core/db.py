@@ -11,6 +11,7 @@ from app.models import Collection  # noqa: F401
 from app.models import Creator  # noqa: F401
 from app.models import Item  # noqa: F401
 from app.models import ItemTagLink  # noqa: F401
+from app.models import GISPreset  # noqa: F401
 from app.models import Region  # noqa: F401
 from app.models import Relation  # noqa: F401
 from app.models import StudySite  # noqa: F401

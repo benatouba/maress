@@ -25,6 +25,7 @@ celery.conf.update(
         "app.tasks.extract",
         "app.tasks.download",
         "app.tasks.enrich",
+        "app.tasks.gis",
     ),
 )
 
@@ -33,3 +34,4 @@ celery.conf.update(
 from app.tasks.download import download_attachments_task  # noqa: E402, F401
 from app.tasks.enrich import enrich_item_task  # noqa: E402, F401
 from app.tasks.extract import extract_study_site_task  # noqa: E402, F401
+from app.tasks.gis import run_gis_operation_task  # noqa: E402, F401

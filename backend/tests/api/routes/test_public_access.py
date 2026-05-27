@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pydantic_extra_types.coordinate import Latitude, Longitude
 
 from app.core.config import settings
 from app.crud import create_study_site
-from app.models import StudySiteCreate
+from app.models import Item, StudySiteCreate
 from maress_types import CoordinateExtractionMethod, CoordinateSourceType, PaperSections
 from tests.utils.item import create_random_item, create_random_tag
 
@@ -131,6 +131,71 @@ def test_non_owner_can_read_map_points(
 
     assert "data" in content
     assert any(point["item_id"] == str(item.id) for point in content["data"])
+
+
+def test_map_points_scope_mine_requires_authentication(client: TestClient) -> None:
+    response = client.get(
+        f"{settings.API_V1_STR}/study-sites/map-points",
+        params={"scope": "mine"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication required for scope=mine"
+
+
+def test_map_points_scope_mine_returns_only_owned_sites(
+    client: TestClient,
+    db_session: Session,
+    test_user,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    from app import crud
+    from tests.factories import ItemFactory
+
+    own_item_in = ItemFactory.build()
+    own_item = cast(Item, crud.create_item(session=db_session, item_in=own_item_in, owner_id=test_user.id))
+    assert own_item.id is not None
+    foreign_item = create_random_item(db_session)
+
+    own_site = StudySiteCreate(
+        name="Owned point",
+        latitude=Latitude(12.3),
+        longitude=Longitude(45.6),
+        confidence_score=0.9,
+        context="owned",
+        extraction_method=CoordinateExtractionMethod.REGEX,
+        section=PaperSections.METHODS,
+        source_type=CoordinateSourceType.TEXT,
+        validation_score=0.9,
+        item_id=own_item.id,
+    )
+    foreign_site = StudySiteCreate(
+        name="Foreign point",
+        latitude=Latitude(-10.0),
+        longitude=Longitude(-20.0),
+        confidence_score=0.8,
+        context="foreign",
+        extraction_method=CoordinateExtractionMethod.REGEX,
+        section=PaperSections.METHODS,
+        source_type=CoordinateSourceType.TEXT,
+        validation_score=0.8,
+        item_id=foreign_item.id,
+    )
+    create_study_site(db_session, own_site)
+    create_study_site(db_session, foreign_site)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/study-sites/map-points",
+        headers=normal_user_token_headers,
+        params={"scope": "mine"},
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    names = [point["name"] for point in content["data"]]
+    assert "Owned point" in names
+    assert "Foreign point" not in names
 
 
 def test_map_points_supports_bbox_filter(

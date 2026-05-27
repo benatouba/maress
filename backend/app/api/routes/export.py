@@ -13,12 +13,13 @@ import uuid
 from enum import StrEnum
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlmodel import col, select
+from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, SessionDep
-from app.models import Creator, Item, Location, StudySite
+from app.api.routes.gis import execute_gis_operation
+from app.models import Creator, GISAsyncOperationRequest, Item, Location, Region, StudySite
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,16 @@ class ItemExportFormat(StrEnum):
     bibtex = "bibtex"
 
 
+class RegionExportFormat(StrEnum):
+    geojson = "geojson"
+    csv = "csv"
+
+
+class GISOperationExportFormat(StrEnum):
+    geojson = "geojson"
+    csv = "csv"
+
+
 @router.get("/study-sites")
 def export_study_sites(
     *,
@@ -43,8 +54,8 @@ def export_study_sites(
     item_id: Annotated[uuid.UUID | None, Query(description="Filter by item ID")] = None,
 ) -> StreamingResponse:
     """Export study sites as GeoJSON or CSV."""
-    statement = (
-        select(
+    statement = (  # pyright: ignore[reportCallIssue]
+        select(  # pyright: ignore[reportCallIssue]
             col(StudySite.id),
             col(StudySite.name),
             col(StudySite.item_id),
@@ -147,6 +158,214 @@ def _export_study_sites_csv(rows: list[Any]) -> StreamingResponse:
         iter([output.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=study_sites.csv"},
+    )
+
+
+@router.get("/regions")
+def export_regions(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    export_format: Annotated[RegionExportFormat, Query(alias="format")] = RegionExportFormat.geojson,
+) -> StreamingResponse:
+    """Export user's regions as GeoJSON or CSV."""
+    statement = (  # pyright: ignore[reportCallIssue]
+        select(  # pyright: ignore[reportCallIssue]
+            col(Region.id),
+            col(Region.name),
+            col(Region.description),
+            col(Region.source_filename),
+            col(Region.properties_json),
+            func.ST_AsGeoJSON(Region.geom).label("geometry_json"),
+        )
+        .select_from(Region)
+        .where(Region.owner_id == current_user.id)
+    )
+    rows = list(session.exec(statement).all())
+
+    if export_format == RegionExportFormat.geojson:
+        features = []
+        for row in rows:
+            geometry = json.loads(row[5]) if row[5] else None
+            if geometry is None:
+                continue
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": geometry,
+                    "properties": {
+                        "id": str(row[0]),
+                        "name": row[1],
+                        "description": row[2],
+                        "source_filename": row[3],
+                        "properties_json": row[4],
+                    },
+                },
+            )
+
+        content = json.dumps({"type": "FeatureCollection", "features": features}, ensure_ascii=False, indent=2)
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/geo+json",
+            headers={"Content-Disposition": "attachment; filename=regions.geojson"},
+        )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "name", "description", "source_filename", "properties_json", "geometry"])
+    for row in rows:
+        writer.writerow([
+            str(row[0]),
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=regions.csv"},
+    )
+
+
+@router.post("/gis-operation")
+def export_gis_operation(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    request: GISAsyncOperationRequest,
+    export_format: Annotated[GISOperationExportFormat, Query(alias="format")] = GISOperationExportFormat.geojson,
+) -> StreamingResponse:
+    """Run one GIS operation and export result as GeoJSON/CSV."""
+    result = execute_gis_operation(
+        session=session,
+        current_user=current_user,
+        operation_id=request.operation_id,
+        payload=request.payload,
+    )
+
+    if export_format == GISOperationExportFormat.geojson:
+        return _export_gis_operation_geojson(session, current_user.id, request.operation_id, result)
+    return _export_gis_operation_csv(request.operation_id, result)
+
+
+def _export_gis_operation_geojson(
+    session: SessionDep,
+    owner_id: uuid.UUID,
+    operation_id: str,
+    result: dict[str, Any],
+) -> StreamingResponse:
+    features: list[dict[str, Any]] = []
+
+    if operation_id == "buffer":
+        for feature in result.get("features", []):
+            geometry = feature.get("geometry")
+            if not geometry:
+                continue
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": geometry,
+                    "properties": {"source_id": feature.get("source_id")},
+                },
+            )
+    elif operation_id in {"clip", "within-distance"} and result.get("study_sites"):
+        for site in result.get("study_sites", []):
+            lat = site.get("latitude")
+            lon = site.get("longitude")
+            if lat is None or lon is None:
+                continue
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                    "properties": site,
+                },
+            )
+    elif operation_id == "within-distance" and result.get("regions"):
+        region_ids = [entry.get("id") for entry in result.get("regions", []) if entry.get("id")]
+        if region_ids:
+            statement = (
+                select(Region.id, Region.name, func.ST_AsGeoJSON(Region.geom).label("geometry_json"))
+                .select_from(Region)
+                .where(Region.owner_id == owner_id)
+                .where(col(Region.id).in_(region_ids))
+            )
+            for row in session.exec(statement).all():
+                geometry = json.loads(row[2]) if row[2] else None
+                if geometry is None:
+                    continue
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": geometry,
+                        "properties": {"id": str(row[0]), "name": row[1]},
+                    },
+                )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="GeoJSON export is not supported for this operation result",
+        )
+
+    collection = {"type": "FeatureCollection", "features": features}
+    content = json.dumps(collection, ensure_ascii=False, indent=2)
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/geo+json",
+        headers={"Content-Disposition": f"attachment; filename=gis_{operation_id}.geojson"},
+    )
+
+
+def _export_gis_operation_csv(operation_id: str, result: dict[str, Any]) -> StreamingResponse:
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    if operation_id == "summary-stats":
+        rows = result.get("rows", [])
+        if rows:
+            header = list(rows[0].keys())
+            writer.writerow(header)
+            for row in rows:
+                writer.writerow([row.get(key) for key in header])
+        else:
+            writer.writerow(["message"])
+            writer.writerow(["No rows"])
+    elif operation_id == "buffer":
+        writer.writerow(["source_id", "geometry"])
+        for feature in result.get("features", []):
+            writer.writerow([
+                feature.get("source_id"),
+                json.dumps(feature.get("geometry")),
+            ])
+    elif operation_id in {"clip", "within-distance"} and result.get("study_sites"):
+        writer.writerow(["id", "name", "item_id", "item_title", "latitude", "longitude", "is_manual", "confidence_score"])
+        for site in result.get("study_sites", []):
+            writer.writerow([
+                site.get("id"),
+                site.get("name"),
+                site.get("item_id"),
+                site.get("item_title"),
+                site.get("latitude"),
+                site.get("longitude"),
+                site.get("is_manual"),
+                site.get("confidence_score"),
+            ])
+    elif operation_id == "within-distance" and result.get("regions"):
+        writer.writerow(["id", "name"])
+        for region in result.get("regions", []):
+            writer.writerow([region.get("id"), region.get("name")])
+    else:
+        raise HTTPException(status_code=400, detail="CSV export is not supported for this operation result")
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=gis_{operation_id}.csv"},
     )
 
 

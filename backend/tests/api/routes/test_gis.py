@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from unittest.mock import Mock, patch
 
 from geoalchemy2.shape import from_shape
 from pydantic_extra_types.coordinate import Latitude, Longitude
@@ -100,6 +101,24 @@ def test_gis_capabilities_authenticated(
     assert response.status_code == 200
     content = response.json()
     assert all(op["enabled"] is True for op in content["operations"])
+
+
+def test_gis_capabilities_summary_metrics_include_extended_types(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    response = client.get(
+        f"{settings.API_V1_STR}/gis/capabilities",
+        headers=normal_user_token_headers,
+    )
+    assert response.status_code == 200
+
+    operations = response.json()["operations"]
+    summary_stats = next(op for op in operations if op["id"] == "summary-stats")
+    metric_types = (
+        summary_stats["parameter_schema"]["metrics"]["items"]["properties"]["type"]["enum"]
+    )
+    assert metric_types == ["count", "avg", "min", "max", "sum"]
 
 
 def test_within_distance_requires_authentication(client: TestClient) -> None:
@@ -291,6 +310,114 @@ def test_summary_stats_with_spatial_filter(
     assert content["rows"][0]["site_count"] == 1
 
 
+def test_summary_stats_with_intersects_spatial_filter(
+    client: TestClient,
+    db_session: Session,
+    test_user: User,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    item = create_random_item(db_session)
+    _create_site(
+        db_session,
+        item_id=item.id,
+        lat=48.1300,
+        lon=11.5600,
+        name="Inside Munich",
+        confidence=0.9,
+        is_manual=True,
+    )
+    _create_site(
+        db_session,
+        item_id=item.id,
+        lat=50.1109,
+        lon=8.6821,
+        name="Frankfurt",
+        confidence=0.8,
+        is_manual=False,
+    )
+    db_session.commit()
+
+    region = _create_region(
+        db_session,
+        owner_id=test_user.id,
+        name="Munich Area",
+        min_lon=11.40,
+        min_lat=48.00,
+        max_lon=11.80,
+        max_lat=48.30,
+    )
+
+    response = client.post(
+        f"{settings.API_V1_STR}/gis/operations/summary-stats",
+        headers=normal_user_token_headers,
+        json={
+            "target": {"layer_id": "study-sites", "selection": {"type": "all"}},
+            "group_by": ["is_manual"],
+            "metrics": [{"type": "count", "field": "id", "alias": "site_count"}],
+            "spatial_filter": {
+                "layer_id": "regions",
+                "selection": {"type": "ids", "ids": [str(region.id)]},
+                "predicate": "intersects",
+            },
+        },
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    assert content["count"] == 1
+    assert content["rows"][0]["is_manual"] is True
+    assert content["rows"][0]["site_count"] == 1
+
+
+def test_summary_stats_supports_min_max_sum_metrics(
+    client: TestClient,
+    db_session: Session,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    item = create_random_item(db_session)
+    _create_site(
+        db_session,
+        item_id=item.id,
+        lat=48.12,
+        lon=11.54,
+        name="Manual A",
+        confidence=1.0,
+        is_manual=True,
+    )
+    _create_site(
+        db_session,
+        item_id=item.id,
+        lat=48.14,
+        lon=11.58,
+        name="Auto B",
+        confidence=0.6,
+        is_manual=False,
+    )
+    db_session.commit()
+
+    response = client.post(
+        f"{settings.API_V1_STR}/gis/operations/summary-stats",
+        headers=normal_user_token_headers,
+        json={
+            "target": {"layer_id": "study-sites", "selection": {"type": "all"}},
+            "group_by": [],
+            "metrics": [
+                {"type": "min", "field": "confidence_score", "alias": "min_conf"},
+                {"type": "max", "field": "confidence_score", "alias": "max_conf"},
+                {"type": "sum", "field": "confidence_score", "alias": "sum_conf"},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    assert content["count"] == 1
+    row = content["rows"][0]
+    assert row["min_conf"] == 0.6
+    assert row["max_conf"] == 1.0
+    assert abs(row["sum_conf"] - 1.6) < 1e-6
+
+
 def test_summary_stats_rejects_invalid_metric_field(
     client: TestClient,
     normal_user_token_headers: dict[str, str],
@@ -306,6 +433,81 @@ def test_summary_stats_rejects_invalid_metric_field(
     )
     assert response.status_code == 400
     assert "Unsupported avg field" in response.json()["detail"]
+
+
+def test_summary_stats_rejects_invalid_sum_field(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    response = client.post(
+        f"{settings.API_V1_STR}/gis/operations/summary-stats",
+        headers=normal_user_token_headers,
+        json={
+            "target": {"layer_id": "study-sites", "selection": {"type": "all"}},
+            "group_by": ["is_manual"],
+            "metrics": [{"type": "sum", "field": "id"}],
+        },
+    )
+    assert response.status_code == 400
+    assert "Unsupported sum field" in response.json()["detail"]
+
+
+def test_buffer_study_sites_with_geometry_selection(
+    client: TestClient,
+    db_session: Session,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    item = create_random_item(db_session)
+    _create_site(
+        db_session,
+        item_id=item.id,
+        lat=48.1300,
+        lon=11.5600,
+        name="Inside Polygon",
+        confidence=0.9,
+        is_manual=True,
+    )
+    _create_site(
+        db_session,
+        item_id=item.id,
+        lat=50.1109,
+        lon=8.6821,
+        name="Outside Polygon",
+        confidence=0.8,
+        is_manual=False,
+    )
+    db_session.commit()
+
+    response = client.post(
+        f"{settings.API_V1_STR}/gis/operations/buffer",
+        headers=normal_user_token_headers,
+        json={
+            "target": {
+                "layer_id": "study-sites",
+                "selection": {
+                    "type": "geometry",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [
+                            [
+                                [11.4, 48.0],
+                                [11.8, 48.0],
+                                [11.8, 48.3],
+                                [11.4, 48.3],
+                                [11.4, 48.0],
+                            ]
+                        ],
+                    },
+                },
+            },
+            "parameters": {"distance": 300, "unit": "meter", "dissolve": False},
+        },
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    assert content["target_layer_id"] == "study-sites"
+    assert content["count"] == 1
 
 
 def test_buffer_study_sites_returns_geojson_buffers(
@@ -455,3 +657,117 @@ def test_clip_rejects_unsupported_layers(
     )
     assert response.status_code == 400
     assert "clip currently supports" in response.json()["detail"]
+
+
+def test_start_async_operation_enqueues_task(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    mock_result = Mock()
+    mock_result.id = "gis-task-1"
+
+    with patch("app.api.routes.gis.run_gis_operation_task.delay", return_value=mock_result) as mock_delay:
+        response = client.post(
+            f"{settings.API_V1_STR}/gis/operations/async",
+            headers=normal_user_token_headers,
+            json={
+                "operation_id": "buffer",
+                "payload": {
+                    "target": {"layer_id": "study-sites", "selection": {"type": "all"}},
+                    "parameters": {"distance": 1000, "unit": "meter", "dissolve": False},
+                },
+            },
+        )
+
+    assert response.status_code == 202
+    content = response.json()
+    assert content["data"]["task_id"] == "gis-task-1"
+    assert content["data"]["operation_id"] == "buffer"
+    assert content["data"]["status"] == "queued"
+    mock_delay.assert_called_once()
+
+
+def test_get_gis_task_status_success(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    task_id = "gis-task-success"
+
+    mock_result = Mock()
+    mock_result.state = "SUCCESS"
+    mock_result.status = "SUCCESS"
+    mock_result.ready.return_value = True
+    mock_result.successful.return_value = True
+    mock_result.failed.return_value = False
+    mock_result.result = {"status": "completed", "result": {"count": 1}}
+    mock_result.info = {"progress": 100}
+
+    with patch("app.api.routes.gis.AsyncResult", return_value=mock_result):
+        response = client.get(
+            f"{settings.API_V1_STR}/gis/tasks/{task_id}",
+            headers=normal_user_token_headers,
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["task_id"] == task_id
+    assert data["state"] == "SUCCESS"
+    assert data["ready"] is True
+    assert data["successful"] is True
+    assert data["result"]["status"] == "completed"
+
+
+def test_gis_presets_crud(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    create_response = client.post(
+        f"{settings.API_V1_STR}/gis/presets",
+        headers=normal_user_token_headers,
+        json={
+            "name": "My buffer preset",
+            "operation_id": "buffer",
+            "config": {
+                "target": {"layer_id": "study-sites", "selection": {"type": "all"}},
+                "parameters": {"distance": 500, "unit": "meter", "dissolve": False},
+            },
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    preset_id = created["id"]
+    assert created["name"] == "My buffer preset"
+    assert created["operation_id"] == "buffer"
+    assert created["config"]["parameters"]["distance"] == 500
+
+    list_response = client.get(
+        f"{settings.API_V1_STR}/gis/presets",
+        headers=normal_user_token_headers,
+    )
+    assert list_response.status_code == 200
+    listed = list_response.json()
+    assert listed["count"] >= 1
+    assert any(entry["id"] == preset_id for entry in listed["data"])
+
+    update_response = client.put(
+        f"{settings.API_V1_STR}/gis/presets/{preset_id}",
+        headers=normal_user_token_headers,
+        json={
+            "name": "Updated preset",
+            "config": {
+                "target": {"layer_id": "study-sites", "selection": {"type": "all"}},
+                "parameters": {"distance": 750, "unit": "meter", "dissolve": False},
+            },
+        },
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["name"] == "Updated preset"
+    assert updated["config"]["parameters"]["distance"] == 750
+
+    delete_response = client.delete(
+        f"{settings.API_V1_STR}/gis/presets/{preset_id}",
+        headers=normal_user_token_headers,
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["message"] == "Preset deleted"

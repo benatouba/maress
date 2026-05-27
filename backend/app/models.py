@@ -258,9 +258,10 @@ class MapItemsPublic(SQLModel):
 class GISSelection(SQLModel):
     """Feature selection descriptor used by GIS operations."""
 
-    type: Literal["all", "ids", "bbox"] = "all"
+    type: Literal["all", "ids", "bbox", "geometry"] = "all"
     ids: list[uuid.UUID] | None = None
     bbox: list[float] | None = None
+    geometry: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_shape(self) -> Self:
@@ -275,6 +276,11 @@ class GISSelection(SQLModel):
             min_lon, min_lat, max_lon, max_lat = self.bbox
             if min_lon >= max_lon or min_lat >= max_lat:
                 raise ValueError("selection.bbox extents are invalid")
+        elif self.type == "geometry":
+            if not self.geometry:
+                raise ValueError("selection.geometry is required when selection.type='geometry'")
+            if self.geometry.get("type") is None:
+                raise ValueError("selection.geometry must be valid GeoJSON")
         return self
 
 
@@ -369,7 +375,7 @@ class GISClipResult(SQLModel):
 
 
 class GISMetric(SQLModel):
-    type: Literal["count", "avg"]
+    type: Literal["count", "avg", "min", "max", "sum"]
     field: str
     alias: str | None = None
 
@@ -377,7 +383,7 @@ class GISMetric(SQLModel):
 class GISSpatialFilter(SQLModel):
     layer_id: Literal["regions"]
     selection: GISSelection = Field(default_factory=GISSelection)
-    predicate: Literal["within"] = "within"
+    predicate: Literal["within", "intersects"] = "within"
 
 
 class GISSummaryStatsRequest(SQLModel):
@@ -389,6 +395,63 @@ class GISSummaryStatsRequest(SQLModel):
 
 class GISSummaryStatsPublic(SQLModel):
     rows: list[dict[str, Any]]
+    count: int
+
+
+class GISAsyncOperationRequest(SQLModel):
+    operation_id: Literal["buffer", "clip", "within-distance", "summary-stats"]
+    payload: dict[str, Any]
+
+
+class GISAsyncTaskRef(SQLModel):
+    task_id: str
+    operation_id: str
+    status: InitialTaskState = "queued"
+    message: str | None = None
+
+
+class GISAsyncTaskAccepted(SQLModel):
+    data: GISAsyncTaskRef
+
+
+class GISPresetBase(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    operation_id: str = Field(min_length=1, max_length=64)
+    config_json: str
+
+
+class GISPresetCreate(SQLModel):
+    name: str = Field(min_length=1, max_length=120)
+    operation_id: str = Field(min_length=1, max_length=64)
+    config: dict[str, Any]
+
+
+class GISPresetUpdate(SQLModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    operation_id: str | None = Field(default=None, min_length=1, max_length=64)
+    config: dict[str, Any] | None = None
+
+
+class GISPreset(GISPresetBase, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    owner_id: uuid.UUID = Field(foreign_key="user.id", nullable=False, ondelete="CASCADE")
+    owner: "User" = Relationship(back_populates="gis_presets")
+    created_at: datetime = timestamp_field()
+    updated_at: datetime = timestamp_field(onupdate_now=True)
+
+
+class GISPresetPublic(SQLModel):
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    name: str
+    operation_id: str
+    config: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class GISPresetsPublic(SQLModel):
+    data: list[GISPresetPublic]
     count: int
 
 
@@ -943,6 +1006,7 @@ class User(UserBase, table=True):
         cascade_delete=True,
     )
     regions: list["Region"] = Relationship(back_populates="owner", cascade_delete=True)
+    gis_presets: list["GISPreset"] = Relationship(back_populates="owner", cascade_delete=True)
 
 
 # Properties to return via API, id is always required

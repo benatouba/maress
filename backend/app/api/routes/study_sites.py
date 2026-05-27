@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 from urllib.parse import quote
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
@@ -280,13 +280,16 @@ def get_map_points(
     current_user: OptionalCurrentUser,
     bbox: str | None = Query(default=None, description="minLon,minLat,maxLon,maxLat"),
     limit: int = Query(default=25000, ge=1, le=200000),
+    scope: Literal["all", "mine"] = Query(default="all"),
 ) -> StudySiteMapPointsPublic:
     """Return lightweight study-site data for the map.
 
     Joins StudySite → Location (lat/lon) and Item (title only).
-    No pagination — returns all sites the user owns in a single flat list.
-    Anonymous users see all sites.
+    No pagination — returns a flat list limited by viewport and scope.
     """
+    if scope == "mine" and current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required for scope=mine")
+
     statement = (
         select(
             StudySite.id,
@@ -303,13 +306,14 @@ def get_map_points(
         .join(Item, StudySite.item_id == Item.id)
     )
 
+    if scope == "mine" and current_user is not None:
+        statement = statement.where(Item.owner_id == current_user.id)
+
     if bbox:
         min_lon, min_lat, max_lon, max_lat = _parse_bbox(bbox)
+        envelope = func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326)
         statement = statement.where(
-            Location.longitude >= min_lon,
-            Location.longitude <= max_lon,
-            Location.latitude >= min_lat,
-            Location.latitude <= max_lat,
+            func.ST_Intersects(Location.geom, envelope),
         )
 
     statement = statement.limit(limit)

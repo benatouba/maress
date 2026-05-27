@@ -14,13 +14,18 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
-from geoalchemy2 import Geography
+from celery.result import AsyncResult
+from fastapi import APIRouter, HTTPException, Query
+from geoalchemy2 import Geography, Geometry
 from sqlalchemy import cast
 from sqlmodel import col, func, select
 
 from app.api.deps import CurrentUser, OptionalCurrentUser, SessionDep
+from app.celery_app import celery
 from app.models import (
+    GISAsyncOperationRequest,
+    GISAsyncTaskAccepted,
+    GISAsyncTaskRef,
     GISBufferRequest,
     GISBufferResult,
     GISBufferedFeature,
@@ -29,6 +34,11 @@ from app.models import (
     GISClipResult,
     GISFeatureSetRef,
     GISOperationCapability,
+    GISPreset,
+    GISPresetCreate,
+    GISPresetPublic,
+    GISPresetsPublic,
+    GISPresetUpdate,
     GISRegionFeature,
     GISSummaryStatsPublic,
     GISSummaryStatsRequest,
@@ -39,7 +49,9 @@ from app.models import (
     Region,
     StudySite,
     StudySiteMapPoint,
+    User,
 )
+from app.tasks.gis import run_gis_operation_task
 
 logger = logging.getLogger(__name__)
 
@@ -81,14 +93,14 @@ def _study_site_selection_predicates(ref: GISFeatureSetRef) -> list[Any]:
         if not selection.bbox:
             raise HTTPException(status_code=400, detail="selection.bbox is required")
         min_lon, min_lat, max_lon, max_lat = _normalized_bbox(selection.bbox)
-        predicates.extend(
-            [
-                Location.longitude >= min_lon,
-                Location.longitude <= max_lon,
-                Location.latitude >= min_lat,
-                Location.latitude <= max_lat,
-            ],
-        )
+        envelope = func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326)
+        predicates.append(func.ST_Intersects(Location.geom, envelope))
+    elif selection.type == "geometry":
+        if not selection.geometry:
+            raise HTTPException(status_code=400, detail="selection.geometry is required")
+        geometry_text = json.dumps(selection.geometry)
+        geometry = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_text), 4326)
+        predicates.append(func.ST_Intersects(Location.geom, geometry))
     return predicates
 
 
@@ -105,6 +117,12 @@ def _region_selection_predicates(ref: GISFeatureSetRef, owner_id: uuid.UUID) -> 
         min_lon, min_lat, max_lon, max_lat = _normalized_bbox(selection.bbox)
         envelope = func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat, 4326)
         predicates.append(func.ST_Intersects(Region.geom, envelope))
+    elif selection.type == "geometry":
+        if not selection.geometry:
+            raise HTTPException(status_code=400, detail="selection.geometry is required")
+        geometry_text = json.dumps(selection.geometry)
+        geometry = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geometry_text), 4326)
+        predicates.append(func.ST_Intersects(Region.geom, geometry))
     return predicates
 
 
@@ -216,7 +234,10 @@ def get_capabilities(current_user: OptionalCurrentUser) -> GISCapabilitiesPublic
                     "items": {
                         "type": "object",
                         "properties": {
-                            "type": {"type": "string", "enum": ["count", "avg"]},
+                            "type": {
+                                "type": "string",
+                                "enum": ["count", "avg", "min", "max", "sum"],
+                            },
                             "field": {
                                 "type": "string",
                                 "enum": ["id", "item_id", "confidence_score", "validation_score"],
@@ -285,11 +306,12 @@ def buffer_operation(
     if request.target.layer_id == "regions":
         region_preds = _region_selection_predicates(request.target, current_user.id)
         buffer_geom = func.ST_Buffer(cast(Region.geom, Geography), distance_meters)
+        buffer_geom_as_geometry = cast(buffer_geom, Geometry)
 
         if request.parameters.dissolve:
             statement = (
                 select(
-                    func.ST_AsGeoJSON(func.ST_UnaryUnion(func.ST_Collect(buffer_geom))).label(
+                    func.ST_AsGeoJSON(func.ST_UnaryUnion(func.ST_Collect(buffer_geom_as_geometry))).label(
                         "geometry_json",
                     ),
                 )
@@ -299,7 +321,8 @@ def buffer_operation(
             row = session.exec(statement).first()
             features: list[GISBufferedFeature] = []
             if row:
-                geom = _geojson_or_none(row[0])
+                geometry_json = row if isinstance(row, str) else row[0]
+                geom = _geojson_or_none(geometry_json)
                 if geom is not None:
                     features.append(GISBufferedFeature(source_id=None, geometry=geom))
             return GISBufferResult(
@@ -313,7 +336,7 @@ def buffer_operation(
         statement = (
             select(
                 Region.id,
-                func.ST_AsGeoJSON(buffer_geom).label("geometry_json"),
+                func.ST_AsGeoJSON(buffer_geom_as_geometry).label("geometry_json"),
             )
             .select_from(Region)
             .where(*region_preds)
@@ -558,6 +581,10 @@ def summary_stats(
         "confidence_score": col(StudySite.confidence_score),
         "validation_score": col(StudySite.validation_score),
     }
+    min_max_sum_fields: dict[str, Any] = {
+        "confidence_score": col(StudySite.confidence_score),
+        "validation_score": col(StudySite.validation_score),
+    }
 
     selected_group_fields: list[str] = []
     select_expressions: list[Any] = []
@@ -597,6 +624,42 @@ def summary_stats(
             metric_names.append(alias)
             continue
 
+        if metric.type == "min":
+            col_expr = min_max_sum_fields.get(metric.field)
+            if col_expr is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported min field '{metric.field}'",
+                )
+            alias = metric.alias or f"min_{metric.field}"
+            select_expressions.append(func.min(col_expr).label(alias))
+            metric_names.append(alias)
+            continue
+
+        if metric.type == "max":
+            col_expr = min_max_sum_fields.get(metric.field)
+            if col_expr is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported max field '{metric.field}'",
+                )
+            alias = metric.alias or f"max_{metric.field}"
+            select_expressions.append(func.max(col_expr).label(alias))
+            metric_names.append(alias)
+            continue
+
+        if metric.type == "sum":
+            col_expr = min_max_sum_fields.get(metric.field)
+            if col_expr is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported sum field '{metric.field}'",
+                )
+            alias = metric.alias or f"sum_{metric.field}"
+            select_expressions.append(func.sum(col_expr).label(alias))
+            metric_names.append(alias)
+            continue
+
         raise HTTPException(status_code=400, detail=f"Unsupported metric type '{metric.type}'")
 
     statement = (
@@ -622,13 +685,28 @@ def summary_stats(
         )
         region_preds = _region_selection_predicates(filter_ref, current_user.id)
 
-        within_region_exists = (
-            select(Region.id)
-            .where(*region_preds)
-            .where(func.ST_Within(Location.geom, Region.geom))
-            .exists()
-        )
-        statement = statement.where(within_region_exists)
+        predicate = request.spatial_filter.predicate
+        if predicate == "within":
+            spatial_exists = (
+                select(Region.id)
+                .where(*region_preds)
+                .where(func.ST_Within(Location.geom, Region.geom))
+                .exists()
+            )
+        elif predicate == "intersects":
+            spatial_exists = (
+                select(Region.id)
+                .where(*region_preds)
+                .where(func.ST_Intersects(Location.geom, Region.geom))
+                .exists()
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported spatial_filter predicate '{predicate}'",
+            )
+
+        statement = statement.where(spatial_exists)
 
     if group_expressions:
         statement = statement.group_by(*group_expressions)
@@ -648,3 +726,272 @@ def summary_stats(
         payload_rows.append({k: _coerce_json_value(v) for k, v in raw.items()})
 
     return GISSummaryStatsPublic(rows=payload_rows, count=len(payload_rows))
+
+
+def execute_gis_operation(
+    *,
+    session: SessionDep,
+    current_user: User,
+    operation_id: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Execute one GIS operation and return JSON-serializable payload."""
+    if operation_id == "buffer":
+        request = GISBufferRequest.model_validate(payload)
+        result = buffer_operation(session=session, current_user=current_user, request=request)
+        return result.model_dump(mode="json")
+
+    if operation_id == "clip":
+        request = GISClipRequest.model_validate(payload)
+        result = clip_operation(session=session, current_user=current_user, request=request)
+        return result.model_dump(mode="json")
+
+    if operation_id == "within-distance":
+        request = GISWithinDistanceRequest.model_validate(payload)
+        result = within_distance(session=session, current_user=current_user, request=request)
+        return result.model_dump(mode="json")
+
+    if operation_id == "summary-stats":
+        request = GISSummaryStatsRequest.model_validate(payload)
+        result = summary_stats(session=session, current_user=current_user, request=request)
+        return result.model_dump(mode="json")
+
+    raise HTTPException(status_code=400, detail=f"Unsupported GIS operation '{operation_id}'")
+
+
+@router.post("/operations/async", response_model=GISAsyncTaskAccepted, status_code=202)
+def start_async_operation(
+    *,
+    current_user: CurrentUser,
+    request: GISAsyncOperationRequest,
+) -> GISAsyncTaskAccepted:
+    """Queue a GIS operation in Celery and return task reference."""
+    # Validate request payload upfront for fast feedback.
+    if request.operation_id == "buffer":
+        GISBufferRequest.model_validate(request.payload)
+    elif request.operation_id == "clip":
+        GISClipRequest.model_validate(request.payload)
+    elif request.operation_id == "within-distance":
+        GISWithinDistanceRequest.model_validate(request.payload)
+    elif request.operation_id == "summary-stats":
+        GISSummaryStatsRequest.model_validate(request.payload)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported GIS operation '{request.operation_id}'",
+        )
+
+    async_result = run_gis_operation_task.delay(
+        operation_id=request.operation_id,
+        payload=request.payload,
+        user_id=str(current_user.id),
+        is_superuser=bool(current_user.is_superuser),
+    )
+    return GISAsyncTaskAccepted(
+        data=GISAsyncTaskRef(
+            task_id=async_result.id,
+            operation_id=request.operation_id,
+            status="queued",
+            message="Task queued",
+        ),
+    )
+
+
+@router.get("/tasks/{task_id}")
+def get_gis_task_status(
+    *,
+    task_id: str,
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Get status for one queued GIS task."""
+    del current_user
+    result = AsyncResult(task_id, app=celery)
+
+    response: dict[str, Any] = {
+        "task_id": task_id,
+        "state": result.state,
+        "status": result.status,
+        "ready": result.ready(),
+        "successful": result.successful() if result.ready() else None,
+        "failed": result.failed() if result.ready() else None,
+    }
+
+    if result.ready():
+        if result.successful():
+            response["result"] = result.result
+        else:
+            error_info = result.info
+            if isinstance(error_info, dict):
+                response["error"] = error_info
+            else:
+                response["error"] = {
+                    "message": str(error_info),
+                    "type": type(error_info).__name__,
+                }
+    elif isinstance(result.info, dict):
+        response["result"] = result.info
+
+    if isinstance(result.info, dict):
+        response["metadata"] = result.info
+
+    return response
+
+
+@router.get("/tasks/batch/")
+def get_gis_batch_task_status(
+    *,
+    task_ids: str = Query(description="Comma-separated task IDs"),
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Get status of multiple GIS tasks at once."""
+    del current_user
+    ids = [tid.strip() for tid in task_ids.split(",") if tid.strip()]
+
+    if not ids:
+        raise HTTPException(status_code=400, detail="No task IDs provided")
+
+    if len(ids) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 tasks can be queried at once")
+
+    tasks: dict[str, Any] = {}
+    for task_id in ids:
+        result = AsyncResult(task_id, app=celery)
+        tasks[task_id] = {
+            "status": result.status,
+            "ready": result.ready(),
+            "successful": result.successful() if result.ready() else None,
+            "failed": result.failed() if result.ready() else None,
+        }
+
+    statuses = [entry["status"] for entry in tasks.values()]
+    ready_tasks = [entry for entry in tasks.values() if entry["ready"]]
+
+    return {
+        "tasks": tasks,
+        "summary": {
+            "total": len(tasks),
+            "pending": statuses.count("PENDING"),
+            "started": statuses.count("STARTED"),
+            "success": statuses.count("SUCCESS"),
+            "failure": statuses.count("FAILURE"),
+            "retry": statuses.count("RETRY"),
+            "ready": len(ready_tasks),
+            "successful": sum(1 for entry in ready_tasks if entry.get("successful")),
+            "failed": sum(1 for entry in ready_tasks if entry.get("failed")),
+        },
+    }
+
+
+@router.delete("/tasks/{task_id}")
+def cancel_gis_task(
+    *,
+    task_id: str,
+    current_user: CurrentUser,
+) -> dict[str, Any]:
+    """Cancel a queued/running GIS task."""
+    del current_user
+    celery.control.revoke(task_id, terminate=True, signal="SIGTERM")
+    result = AsyncResult(task_id, app=celery)
+    return {
+        "task_id": task_id,
+        "message": "Task cancellation requested",
+        "previous_status": result.status,
+        "cancelled": True,
+    }
+
+
+def _preset_public(preset: GISPreset) -> GISPresetPublic:
+    try:
+        config = json.loads(preset.config_json)
+    except (TypeError, json.JSONDecodeError):
+        config = {}
+
+    return GISPresetPublic(
+        id=preset.id,
+        owner_id=preset.owner_id,
+        name=preset.name,
+        operation_id=preset.operation_id,
+        config=config,
+        created_at=preset.created_at,
+        updated_at=preset.updated_at,
+    )
+
+
+@router.get("/presets", response_model=GISPresetsPublic)
+def list_gis_presets(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+) -> GISPresetsPublic:
+    """List current user's saved GIS presets."""
+    statement = (
+        select(GISPreset)
+        .where(GISPreset.owner_id == current_user.id)
+        .order_by(col(GISPreset.created_at).desc())
+    )
+    presets = list(session.exec(statement).all())
+    data = [_preset_public(preset) for preset in presets]
+    return GISPresetsPublic(data=data, count=len(data))
+
+
+@router.post("/presets", response_model=GISPresetPublic, status_code=201)
+def create_gis_preset(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    preset_in: GISPresetCreate,
+) -> GISPresetPublic:
+    """Create a GIS analysis preset."""
+    preset = GISPreset(
+        owner_id=current_user.id,
+        name=preset_in.name,
+        operation_id=preset_in.operation_id,
+        config_json=json.dumps(preset_in.config),
+    )
+    session.add(preset)
+    session.commit()
+    session.refresh(preset)
+    return _preset_public(preset)
+
+
+@router.put("/presets/{preset_id}", response_model=GISPresetPublic)
+def update_gis_preset(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    preset_id: uuid.UUID,
+    preset_in: GISPresetUpdate,
+) -> GISPresetPublic:
+    """Update an existing GIS preset."""
+    preset = session.get(GISPreset, preset_id)
+    if preset is None or preset.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    if preset_in.name is not None:
+        preset.name = preset_in.name
+    if preset_in.operation_id is not None:
+        preset.operation_id = preset_in.operation_id
+    if preset_in.config is not None:
+        preset.config_json = json.dumps(preset_in.config)
+
+    session.add(preset)
+    session.commit()
+    session.refresh(preset)
+    return _preset_public(preset)
+
+
+@router.delete("/presets/{preset_id}")
+def delete_gis_preset(
+    *,
+    session: SessionDep,
+    current_user: CurrentUser,
+    preset_id: uuid.UUID,
+) -> dict[str, str]:
+    """Delete one GIS preset."""
+    preset = session.get(GISPreset, preset_id)
+    if preset is None or preset.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Preset not found")
+
+    session.delete(preset)
+    session.commit()
+    return {"message": "Preset deleted"}
