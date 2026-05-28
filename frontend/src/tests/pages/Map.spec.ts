@@ -471,12 +471,16 @@ describe('Map Page', () => {
       await flushPromises()
     })
 
-    it('should filter papers by search query', async () => {
+    it('should request papers by search query', async () => {
       wrapper.vm.paperSearchQuery = 'Paper Without'
-      await wrapper.vm.$nextTick()
+      await wrapper.vm.refreshPapers()
 
-      expect(wrapper.vm.filteredPapers).toHaveLength(1)
-      expect(wrapper.vm.filteredPapers[0].title).toBe('Paper Without Sites')
+      expect(zoteroStore.fetchMapItems).toHaveBeenLastCalledWith(
+        500,
+        'all',
+        'Paper Without',
+        'title',
+      )
     })
 
     it('should filter papers with study sites', async () => {
@@ -495,12 +499,17 @@ describe('Map Page', () => {
       expect(wrapper.vm.filteredPapers[0].study_site_count).toBe(0)
     })
 
-    it('should search in title, abstract, and publication', async () => {
+    it('should request title+fulltext mode for paper search', async () => {
       wrapper.vm.paperSearchQuery = 'Science'
-      await wrapper.vm.$nextTick()
+      wrapper.vm.paperSearchMode = 'title+fulltext'
+      await wrapper.vm.refreshPapers()
 
-      expect(wrapper.vm.filteredPapers).toHaveLength(1)
-      expect(wrapper.vm.filteredPapers[0].publicationTitle).toContain('Science')
+      expect(zoteroStore.fetchMapItems).toHaveBeenLastCalledWith(
+        500,
+        'all',
+        'Science',
+        'title+fulltext',
+      )
     })
   })
 
@@ -734,6 +743,19 @@ describe('Map Page', () => {
       expect(zoteroStore.fetchMapItems).toHaveBeenCalledTimes(2) // Once on mount, once on refresh
     })
 
+    it('should pass search query and mode to map paper request', async () => {
+      wrapper.vm.paperSearchQuery = 'laguna verde'
+      wrapper.vm.paperSearchMode = 'title+fulltext'
+      await wrapper.vm.refreshPapers()
+
+      expect(zoteroStore.fetchMapItems).toHaveBeenLastCalledWith(
+        500,
+        'all',
+        'laguna verde',
+        'title+fulltext',
+      )
+    })
+
     it('should refresh study sites', async () => {
       await wrapper.vm.handleViewportChanged({
         minLon: -20,
@@ -838,11 +860,15 @@ describe('Map Page', () => {
       expect(wrapper.text()).toContain('No papers found')
     })
 
-    it('should show empty state when no sites match filter', async () => {
+    it('should show empty filtered list when with-sites filter has no matches', async () => {
+      vi.spyOn(zoteroStore, 'fetchMapItems').mockResolvedValueOnce({
+        data: [mockPaperWithoutSites],
+        count: 1,
+      })
       wrapper = createWrapper()
       await flushPromises()
 
-      wrapper.vm.paperSearchQuery = 'Non-existent paper'
+      wrapper.vm.paperFilterType = 'with_sites'
       await wrapper.vm.$nextTick()
 
       expect(wrapper.vm.filteredPapers).toHaveLength(0)

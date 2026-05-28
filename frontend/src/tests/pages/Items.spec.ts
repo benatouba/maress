@@ -326,6 +326,26 @@ describe('Items Page', () => {
         'success'
       )
     })
+
+    it('should request title+fulltext mode when selected', async () => {
+      wrapper = createWrapper()
+      await flushPromises()
+
+      wrapper.vm.searchMode = 'title+fulltext'
+      wrapper.vm.search = 'andes'
+      await wrapper.vm.$nextTick()
+
+      await wrapper.vm.handleRefresh()
+      await flushPromises()
+
+      expect(zoteroStore.fetchItems).toHaveBeenLastCalledWith(
+        500,
+        false,
+        'all',
+        'andes',
+        'title+fulltext',
+      )
+    })
   })
 
   describe('Row Click', () => {

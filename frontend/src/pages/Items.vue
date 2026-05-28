@@ -161,6 +161,17 @@
               @update:model-value="debouncedSearch"
             />
           </v-col>
+          <v-col cols="12" md="2">
+            <v-select
+              v-model="searchMode"
+              :items="searchModeOptions"
+              label="Search Mode"
+              prepend-inner-icon="mdi-tune"
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
+          </v-col>
           <v-col cols="12" md="3">
             <v-select
               v-model="filterType"
@@ -251,7 +262,6 @@
         :items="filteredItems"
         :loading="loading && !downloading"
         :items-length="totalItems"
-        :search="search"
         item-value="id"
         :show-select="authStore.isAuthenticated"
         class="elevation-0"
@@ -527,6 +537,7 @@ const selectedItem = ref<any>(null)
 const forceReload = ref(false)
 const selectedItems = ref<string[]>([])
 const itemsScope = ref<'all' | 'mine'>('all')
+const searchMode = ref<'title' | 'title+fulltext'>('title')
 
 // Filter options
 const itemTypeOptions = [
@@ -540,6 +551,11 @@ const studySiteOptions = [
   { title: 'All Items', value: null },
   { title: 'With Study Sites', value: 'with' },
   { title: 'Without Study Sites', value: 'without' },
+]
+
+const searchModeOptions = [
+  { title: 'Title', value: 'title' },
+  { title: 'Title + Fulltext', value: 'title+fulltext' },
 ]
 
 // Headers configuration
@@ -610,15 +626,28 @@ const syncButtonText = computed(() => {
 })
 
 // Methods
-const debouncedSearch = debounce(() => {
+const fetchItemsForCurrentFilters = async (silent = false) => {
+  await zoteroStore.fetchItems(
+    500,
+    silent,
+    itemsScope.value,
+    search.value,
+    searchMode.value,
+  )
+}
+
+const debouncedSearch = debounce(async () => {
   page.value = 1 // Reset to first page on search
+  await fetchItemsForCurrentFilters()
 }, 300)
 
 const clearFilters = () => {
   search.value = ''
+  searchMode.value = 'title'
   filterType.value = null
   filterStudySites.value = null
   page.value = 1
+  void fetchItemsForCurrentFilters()
 }
 
 const clearSelection = () => {
@@ -634,7 +663,7 @@ const handleSync = async () => {
     const collectionId = selectedCollection.value?.key || null
     const synced = await zoteroStore.syncLibrary(forceReload.value, collectionId)
     if (synced) {
-      await zoteroStore.fetchItems()
+      await fetchItemsForCurrentFilters()
       const message = collectionId
         ? `Collection "${selectedCollection.value?.name}" synced successfully`
         : 'Library synced successfully'
@@ -699,7 +728,7 @@ const handleExtractAll = async () => {
 
       // Refresh items when all tasks complete
       setTimeout(() => {
-        zoteroStore.fetchItems()
+        fetchItemsForCurrentFilters()
       }, 5000)
     } else {
       // Extract for all items
@@ -710,7 +739,7 @@ const handleExtractAll = async () => {
 
         // Refresh items when tasks complete
         setTimeout(() => {
-          zoteroStore.fetchItems()
+          fetchItemsForCurrentFilters()
         }, 5000)
       }
     }
@@ -720,7 +749,7 @@ const handleExtractAll = async () => {
 }
 
 const handleRefresh = async () => {
-  await zoteroStore.fetchItems(500, false, itemsScope.value)
+  await fetchItemsForCurrentFilters()
   notificationStore.showNotification('Items refreshed', 'success')
 }
 
@@ -769,7 +798,7 @@ const handleImportFile = async (item: any) => {
   try {
     const result = await zoteroStore.importFileFromZotero(item.id)
     if (result) {
-      await zoteroStore.fetchItems()
+      await fetchItemsForCurrentFilters()
     }
   } catch (error) {
     logger.error('Import file error:', error)
@@ -789,7 +818,7 @@ const handleExtractStudySites = async (item: any) => {
 
       // Refresh items when tasks complete
       setTimeout(() => {
-        zoteroStore.fetchItems()
+        fetchItemsForCurrentFilters()
       }, 5000)
     }
   } catch (error) {
@@ -818,7 +847,7 @@ const handleEnrichAll = async () => {
     }
     // Refresh items after a delay to pick up enriched data
     setTimeout(() => {
-      zoteroStore.fetchItems()
+      fetchItemsForCurrentFilters()
     }, 5000)
   } catch (error) {
     logger.error('Enrichment error:', error)
@@ -835,7 +864,7 @@ const handleEnrichItem = async (item: any) => {
     if (result && result.tasks) {
       taskStore.addTasks(result.tasks)
       setTimeout(() => {
-        zoteroStore.fetchItems()
+        fetchItemsForCurrentFilters()
       }, 5000)
     }
   } catch (error) {
@@ -863,7 +892,7 @@ const handleDelete = async (item: any) => {
   try {
     const deleted = await zoteroStore.deleteItem(item.id)
     if (deleted) {
-      await zoteroStore.fetchItems(500, false, itemsScope.value)
+      await fetchItemsForCurrentFilters()
     }
   } catch (error) {
     logger.error('Delete error:', error)
@@ -882,7 +911,7 @@ const handleDeleteSelected = async () => {
     const deleted = await zoteroStore.deleteItemsBulk(selectedItems.value, false)
     if (deleted) {
       clearSelection()
-      await zoteroStore.fetchItems(500, false, itemsScope.value)
+      await fetchItemsForCurrentFilters()
     }
   } catch (error) {
     logger.error('Bulk delete selected error:', error)
@@ -901,7 +930,7 @@ const handleDeleteAll = async () => {
     const deleted = await zoteroStore.deleteItemsBulk(undefined, true)
     if (deleted) {
       clearSelection()
-      await zoteroStore.fetchItems(500, false, itemsScope.value)
+      await fetchItemsForCurrentFilters()
     }
   } catch (error) {
     logger.error('Bulk delete all error:', error)
@@ -955,7 +984,7 @@ const getStudySitesColor = (studySites: any[]): string => {
 
 // Lifecycle
 onMounted(async () => {
-  await zoteroStore.fetchItems(500, false, itemsScope.value)
+  await fetchItemsForCurrentFilters()
   if (authStore.isAuthenticated) {
     await zoteroStore.fetchZoteroCollections('group')
   }
@@ -963,7 +992,12 @@ onMounted(async () => {
 
 watch(itemsScope, async () => {
   selectedItems.value = []
-  await zoteroStore.fetchItems(500, false, itemsScope.value)
+  await fetchItemsForCurrentFilters()
+})
+
+watch(searchMode, async () => {
+  page.value = 1
+  await fetchItemsForCurrentFilters()
 })
 </script>
 

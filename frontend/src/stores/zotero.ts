@@ -26,8 +26,19 @@ export interface ZoteroStore {
   downloadProgress: Ref<{ current: number; total: number; downloaded: number; skipped: number; failed: number } | null>
   fetchCollections: () => Promise<void>
   fetchZoteroCollections: (libraryType?: 'user' | 'group') => Promise<void>
-  fetchItems: (limit?: number, silent?: boolean, scope?: 'all' | 'mine') => Promise<any[]>
-  fetchMapItems: (limit?: number, scope?: 'all' | 'mine') => Promise<{ data: any[]; count: number } | null>
+  fetchItems: (
+    limit?: number,
+    silent?: boolean,
+    scope?: 'all' | 'mine',
+    search?: string,
+    searchMode?: 'title' | 'title+fulltext',
+  ) => Promise<any[]>
+  fetchMapItems: (
+    limit?: number,
+    scope?: 'all' | 'mine',
+    search?: string,
+    searchMode?: 'title' | 'title+fulltext',
+  ) => Promise<{ data: any[]; count: number } | null>
   syncLibrary: (reload?: boolean, collectionId?: string | null) => Promise<boolean>
   downloadAttachments: (itemIds?: string[]) => Promise<any | null>
   getLocations: () => Promise<any[]>
@@ -115,13 +126,18 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     limit = 500,
     silent = false,
     scope: 'all' | 'mine' = 'all',
+    search = '',
+    searchMode: 'title' | 'title+fulltext' = 'title',
   ): Promise<any[]> => {
     // Don't set loading if it's a silent refresh (polling during download)
     if (!silent && !downloading.value) {
       loading.value = true
     }
     try {
-      const params = { limit, scope }
+      const params: Record<string, any> = { limit, scope, search_mode: searchMode }
+      if (search.trim()) {
+        params.search = search.trim()
+      }
 
       const response = await axios.get('/items/', { params })
       // Backend returns paginated shape: { data: Item[], count: number }
@@ -155,9 +171,15 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
   const fetchMapItems = async (
     limit = 500,
     scope: 'all' | 'mine' = 'all',
+    search = '',
+    searchMode: 'title' | 'title+fulltext' = 'title',
   ): Promise<{ data: any[]; count: number } | null> => {
     try {
-      const response = await axios.get('/items/map-summary', { params: { limit, scope } })
+      const params: Record<string, any> = { limit, scope, search_mode: searchMode }
+      if (search.trim()) {
+        params.search = search.trim()
+      }
+      const response = await axios.get('/items/map-summary', { params })
       return response.data
     } catch (error) {
       const notificationStore = useNotificationStore()

@@ -68,6 +68,17 @@
               density="compact"
               variant="outlined"
               hide-details
+              class="mb-3"
+              @update:model-value="debouncedPaperSearch" />
+
+            <v-select
+              v-model="paperSearchMode"
+              :items="paperSearchModeOptions"
+              label="Search Mode"
+              prepend-inner-icon="mdi-tune"
+              density="compact"
+              variant="outlined"
+              hide-details
               class="mb-3" />
 
             <v-select
@@ -1022,6 +1033,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { debounce } from 'lodash'
 import { useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import api from '@/services/api'
@@ -1084,6 +1096,7 @@ const mapComponent = ref<InstanceType<typeof StudySiteMap> | null>(null)
 // State - Papers
 const selectedPaper = ref<any | null>(null)
 const paperSearchQuery = ref('')
+const paperSearchMode = ref<'title' | 'title+fulltext'>('title')
 const paperFilterType = ref('all')
 const studySitesDialog = ref(false)
 const dialogPaper = ref<any | null>(null)
@@ -1133,6 +1146,11 @@ const paperFilterOptions = [
   { title: 'All Papers', value: 'all' },
   { title: 'With Study Sites', value: 'with_sites' },
   { title: 'Without Study Sites', value: 'without_sites' },
+]
+
+const paperSearchModeOptions = [
+  { title: 'Title', value: 'title' },
+  { title: 'Title + Fulltext', value: 'title+fulltext' },
 ]
 
 const gisOperationOptions = computed(() => {
@@ -1200,17 +1218,6 @@ const filteredPapers = computed(() => {
     result = result.filter((p: any) => (p.study_site_count || 0) > 0)
   } else if (paperFilterType.value === 'without_sites') {
     result = result.filter((p: any) => (p.study_site_count || 0) === 0)
-  }
-
-  // Filter by search query
-  if (paperSearchQuery.value) {
-    const query = paperSearchQuery.value.toLowerCase()
-    result = result.filter(
-      (p: any) =>
-        p.title?.toLowerCase().includes(query) ||
-        p.abstractNote?.toLowerCase().includes(query) ||
-        p.publicationTitle?.toLowerCase().includes(query),
-    )
   }
 
   return result
@@ -1295,12 +1302,21 @@ const selectedSummaryMetrics = computed<GISMetric[]>(() => {
 const fetchMapPapers = async () => {
   mapPapersLoading.value = true
   try {
-    const response = await zoteroStore.fetchMapItems(500, papersScope.value)
+    const response = await zoteroStore.fetchMapItems(
+      500,
+      papersScope.value,
+      paperSearchQuery.value,
+      paperSearchMode.value,
+    )
     mapPapers.value = response?.data || []
   } finally {
     mapPapersLoading.value = false
   }
 }
+
+const debouncedPaperSearch = debounce(async () => {
+  await fetchMapPapers()
+}, 300)
 
 const fetchMapPointsForViewport = async (bounds: ViewportBounds) => {
   activeViewport.value = bounds
@@ -1991,6 +2007,11 @@ watch(papersScope, async () => {
   if (activeViewport.value) {
     await fetchMapPointsForViewport(activeViewport.value)
   }
+})
+
+watch(paperSearchMode, async () => {
+  selectedPaper.value = null
+  await fetchMapPapers()
 })
 </script>
 
