@@ -8,7 +8,7 @@ from celery.result import AsyncResult
 from fastapi import APIRouter, HTTPException, Query, status
 from fastapi.responses import FileResponse
 from magic import Magic
-from sqlalchemy import BinaryExpression, ColumnElement
+from sqlalchemy import BinaryExpression, ColumnElement, case
 from sqlmodel import col, func, or_, select
 
 from app import crud
@@ -45,12 +45,35 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/items", tags=["items"])
 
+SearchMode = Literal["title", "title+fulltext"]
+
+
+def _build_item_search_expressions(search: str, search_mode: SearchMode) -> tuple[ColumnElement[bool], ColumnElement[float]]:
+    term = search.strip()
+    title_match = col(Item.title).ilike(f"%{term}%")
+
+    if search_mode == "title":
+        return title_match, case((title_match, 1.0), else_=0.0)
+
+    ts_query = func.websearch_to_tsquery("simple", term)
+    search_vector = func.coalesce(
+        Item.parsed_text_search,
+        func.to_tsvector("simple", func.coalesce(Item.parsed_text, "")),
+    )
+    fulltext_match = search_vector.op("@@")(ts_query)
+    rank = func.ts_rank_cd(search_vector, ts_query)
+    relevance = rank + case((title_match, 0.35), else_=0.0)
+
+    return or_(title_match, fulltext_match), relevance
+
 
 def read_db_items(
     session: SessionDep,
     current_user: User | None,
     skip: int = 0,
     limit: int = 500,
+    search: str | None = None,
+    search_mode: SearchMode = "title",
     *,
     include_all: bool = False,
 ) -> tuple[Sequence[Item], int]:
@@ -63,35 +86,36 @@ def read_db_items(
 
     if include_all or current_user is None:
         count_statement = select(func.count()).select_from(Item)
-        count = session.exec(count_statement).one()
         statement = (
             select(Item)
-            .offset(skip)
-            .limit(limit)
             .options(
                 joinedload(Item.study_sites).joinedload(StudySite.location),
                 selectinload(Item.creators),
                 selectinload(Item.tags),
             )
         )
-        items = session.exec(statement).unique().all()
     else:
         count_statement = (
             select(func.count()).select_from(Item).where(Item.owner_id == current_user.id)
         )
-        count = session.exec(count_statement).one()
         statement = (
             select(Item)
             .where(Item.owner_id == current_user.id)
-            .offset(skip)
-            .limit(limit)
             .options(
                 joinedload(Item.study_sites).joinedload(StudySite.location),
                 selectinload(Item.creators),
                 selectinload(Item.tags),
             )
         )
-        items = session.exec(statement).unique().all()
+
+    if search:
+        filters, relevance = _build_item_search_expressions(search, search_mode)
+        statement = statement.where(filters).order_by(relevance.desc(), col(Item.dateModified).desc())
+        count_statement = count_statement.where(filters)
+
+    statement = statement.offset(skip).limit(limit)
+    count = session.exec(count_statement).one()
+    items = session.exec(statement).unique().all()
 
     return items, count
 
@@ -127,13 +151,23 @@ def read_items(
     skip: int = 0,
     limit: int = 10,
     scope: Literal["all", "mine"] = Query(default="all"),
+    search: Annotated[str | None, Query(description="Search query")] = None,
+    search_mode: Annotated[SearchMode, Query(description="Search mode")] = "title",
 ) -> ItemsPublic:
     """Retrieve items."""
     if scope == "mine" and current_user is None:
         raise HTTPException(status_code=401, detail="Authentication required for scope=mine")
 
     include_all = scope == "all"
-    items, count = read_db_items(session, current_user, skip, limit, include_all=include_all)
+    items, count = read_db_items(
+        session,
+        current_user,
+        skip,
+        limit,
+        search,
+        search_mode,
+        include_all=include_all,
+    )
     _strip_attachments(items, current_user)
     return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
 
@@ -145,6 +179,8 @@ def read_items_map_summary(
     skip: int = 0,
     limit: int = 500,
     scope: Literal["all", "mine"] = Query(default="all"),
+    search: Annotated[str | None, Query(description="Search query")] = None,
+    search_mode: Annotated[SearchMode, Query(description="Search mode")] = "title",
 ) -> MapItemsPublic:
     """Retrieve lightweight item summaries for map sidebars."""
 
@@ -161,8 +197,6 @@ def read_items_map_summary(
         .select_from(Item)
         .outerjoin(StudySite, StudySite.item_id == Item.id)
         .group_by(Item.id, Item.title, Item.publicationTitle, Item.date)
-        .offset(skip)
-        .limit(limit)
     )
 
     count_statement = select(func.count()).select_from(Item)
@@ -173,6 +207,13 @@ def read_items_map_summary(
     if scope == "mine" and current_user is not None:
         statement = statement.where(Item.owner_id == current_user.id)
         count_statement = count_statement.where(Item.owner_id == current_user.id)
+
+    if search:
+        filters, relevance = _build_item_search_expressions(search, search_mode)
+        statement = statement.where(filters).order_by(relevance.desc(), col(Item.dateModified).desc())
+        count_statement = count_statement.where(filters)
+
+    statement = statement.offset(skip).limit(limit)
 
     rows = session.exec(statement).all()
     total_count = session.exec(count_statement).one()

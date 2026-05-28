@@ -219,6 +219,64 @@ def test_read_items_includes_issn_value(
     assert target["ISSN"] == "1234-5678"
 
 
+def test_read_items_title_fulltext_search_mode_uses_parsed_text(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db_session: Session,
+) -> None:
+    target_item = create_random_item(db_session)
+    target_item.title = "Unrelated title"
+    target_item.parsed_text = "The study area focuses on Laguna Verde hydrology"
+
+    control_item = create_random_item(db_session)
+    control_item.title = "Another paper"
+    control_item.parsed_text = "No matching terms here"
+
+    db_session.add(target_item)
+    db_session.add(control_item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=superuser_token_headers,
+        params={"search": "laguna verde", "search_mode": "title+fulltext", "limit": 50},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    ids = {entry["id"] for entry in data}
+    assert str(target_item.id) in ids
+    assert str(control_item.id) not in ids
+
+
+def test_read_items_map_summary_title_fulltext_search_mode_uses_parsed_text(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db_session: Session,
+) -> None:
+    target_item = create_random_item(db_session)
+    target_item.title = "Map paper"
+    target_item.parsed_text = "Contains Atacama Basin sediment analysis"
+
+    control_item = create_random_item(db_session)
+    control_item.title = "Control map paper"
+    control_item.parsed_text = "No relevant map search terms"
+
+    db_session.add(target_item)
+    db_session.add(control_item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/map-summary",
+        headers=superuser_token_headers,
+        params={"search": "atacama basin", "search_mode": "title+fulltext", "limit": 50},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    ids = {entry["id"] for entry in data}
+    assert str(target_item.id) in ids
+    assert str(control_item.id) not in ids
+
+
 def test_read_items_anonymous_hides_attachment(
     client: TestClient,
     db_session: Session,
