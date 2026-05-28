@@ -62,6 +62,39 @@ class StudySiteExtractionPipeline:
         re.compile(r"\b\d{1,2}(?:\.\d+)?\s*[°º]?\s*[NS]\b", re.IGNORECASE),
     ]
 
+    ENTITY_RANK_PRIORITY: ClassVar[dict[str, int]] = {
+        "COORDINATE": 4,
+        "BOUNDING_BOX": 3,
+        "STUDY_SITE": 3,
+        "MULTIWORD_LOCATION": 2,
+        "RESEARCH_SITE": 2,
+        "SPATIAL_RELATION": 2,
+        "WATER_BODY": 2,
+        "GEO_FEATURE": 2,
+        "ECOSYSTEM": 2,
+        "COASTAL": 2,
+        "GPE": 1,
+        "LOC": 1,
+        "FAC": 1,
+        "CONTEXTUAL_LOCATION": 1,
+    }
+
+    SECTION_RANK_PRIORITY: ClassVar[dict[str, int]] = {
+        "study_area": 4,
+        "study site": 4,
+        "study_site": 4,
+        "methods": 4,
+        "materials": 3,
+        "data": 3,
+        "results": 2,
+        "abstract": 2,
+        "caption": 1,
+        "introduction": 1,
+        "discussion": 1,
+        "conclusion": 1,
+        "other": 0,
+    }
+
     def __init__(
         self,
         config: ModelConfig,
@@ -906,12 +939,28 @@ class StudySiteExtractionPipeline:
         return any(pattern.search(text_sample) for pattern in self.STUDY_SITE_CUE_PATTERNS)
 
     def _deduplicate_entities(self, entities: list[GeoEntity]) -> list[GeoEntity]:
-        """Remove duplicate entities based on text and position."""
+        """Remove duplicate entities while preserving distinct repeated mentions."""
         seen = set()
         unique: list[GeoEntity] = []
 
         for entity in entities:
-            key = (entity.text.lower(), entity.section, entity.entity_type)
+            coordinates = None
+            if entity.coordinates is not None:
+                coordinates = tuple(round(value, 5) for value in entity.coordinates)
+
+            bounding_box = None
+            if entity.bounding_box is not None:
+                bounding_box = tuple(round(value, 5) for value in entity.bounding_box)
+
+            key = (
+                entity.text.lower().strip(),
+                entity.section,
+                entity.entity_type,
+                entity.start_char,
+                entity.end_char,
+                coordinates,
+                bounding_box,
+            )
             if key not in seen:
                 seen.add(key)
                 unique.append(entity)
@@ -919,47 +968,16 @@ class StudySiteExtractionPipeline:
         return unique
 
     def _rank_entities(self, entities: list[GeoEntity]) -> list[GeoEntity]:
-        """Rank entities using model confidence scores.
+        """Rank entities by evidence quality rather than confidence alone."""
 
-        NLP best practice: Use confidence scores directly from models/extractors
-        instead of complex heuristics. Linguistic patterns (DependencyMatcher) and
-        spaCy NER already provide well-calibrated confidence scores.
+        def score(e: GeoEntity) -> tuple[int, bool, int, float, int]:
+            section = e.section.lower().strip()
+            return (
+                self.ENTITY_RANK_PRIORITY.get(e.entity_type, 1),
+                e.coordinates is not None,
+                self.SECTION_RANK_PRIORITY.get(section, 0),
+                e.confidence,
+                len(e.text),
+            )
 
-        Priority order:
-        1. COORDINATE entities (highest - explicit coordinates)
-        2. STUDY_SITE entities (high - from linguistic patterns)
-        3. Other entities (by model confidence)
-
-        Args:
-            entities: List of extracted entities
-
-        Returns:
-            Entities sorted by model confidence and entity type priority
-        """
-
-        def score(e: GeoEntity) -> tuple[int, float, bool]:
-            """Return (priority, confidence, has_coordinates) for sorting.
-
-            Priority levels (higher is better):
-            - 3: COORDINATE (explicit coordinates are always most reliable)
-            - 2: STUDY_SITE (from dependency patterns - high linguistic evidence)
-            - 1: Everything else (NER, spatial relations, etc.)
-            """
-            # Entity type priority
-            if e.entity_type == "COORDINATE":
-                priority = 3
-            elif e.entity_type == "STUDY_SITE":
-                priority = 2
-            else:
-                priority = 1
-
-            # Use model confidence directly (no heuristic modifications)
-            confidence = e.confidence
-
-            # Prefer entities with coordinates as tiebreaker
-            has_coords = e.coordinates is not None
-
-            return (priority, confidence, has_coords)
-
-        # Sort by priority (desc), then confidence (desc), then has coordinates (desc)
         return sorted(entities, key=score, reverse=True)

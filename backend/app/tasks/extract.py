@@ -63,29 +63,39 @@ def _extract_study_site_impl(
             "message": f"Item already has {len(existing_ids)} study site(s)",
         }
 
-    # Delete existing study sites and extraction results if forcing re-extraction
-    if force and item.study_sites:
-        logger.info("Force=True: Deleting %d existing study sites for item %s",
-                   len(item.study_sites), item_id)
-
-        # Delete all study sites for this item
-        for study_site in item.study_sites:
-            session.delete(study_site)
-
-        # Delete all extraction results for this item
+    # Delete existing study sites and extraction results if forcing re-extraction.
+    # This applies even when only extraction candidates exist from a previous run.
+    if force:
+        existing_study_sites = list(item.study_sites or [])
         extraction_results = session.exec(
             select(ExtractionResult).where(ExtractionResult.item_id == item_uuid)
         ).all()
 
-        logger.info("Deleting %d extraction results for item %s",
-                   len(extraction_results), item_id)
-        for extraction_result in extraction_results:
-            session.delete(extraction_result)
+        if existing_study_sites:
+            logger.info(
+                "Force=True: Deleting %d existing study sites for item %s",
+                len(existing_study_sites),
+                item_id,
+            )
+            for study_site in existing_study_sites:
+                session.delete(study_site)
 
-        session.flush()  # Flush deletions before proceeding
-        logger.info("Deleted existing study sites and extraction results for item %s", item_id)
+        if extraction_results:
+            logger.info(
+                "Deleting %d extraction results for item %s",
+                len(extraction_results),
+                item_id,
+            )
+            for extraction_result in extraction_results:
+                session.delete(extraction_result)
+
+        if existing_study_sites or extraction_results:
+            session.flush()  # Flush deletions before proceeding
+            logger.info("Deleted existing study sites and extraction results for item %s", item_id)
 
     if not item.attachment:
+        if force:
+            session.commit()
         logger.warning("Item %s has no attachment", item.id)
         return {
             "item_id": item_id,
@@ -118,6 +128,8 @@ def _extract_study_site_impl(
     )
 
     if not study_sites:
+        if force:
+            session.commit()
         logger.warning("No study sites found for item %s", item.id)
         return {
             "item_id": item_id,

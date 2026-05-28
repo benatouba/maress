@@ -131,6 +131,48 @@ class CachedGeocoder:
         "stations",
         "this study",
         "our study",
+        "andes",
+        "chile",
+        "peru",
+        "bolivia",
+        "argentina",
+        "south america",
+    }
+    BROAD_REGION_TERMS: ClassVar[set[str]] = {
+        "andes",
+        "andean",
+        "atacama",
+        "chile",
+        "peru",
+        "bolivia",
+        "argentina",
+        "ecuador",
+        "colombia",
+        "south america",
+        "latin america",
+    }
+    BROAD_REGION_MODIFIERS: ClassVar[set[str]] = {
+        "northern",
+        "southern",
+        "central",
+        "eastern",
+        "western",
+        "upper",
+        "lower",
+        "inner",
+        "outer",
+        "coastal",
+        "peruvian",
+        "chilean",
+        "bolivian",
+        "argentinian",
+        "argentine",
+        "ecuadorian",
+        "colombian",
+        "south",
+        "north",
+        "east",
+        "west",
     }
     STOPWORD_LIKE_TOKENS: ClassVar[set[str]] = {
         "the",
@@ -381,7 +423,28 @@ class CachedGeocoder:
             score += 0.15
         if "-" in name:
             score += 0.05
+        tokens_lower = {token.lower() for token in tokens}
+        if tokens_lower & CachedGeocoder.BROAD_REGION_TERMS:
+            score -= 0.25
         return min(score, 0.6)
+
+    @classmethod
+    def _is_broad_region_phrase(cls, candidate: str) -> bool:
+        """Return whether a candidate names only a broad region/country."""
+        tokens = [token.lower() for token in re.findall(r"[A-Za-z]+", candidate)]
+        if not tokens:
+            return False
+
+        if any(token in cls.BROAD_REGION_TERMS for token in tokens):
+            non_modifier_tokens = [
+                token for token in tokens if token not in cls.BROAD_REGION_MODIFIERS
+            ]
+            if non_modifier_tokens and all(
+                token in cls.BROAD_REGION_TERMS for token in non_modifier_tokens
+            ):
+                return True
+
+        return False
 
     @staticmethod
     def _normalised_match_score(query: str, candidate: str) -> float:
@@ -897,6 +960,9 @@ class CachedGeocoder:
         if candidate_lower in self.GENERIC_LOCATION_TERMS:
             return (False, "generic_location_term")
 
+        if self._is_broad_region_phrase(candidate):
+            return (False, "broad_region_phrase")
+
         if self.reject_determiner_prefix and alpha_tokens_lower[0] in self.DETERMINER_PREFIXES:
             return (False, "determiner_prefix")
 
@@ -1116,7 +1182,7 @@ class CachedGeocoder:
                         entity_type=source_entity.entity_type,
                         context=source_entity.context,
                         section=source_entity.section,
-                        confidence=min(source_entity.confidence + 0.1, 1.0),
+                        confidence=min(source_entity.confidence + 0.03, 0.92),
                         start_char=source_entity.start_char,
                         end_char=source_entity.end_char,
                         coordinates=coords,

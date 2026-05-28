@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic_extra_types.coordinate import Latitude, Longitude
+from sqlmodel import select
 
 from app.models import Item
 from app.models import StudySite
@@ -420,6 +421,85 @@ class TestExtractStudySiteTask:
             assert result["status"] == "not_found"
             assert result["count"] == 0
             assert "No study sites found" in result["message"]
+
+    def test_force_reextraction_clears_stale_results_when_new_run_finds_nothing(
+        self,
+        db_session: Session,
+        item_with_pdf: Item,
+        mock_pdf_path: Path,
+    ) -> None:
+        """Force re-extraction should persist deletions even on a not-found result."""
+        from app.crud import create_study_site
+        from app.models import ExtractionResult as ExtractionResultModel
+        from app.models import StudySiteCreate
+
+        existing_site = StudySiteCreate(
+            name="Old Site",
+            latitude=Latitude(-1.0),
+            longitude=Longitude(-79.0),
+            confidence_score=0.5,
+            context="Old context",
+            extraction_method=CoordinateExtractionMethod.MANUAL,
+            section=PaperSections.OTHER,
+            source_type=CoordinateSourceType.MANUAL,
+            validation_score=0.5,
+            item_id=item_with_pdf.id,
+        )
+        create_study_site(db_session, existing_site)
+
+        existing_extraction = ExtractionResultModel(
+            item_id=item_with_pdf.id,
+            name="Old Candidate",
+            latitude=-1.0,
+            longitude=-79.0,
+            context="Old extraction result",
+            confidence_score=0.4,
+            extraction_method=CoordinateExtractionMethod.NER,
+            source_type=CoordinateSourceType.TEXT,
+            section=PaperSections.METHODS,
+            rank=1,
+            is_saved=True,
+        )
+        db_session.add(existing_extraction)
+        db_session.commit()
+
+        empty_result = ExtractionResult(
+            pdf_path=mock_pdf_path,
+            entities=[],
+            total_sections_processed=5,
+            extraction_metadata=make_extraction_metadata(),
+            doc=None,
+            title="Test Study with No Sites",
+            cluster_info={},
+            average_text_quality=0.85,
+            section_quality_scores={},
+        )
+
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = empty_result
+            mock_factory.return_value = mock_pipeline
+
+            result = extract_study_site_task(
+                item_id=str(item_with_pdf.id),
+                user_id=str(item_with_pdf.owner_id),
+                is_superuser=True,
+                force=True,
+                _test_session=db_session,
+            )
+
+        assert result["status"] == "not_found"
+        assert result["count"] == 0
+
+        db_session.expire_all()
+        item = db_session.get(Item, item_with_pdf.id)
+        assert item is not None
+        assert item.study_sites == []
+
+        extraction_results = db_session.exec(
+            select(ExtractionResultModel).where(ExtractionResultModel.item_id == item_with_pdf.id)
+        ).all()
+        assert extraction_results == []
 
     def test_permission_denied(self, db_session: Session, item_with_pdf: Item) -> None:
         """Test that non-owner cannot extract study sites from item."""

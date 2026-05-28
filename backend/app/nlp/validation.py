@@ -13,7 +13,7 @@ This is a Priority 4 improvement that catches errors and improves reliability.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from app.nlp.domain_models import ExtractionResult, GeoEntity
 from app.nlp.nlp_logger import logger
@@ -115,6 +115,26 @@ class ExtractionValidator:
     MAX_CLUSTER_DIAMETER_KM = 5000.0  # Max distance across a cluster
     MIN_CONFIDENCE = 0.3
     MAX_ENTITIES_PER_DOCUMENT = 1000
+    VALID_ENTITY_TYPES: ClassVar[set[str]] = {
+        "LOC",
+        "GPE",
+        "FAC",
+        "NORP",
+        "COORDINATE",
+        "SPATIAL_RELATION",
+        "STUDY_SITE",
+        "WATER_BODY",
+        "GEO_FEATURE",
+        "ECOSYSTEM",
+        "COASTAL",
+        "RESEARCH_SITE",
+        "CLIMATE_ZONE",
+        "MULTIWORD_LOCATION",
+        "CONTEXTUAL_LOCATION",
+        "BOUNDING_BOX",
+        "CAPTION",
+        "FIGURE",
+    }
 
     def __init__(self) -> None:
         """Initialize the validator."""
@@ -220,11 +240,7 @@ class ExtractionValidator:
                 )
 
             # Validate entity type
-            valid_types = {
-                "LOC", "GPE", "FAC", "NORP", "COORDINATE", "SPATIAL_RELATION",
-                "STUDY_SITE", "WATER_BODY", "GEO_FEATURE", "BOUNDING_BOX",
-            }
-            if entity.entity_type not in valid_types:
+            if entity.entity_type not in self.VALID_ENTITY_TYPES:
                 report.add_warning(
                     "entity_type",
                     f"Unknown entity type: {entity.entity_type} for '{entity.text}'",

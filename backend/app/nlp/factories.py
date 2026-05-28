@@ -13,6 +13,7 @@ from app.nlp.model_config import ModelConfig
 from app.nlp.orchestrator import StudySiteExtractionPipeline
 from app.nlp.pdf_parser import DoclingPDFParser
 from app.nlp.sentence_boundaries import improve_sentence_boundaries
+from app.nlp.torch_utils import torch_float32_default
 
 
 def _enable_scispacy_abbreviation_detector(
@@ -186,10 +187,11 @@ class PipelineFactory:
         # Only disable textcat for performance
         # NOTE: Tagger is required for custom matchers using POS/TAG attributes
         # NOTE: Lemmatizer is required for custom matchers using LEMMA attributes (Phase 1 patterns)
-        shared_nlp = spacy.load(
-            config.SPACY_MODEL,
-            disable=["textcat"],
-        )
+        with torch_float32_default():
+            shared_nlp = spacy.load(
+                config.SPACY_MODEL,
+                disable=["textcat"],
+            )
 
         # Phase 1 Best Practice: Add all custom components upfront (no runtime additions)
         # This creates a predictable pipeline configuration that's easy to test and debug

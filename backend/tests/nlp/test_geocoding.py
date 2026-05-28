@@ -233,6 +233,33 @@ def test_filters_non_location_content_fragments() -> None:
     assert geocoder.calls == ["Laguna Verde"]
 
 
+def test_filters_broad_region_phrases() -> None:
+    geocoder = DummyGeocoder()
+
+    entities = [
+        _entity("Peruvian Andes", confidence=0.96, section="methods"),
+        _entity("central Chile", confidence=0.96, section="methods"),
+        _entity("Laguna Verde", confidence=0.9, section="study_area"),
+    ]
+
+    _ = geocoder.geocode_entities(entities, max_candidates=20, min_confidence=0.55)
+
+    assert geocoder.calls == ["Laguna Verde"]
+
+
+def test_geocoded_entities_do_not_saturate_to_one() -> None:
+    geocoder = DummyGeocoder()
+
+    entities = [
+        _entity("Quito", confidence=0.9, section="methods"),
+    ]
+
+    result = geocoder.geocode_entities(entities, max_candidates=20, min_confidence=0.55)
+
+    assert result[0].coordinates == (10.0, 20.0)
+    assert result[0].confidence == 0.92
+
+
 def test_uses_configurable_defaults_for_budget_and_confidence() -> None:
     geocoder = DummyGeocoder()
     geocoder.max_candidates_per_doc = 1
@@ -393,6 +420,15 @@ def test_geocoding_telemetry_records_rejection_reasons() -> None:
             end_char=10,
         ),
         GeoEntity(
+            text="Peruvian Andes",
+            entity_type="GPE",
+            context="Study sites were sampled in the Peruvian Andes.",
+            section="methods",
+            confidence=0.95,
+            start_char=0,
+            end_char=15,
+        ),
+        GeoEntity(
             text="Laguna Verde",
             entity_type="GPE",
             context="Study site located in Laguna Verde.",
@@ -406,8 +442,9 @@ def test_geocoding_telemetry_records_rejection_reasons() -> None:
     _ = geocoder.geocode_entities(entities)
     stats = geocoder.get_last_document_stats()
 
-    assert stats["entities_total"] == 3
+    assert stats["entities_total"] == 4
     assert stats["candidate_mentions_accepted"] == 1
     assert stats["candidate_reject_low_signal_section_without_context_cue"] == 1
     assert stats["candidate_reject_generic_location_term"] == 1
+    assert stats["candidate_reject_broad_region_phrase"] == 1
     assert stats["unique_candidates_total"] == 1

@@ -6,7 +6,9 @@ architecture and the existing API/database models.
 
 from __future__ import annotations
 
+import re
 import uuid
+from typing import ClassVar
 
 from pydantic_extra_types.coordinate import Latitude, Longitude
 
@@ -27,6 +29,93 @@ class StudySiteResultAdapter:
     existing database models, maintaining backward compatibility.
     """
 
+    EXTRACTION_VALIDATION_BONUS = {
+        CoordinateExtractionMethod.MANUAL: 0.22,
+        CoordinateExtractionMethod.REGEX: 0.18,
+        CoordinateExtractionMethod.TABLE_PARSING: 0.16,
+        CoordinateExtractionMethod.NER: 0.12,
+        CoordinateExtractionMethod.GEOCODED: 0.08,
+    }
+
+    SOURCE_VALIDATION_BONUS = {
+        CoordinateSourceType.MANUAL: 0.20,
+        CoordinateSourceType.TABLE: 0.10,
+        CoordinateSourceType.TEXT: 0.08,
+        CoordinateSourceType.METADATA: 0.04,
+        CoordinateSourceType.CAPTION: -0.04,
+    }
+
+    SECTION_VALIDATION_BONUS = {
+        PaperSections.METHODS: 0.12,
+        PaperSections.RESULTS: 0.08,
+        PaperSections.ABSTRACT: 0.04,
+        PaperSections.TITLE: 0.03,
+        PaperSections.DISCUSSION: 0.01,
+        PaperSections.CONCLUSION: 0.01,
+        PaperSections.INTRODUCTION: 0.0,
+        PaperSections.OTHER: 0.0,
+        PaperSections.REFERENCES: -0.20,
+    }
+
+    EXTRACTION_PRIORITY = {
+        CoordinateExtractionMethod.MANUAL: 5,
+        CoordinateExtractionMethod.REGEX: 4,
+        CoordinateExtractionMethod.TABLE_PARSING: 4,
+        CoordinateExtractionMethod.NER: 3,
+        CoordinateExtractionMethod.GEOCODED: 2,
+    }
+
+    SOURCE_PRIORITY = {
+        CoordinateSourceType.MANUAL: 5,
+        CoordinateSourceType.TABLE: 4,
+        CoordinateSourceType.TEXT: 3,
+        CoordinateSourceType.METADATA: 2,
+        CoordinateSourceType.CAPTION: 1,
+    }
+
+    SECTION_PRIORITY = {
+        PaperSections.METHODS: 4,
+        PaperSections.RESULTS: 3,
+        PaperSections.ABSTRACT: 2,
+        PaperSections.TITLE: 2,
+        PaperSections.DISCUSSION: 1,
+        PaperSections.INTRODUCTION: 1,
+        PaperSections.CONCLUSION: 1,
+        PaperSections.OTHER: 0,
+        PaperSections.REFERENCES: -1,
+    }
+    EXCLUDED_ENTITY_TYPES: ClassVar[set[str]] = {"BOUNDING_BOX"}
+    GENERIC_COORDINATE_NAME_PREFIX: ClassVar[str] = "Site at "
+    VAGUE_NAME_PREFIX_TOKENS: ClassVar[set[str]] = {
+        "near",
+        "around",
+        "within",
+        "between",
+        "across",
+        "along",
+        "of",
+        "the",
+        "this",
+        "that",
+        "these",
+        "those",
+        "our",
+        "their",
+        "its",
+    }
+    VAGUE_NAME_PHRASES: ClassVar[set[str]] = {
+        "study area",
+        "study site",
+        "study sites",
+        "study region",
+        "research site",
+        "sampling site",
+        "field site",
+        "this study",
+        "our study",
+    }
+    GENERIC_NAME_VALIDATION_PENALTY: ClassVar[float] = 0.10
+
     @staticmethod
     def to_study_sites(
         result: ExtractionResult,
@@ -46,7 +135,11 @@ class StudySiteResultAdapter:
         study_sites: list[StudySiteCreate] = []
 
         # Get entities with coordinates
-        entities_with_coords = result.get_entities_with_coordinates()
+        entities_with_coords = [
+            entity
+            for entity in result.get_entities_with_coordinates()
+            if entity.entity_type not in StudySiteResultAdapter.EXCLUDED_ENTITY_TYPES
+        ]
 
         # COORDINATES always create StudySites (bypass confidence threshold)
         coordinate_entities = [e for e in entities_with_coords if e.entity_type == "COORDINATE"]
@@ -86,6 +179,8 @@ class StudySiteResultAdapter:
                 logger.warning(f"Failed to convert entity to StudySite: {e}")
                 continue
 
+        study_sites.sort(key=StudySiteResultAdapter._study_site_sort_key, reverse=True)
+
         logger.info(f"Converted {len(study_sites)} entities to StudySiteCreate")
         return study_sites
 
@@ -109,6 +204,14 @@ class StudySiteResultAdapter:
             msg = "Entity must have coordinates"
             raise ValueError(msg)
 
+        # Extract name from entity text or context
+        name = StudySiteResultAdapter._extract_name(entity)
+
+        rejection_reason = StudySiteResultAdapter._study_site_rejection_reason(entity, name)
+        if rejection_reason is not None:
+            msg = f"Skipping study-site candidate '{name}': {rejection_reason}"
+            raise ValueError(msg)
+
         # Map entity type to extraction method
         extraction_method = StudySiteResultAdapter._map_extraction_method(entity)
 
@@ -120,12 +223,13 @@ class StudySiteResultAdapter:
 
         # Calculate validation score based on cluster size
         validation_score = StudySiteResultAdapter._calculate_validation_score(
-            entity.confidence,
-            cluster_info,
+            confidence=entity.confidence,
+            cluster_info=cluster_info,
+            extraction_method=extraction_method,
+            source_type=source_type,
+            section=section,
+            name=name,
         )
-
-        # Extract name from entity text or context
-        name = StudySiteResultAdapter._extract_name(entity)
 
         return StudySiteCreate(
             name=name,
@@ -220,6 +324,10 @@ class StudySiteResultAdapter:
     def _calculate_validation_score(
         confidence: float,
         cluster_info: dict[str, int],
+        extraction_method: CoordinateExtractionMethod,
+        source_type: CoordinateSourceType,
+        section: PaperSections,
+        name: str,
     ) -> float:
         """Calculate validation score.
 
@@ -230,17 +338,46 @@ class StudySiteResultAdapter:
         Returns:
             Validation score between 0 and 1
         """
-        # Base score from confidence
-        score = confidence
+        score = confidence * 0.6
+        score += StudySiteResultAdapter.EXTRACTION_VALIDATION_BONUS.get(
+            extraction_method,
+            0.08,
+        )
+        score += StudySiteResultAdapter.SOURCE_VALIDATION_BONUS.get(source_type, 0.0)
+        score += StudySiteResultAdapter.SECTION_VALIDATION_BONUS.get(section, 0.0)
 
-        # Boost if part of a cluster
-        if cluster_info:
-            # Higher score for entities in larger clusters
-            max_cluster_size = max(cluster_info.values()) if cluster_info else 1
-            if max_cluster_size > 1:
-                score = min(score + 0.1, 1.0)
+        cluster_sizes = [
+            value
+            for key, value in cluster_info.items()
+            if key == "largest_cluster_size" or key.startswith("cluster_")
+        ]
+        largest_cluster_size = max(cluster_sizes, default=0)
+        if largest_cluster_size >= 2:
+            score += min((largest_cluster_size - 1) * 0.03, 0.09)
 
-        return round(score, 3)
+        if name.startswith(StudySiteResultAdapter.GENERIC_COORDINATE_NAME_PREFIX):
+            score -= StudySiteResultAdapter.GENERIC_NAME_VALIDATION_PENALTY
+
+        return round(min(max(score, 0.0), 1.0), 3)
+
+    @staticmethod
+    def _study_site_sort_key(
+        study_site: StudySiteCreate,
+    ) -> tuple[float, int, int, int, float, bool]:
+        """Prefer validated, explicit, methods-based study sites."""
+        return (
+            study_site.validation_score,
+            StudySiteResultAdapter.EXTRACTION_PRIORITY.get(study_site.extraction_method, 0),
+            StudySiteResultAdapter.SECTION_PRIORITY.get(study_site.section, 0),
+            StudySiteResultAdapter.SOURCE_PRIORITY.get(study_site.source_type, 0),
+            study_site.confidence_score,
+            bool(
+                study_site.name
+                and not study_site.name.startswith(
+                    StudySiteResultAdapter.GENERIC_COORDINATE_NAME_PREFIX,
+                )
+            ),
+        )
 
     @staticmethod
     def _extract_name(entity: GeoEntity) -> str:
@@ -256,23 +393,47 @@ class StudySiteResultAdapter:
         if entity.entity_type == "COORDINATE":
             # Try to extract name from context
             context = entity.context
-            # Look for patterns like "Site Name:" or "located at"
-            import re
-
-            name_pattern = r"(?:site|location|station)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)"
-            match = re.search(name_pattern, context, re.IGNORECASE)
+            # Only accept clearly delimited proper names after site/location labels.
+            name_pattern = re.compile(
+                r"(?i:\b(?:site|location|station)\b(?:\s+name)?[:\-\s]+)"
+                r"([A-Z][A-Za-z'/-]*(?:\s+(?:de|del|da|do|dos|das|of|the|la|las|los)\s+"
+                r"[A-Z][A-Za-z'/-]*|\s+[A-Z][A-Za-z'/-]*){0,5})"
+            )
+            match = name_pattern.search(context)
             if match:
                 return match.group(1)
 
             # Default to coordinate text
-            return f"Site at {entity.text}"
+            return f"{StudySiteResultAdapter.GENERIC_COORDINATE_NAME_PREFIX}{entity.text}"
 
         # For location entities, use the entity text
         return entity.text[:100]  # Limit length
 
+    @staticmethod
+    def _study_site_rejection_reason(entity: GeoEntity, name: str) -> str | None:
+        """Return reason when a candidate should not become a saved study site."""
+        if entity.entity_type in StudySiteResultAdapter.EXCLUDED_ENTITY_TYPES:
+            return "study_area_extent"
+
+        if entity.entity_type == "COORDINATE":
+            return None
+
+        normalized_name = " ".join(name.strip().lower().split())
+        if not normalized_name:
+            return "empty_name"
+
+        if any(phrase in normalized_name for phrase in StudySiteResultAdapter.VAGUE_NAME_PHRASES):
+            return "generic_location_phrase"
+
+        name_tokens = re.findall(r"[A-Za-z]+", normalized_name)
+        if name_tokens and name_tokens[0] in StudySiteResultAdapter.VAGUE_NAME_PREFIX_TOKENS:
+            return "leading_preposition_or_determiner"
+
+        return None
+
 
 def get_primary_study_site(study_sites: list[StudySiteCreate]) -> StudySiteCreate | None:
-    """Get the primary (highest confidence) study site.
+    """Get the best-supported study site.
 
     Args:
         study_sites: List of study sites
@@ -283,10 +444,9 @@ def get_primary_study_site(study_sites: list[StudySiteCreate]) -> StudySiteCreat
     if not study_sites:
         return None
 
-    # Sort by confidence score (descending)
     sorted_sites = sorted(
         study_sites,
-        key=lambda s: s.confidence_score,
+        key=StudySiteResultAdapter._study_site_sort_key,
         reverse=True,
     )
 

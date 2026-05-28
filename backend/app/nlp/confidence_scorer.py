@@ -25,46 +25,47 @@ class ConfidenceScorer:
     5. Dependency patterns
     """
 
-    # Section multipliers (enhanced from orchestrator)
+    # Keep section weighting intentionally close to 1.0 so model/entity scores
+    # remain rankable instead of saturating at 1.0 for most methods text.
     SECTION_MULTIPLIERS = {
         # High confidence sections
-        "study area": 2.5,
-        "study site": 2.5,
-        "study sites": 2.5,
-        "study_area": 2.5,
-        "study_site": 2.5,
-        "data and methods": 2.0,
-        "materials and methods": 2.0,
-        "methods": 2.0,
-        "materials": 1.8,
-        "data collection": 2.0,
-        "field methods": 2.2,
-        "site description": 2.3,
+        "study area": 1.12,
+        "study site": 1.12,
+        "study sites": 1.12,
+        "study_area": 1.12,
+        "study_site": 1.12,
+        "data and methods": 1.08,
+        "materials and methods": 1.08,
+        "methods": 1.08,
+        "materials": 1.05,
+        "data collection": 1.06,
+        "field methods": 1.10,
+        "site description": 1.10,
 
         # Medium confidence sections
-        "results": 1.3,
-        "abstract": 1.2,
-        "figure": 1.5,
-        "caption": 1.4,
-        "table": 1.3,
+        "results": 1.03,
+        "abstract": 1.0,
+        "figure": 0.95,
+        "caption": 0.92,
+        "table": 1.04,
 
         # Lower confidence sections
-        "introduction": 0.8,
-        "background": 0.7,
-        "discussion": 0.7,
-        "conclusion": 0.6,
-        "conclusions": 0.6,
+        "introduction": 0.9,
+        "background": 0.85,
+        "discussion": 0.82,
+        "conclusion": 0.78,
+        "conclusions": 0.78,
 
         # Very low confidence
-        "references": 0.1,
-        "bibliography": 0.1,
-        "acknowledgments": 0.2,
-        "acknowledgements": 0.2,
+        "references": 0.3,
+        "bibliography": 0.3,
+        "acknowledgments": 0.45,
+        "acknowledgements": 0.45,
     }
 
     # Positive context keywords (boosting)
     TIER1_KEYWORDS = {
-        # Very high confidence (0.7 boost)
+        # Strong positive evidence (+0.18)
         "study site", "study area", "study location", "our study site",
         "our study area", "study sites were", "study area was",
         "sites were located", "area was located", "research site",
@@ -73,7 +74,7 @@ class ConfidenceScorer:
     }
 
     TIER2_KEYWORDS = {
-        # High confidence (0.5 boost)
+        # Medium positive evidence (+0.10)
         "sampling location", "sampling station", "sample site",
         "sample location", "sample collection", "samples were collected",
         "field station", "research station", "research area",
@@ -83,7 +84,7 @@ class ConfidenceScorer:
     }
 
     TIER3_KEYWORDS = {
-        # Medium confidence (0.3 boost)
+        # Light positive evidence (+0.04)
         "plot", "transect", "quadrat", "study region",
         "sites", "location", "locations", "station", "stations",
         "site", "area", "region", "conducted", "performed",
@@ -92,7 +93,7 @@ class ConfidenceScorer:
 
     # Negative context keywords (penalties)
     CITATION_KEYWORDS = {
-        # Heavy penalty (-0.5)
+        # Citation/comparison penalty (-0.18)
         "et al", "et al.", "cited", "reported", "described by",
         "according to", "previous study", "earlier work",
         "prior study", "literature", "published", "similar to",
@@ -100,7 +101,7 @@ class ConfidenceScorer:
     }
 
     INSTITUTION_KEYWORDS = {
-        # Penalty for institutional affiliations (-0.4)
+        # Affiliation penalty (-0.14)
         "author", "affiliation", "department", "university",
         "address", "correspondence", "laboratory", "institute",
         "institution", "research center", "research centre",
@@ -109,10 +110,10 @@ class ConfidenceScorer:
 
     # Syntactic role boosters
     SYNTACTIC_BOOSTERS = {
-        "pobj": 1.2,  # Object of preposition (e.g., "at California")
-        "dobj": 1.2,  # Direct object (e.g., "visited California")
-        "nsubj": 1.1,  # Subject (e.g., "California was studied")
-        "appos": 1.3,  # Apposition (e.g., "our site, California,")
+        "pobj": 1.04,  # Object of preposition (e.g., "at California")
+        "dobj": 1.04,  # Direct object (e.g., "visited California")
+        "nsubj": 1.02,  # Subject (e.g., "California was studied")
+        "appos": 1.06,  # Apposition (e.g., "our site, California,")
     }
 
     def __init__(self) -> None:
@@ -157,11 +158,11 @@ class ConfidenceScorer:
 
         # Apply special boosts for specific patterns
         if entity_span is not None and hasattr(entity_span, "_") and hasattr(entity_span._, "dependency_pattern"):
-            score *= 1.3  # Boost for dependency pattern matches
+            score *= 1.04  # Modest boost for strong dependency evidence
 
         if entity_span is not None and hasattr(entity_span, "_") and hasattr(entity_span._, "is_multiword_location"):
             if entity_span._.is_multiword_location:
-                score *= 1.2  # Boost for known multi-word locations
+                score *= 1.02  # Small boost for known multi-word locations
 
         # Ensure score is in valid range (0.0 to 1.0 as per GeoEntity validation)
         return min(max(score, 0.0), 1.0)
@@ -173,7 +174,7 @@ class ConfidenceScorer:
             section: Section name
 
         Returns:
-            Multiplier (0.1 to 2.5)
+            Multiplier tuned to preserve score calibration
         """
         section_lower = section.lower().strip()
 
@@ -196,7 +197,7 @@ class ConfidenceScorer:
             context: Entity context string
 
         Returns:
-            Adjustment score (-0.5 to +0.7)
+            Adjustment score (-0.18 to +0.18)
         """
         context_lower = context.lower()
         adjustment = 0.0
@@ -204,30 +205,30 @@ class ConfidenceScorer:
         # Check for positive keywords (only apply highest tier)
         for keyword in self.TIER1_KEYWORDS:
             if keyword in context_lower:
-                adjustment = max(adjustment, 0.7)
+                adjustment = max(adjustment, 0.18)
                 break
 
         if adjustment == 0.0:  # No tier 1 match
             for keyword in self.TIER2_KEYWORDS:
                 if keyword in context_lower:
-                    adjustment = max(adjustment, 0.5)
+                    adjustment = max(adjustment, 0.10)
                     break
 
         if adjustment == 0.0:  # No tier 1 or 2 match
             for keyword in self.TIER3_KEYWORDS:
                 if keyword in context_lower:
-                    adjustment = max(adjustment, 0.3)
+                    adjustment = max(adjustment, 0.04)
                     break
 
         # Check for negative keywords (apply penalties)
         for keyword in self.CITATION_KEYWORDS:
             if keyword in context_lower:
-                adjustment -= 0.5
+                adjustment -= 0.18
                 break  # Only apply once
 
         for keyword in self.INSTITUTION_KEYWORDS:
             if keyword in context_lower:
-                adjustment -= 0.4
+                adjustment -= 0.14
                 break
 
         return adjustment
@@ -239,7 +240,7 @@ class ConfidenceScorer:
             span: spaCy Span
 
         Returns:
-            Multiplier (0.8 to 1.3)
+            Multiplier (0.92 to 1.10)
         """
         # Get the root token's dependency
         root = span.root
@@ -254,17 +255,25 @@ class ConfidenceScorer:
             entity_type: Entity type string
 
         Returns:
-            Multiplier (0.8 to 1.5)
+            Multiplier tuned to keep confidence spread useful
         """
         type_multipliers = {
-            "COORDINATE": 1.5,  # Highest - explicit coordinates
-            "STUDY_SITE": 1.4,  # Very high - identified by dependency patterns
-            "MULTIWORD_LOCATION": 1.3,  # High - known complex locations
-            "SPATIAL_RELATION": 1.2,  # Good - spatial context
-            "GPE": 1.1,  # Good - specific places
-            "FAC": 1.1,  # Good - facilities
-            "LOC": 1.0,  # Medium - general locations
-            "CONTEXTUAL_LOCATION": 0.9,  # Lower - need more validation
+            "COORDINATE": 1.10,
+            "BOUNDING_BOX": 1.08,
+            "STUDY_SITE": 1.08,
+            "RESEARCH_SITE": 1.06,
+            "MULTIWORD_LOCATION": 1.06,
+            "SPATIAL_RELATION": 1.04,
+            "GPE": 1.03,
+            "FAC": 1.03,
+            "WATER_BODY": 1.03,
+            "GEO_FEATURE": 1.03,
+            "ECOSYSTEM": 1.02,
+            "COASTAL": 1.02,
+            "LOC": 1.0,
+            "CLIMATE_ZONE": 0.98,
+            "NORP": 0.96,
+            "CONTEXTUAL_LOCATION": 0.92,
         }
 
         return type_multipliers.get(entity_type, 1.0)

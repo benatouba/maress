@@ -22,7 +22,7 @@ class ModelConfig(BaseSettings):
 
     # spaCy settings
     SPACY_LANGUAGE: str = Field(default="en", description="spaCy language model")
-    SPACY_MODEL: str = Field(default="en_core_web_lg", description="spaCy model name")
+    SPACY_MODEL: str = Field(default="en_core_web_trf", description="spaCy model name")
 
     MAX_STUDY_SITES: int = Field(default=10, ge=1)
     # Extraction settings
@@ -47,25 +47,25 @@ class ModelConfig(BaseSettings):
         ),
     )
     DEFAULT_COORDINATE_CONFIDENCE: float = Field(
-        default=1.0,
+        default=0.92,
         ge=0.0,
         le=1.0,
         description="Default confidence for coordinate entities without scores",
     )
     DEFAULT_NER_CONFIDENCE: float = Field(
-        default=0.95,
+        default=0.72,
         ge=0.0,
         le=1.0,
         description="Default confidence for NER entities without scores",
     )
     DEFAULT_SPATIAL_RELATION_CONFIDENCE: float = Field(
-        default=0.85,
+        default=0.68,
         ge=0.0,
         le=1.0,
         description="Default confidence for spatial relation entities without scores",
     )
     DEFAULT_CONTEXTUAL_LOCATION_CONFIDENCE: float = Field(
-        default=0.75,
+        default=0.58,
         ge=0.0,
         le=1.0,
         description="Default confidence for contextual location entities without scores",

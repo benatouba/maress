@@ -14,6 +14,7 @@ import spacy
 from spacy.tokens import Doc
 
 from app.nlp.domain_models import GeoEntity
+from app.nlp.torch_utils import torch_float32_default
 from app.nlp.text_processing import (
     CoordinateParser,
     PDFTextCleaner,
@@ -55,7 +56,8 @@ class BaseEntityExtractor(ABC):
         loads model.
         """
         if self._nlp is None:
-            self._nlp = spacy.load(self.config.SPACY_MODEL)
+            with torch_float32_default():
+                self._nlp = spacy.load(self.config.SPACY_MODEL)
         return self._nlp
 
     def set_nlp(self, nlp: Language) -> None:
