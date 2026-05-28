@@ -219,6 +219,28 @@ def test_read_items_includes_issn_value(
     assert target["ISSN"] == "1234-5678"
 
 
+def test_read_items_includes_data_availability_link(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db_session: Session,
+) -> None:
+    item = create_random_item(db_session)
+    item.data_availability_link = "https://doi.org/10.5555/dataset.1"
+    db_session.add(item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/",
+        headers=superuser_token_headers,
+    )
+    assert response.status_code == 200
+    content = response.json()
+
+    target = next((entry for entry in content["data"] if entry["id"] == str(item.id)), None)
+    assert target is not None
+    assert target["data_availability_link"] == "https://doi.org/10.5555/dataset.1"
+
+
 def test_read_items_title_fulltext_search_mode_uses_parsed_text(
     client: TestClient,
     superuser_token_headers: dict[str, str],
@@ -275,6 +297,98 @@ def test_read_items_map_summary_title_fulltext_search_mode_uses_parsed_text(
     ids = {entry["id"] for entry in data}
     assert str(target_item.id) in ids
     assert str(control_item.id) not in ids
+
+
+def test_read_item_parsed_text(
+    client: TestClient,
+    db_session: Session,
+    test_user: User,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    item_in = ItemFactory.build()
+    item = crud.create_item(
+        session=db_session,
+        item_in=item_in,
+        owner_id=test_user.id,
+    )
+    assert isinstance(item, Item)
+    item.title = "Parsed text item"
+    item.parsed_text = "\n\n  This is parsed full text content.  \n"
+    db_session.add(item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/{item.id}/parsed-text",
+        headers=normal_user_token_headers,
+    )
+    assert response.status_code == 200
+    content = response.json()
+    assert content["item_id"] == str(item.id)
+    assert content["title"] == "Parsed text item"
+    assert content["parsed_text"] == "This is parsed full text content."
+
+
+def test_read_item_parsed_text_item_not_found(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    response = client.get(
+        f"{settings.API_V1_STR}/items/{uuid.uuid4()}/parsed-text",
+        headers=normal_user_token_headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Item not found"
+
+
+def test_read_item_parsed_text_non_owner_gets_not_found(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    from tests.utils.user import authentication_token_from_email, create_test_user
+
+    item = create_random_item(db_session)
+    item.parsed_text = "private text"
+    db_session.add(item)
+    db_session.commit()
+
+    other_user = create_test_user(db_session)
+    token_headers = authentication_token_from_email(
+        client=client,
+        email=other_user.email,
+        db=db_session,
+    )
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/{item.id}/parsed-text",
+        headers=token_headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Item not found"
+
+
+def test_read_item_parsed_text_missing_returns_not_found(
+    client: TestClient,
+    db_session: Session,
+    test_user: User,
+    normal_user_token_headers: dict[str, str],
+) -> None:
+    item_in = ItemFactory.build()
+    item = crud.create_item(
+        session=db_session,
+        item_in=item_in,
+        owner_id=test_user.id,
+    )
+    assert isinstance(item, Item)
+    item.parsed_text = "   \n\n  "
+    db_session.add(item)
+    db_session.commit()
+
+    response = client.get(
+        f"{settings.API_V1_STR}/items/{item.id}/parsed-text",
+        headers=normal_user_token_headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Parsed text not found"
 
 
 def test_read_items_anonymous_hides_attachment(

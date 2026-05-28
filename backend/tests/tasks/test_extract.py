@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -14,7 +15,7 @@ from sqlmodel import select
 from app.models import Item
 from app.models import StudySite
 from app.nlp.domain_models import ExtractionMetadata, ExtractionResult, GeoEntity
-from app.tasks.extract import extract_study_site_task
+from app.tasks.extract import _find_data_availability_link_from_text, extract_study_site_task
 from maress_types import (
     CoordinateExtractionMethod,
     CoordinateSourceType,
@@ -90,7 +91,7 @@ def mock_single_site_result(mock_pdf_path: Path) -> ExtractionResult:
             coordinates=1,
             clusters=1,
         ),
-        doc=None,
+        doc=SimpleNamespace(text="Study site located at coordinates in Ecuador."),
         title="Test Study in Ecuador",
         cluster_info={"cluster_1": 1},
         average_text_quality=0.95,
@@ -159,7 +160,7 @@ def mock_multi_site_result(mock_pdf_path: Path) -> ExtractionResult:
             clusters=3,
             locations=2,
         ),
-        doc=None,
+        doc=SimpleNamespace(text="Study sites sampled across Ecuador, Peru, and Chile."),
         title="Test Study in Multiple Countries",
         cluster_info={"cluster_1": 2, "cluster_2": 1, "cluster_3": 1},
         average_text_quality=0.92,
@@ -428,7 +429,178 @@ class TestExtractStudySiteTask:
             db_session.expire_all()
             item = db_session.get(Item, item_with_pdf.id)
             assert item is not None
-            assert item.parsed_text is not None
+            assert item.parsed_text is None
+
+    def test_no_study_sites_found_persists_ocr_only_parsed_text(
+        self,
+        db_session: Session,
+        item_with_pdf: Item,
+        mock_pdf_path: Path,
+    ) -> None:
+        """OCR-only extracted text should be saved even without study sites."""
+        ocr_only_result = ExtractionResult(
+            pdf_path=mock_pdf_path,
+            entities=[],
+            total_sections_processed=3,
+            extraction_metadata=make_extraction_metadata(
+                total_entities=0,
+                coordinates=0,
+                clusters=0,
+                locations=0,
+            ),
+            doc=MagicMock(text="  OCR recovered text from scanned PDF only.  "),
+            title="Scanned PDF",
+            cluster_info={},
+            average_text_quality=0.72,
+            section_quality_scores={},
+        )
+
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = ocr_only_result
+            mock_factory.return_value = mock_pipeline
+
+            result = extract_study_site_task(
+                item_id=str(item_with_pdf.id),
+                user_id=str(item_with_pdf.owner_id),
+                is_superuser=True,
+                force=False,
+                _test_session=db_session,
+            )
+
+        assert result["status"] == "not_found"
+        assert result["count"] == 0
+
+        db_session.expire_all()
+        item = db_session.get(Item, item_with_pdf.id)
+        assert item is not None
+        assert item.parsed_text == "OCR recovered text from scanned PDF only."
+
+    def test_no_study_sites_found_persists_data_availability_link(
+        self,
+        db_session: Session,
+        item_with_pdf: Item,
+        mock_pdf_path: Path,
+    ) -> None:
+        """Data availability link should be extracted and persisted from parsed text."""
+        ocr_only_result = ExtractionResult(
+            pdf_path=mock_pdf_path,
+            entities=[],
+            total_sections_processed=2,
+            extraction_metadata=make_extraction_metadata(),
+            doc=MagicMock(
+                text=(
+                    "Data availability statement: all datasets are archived at "
+                    "https://data.example.org/study-42 ."
+                )
+            ),
+            title="Scanned PDF",
+            cluster_info={},
+            average_text_quality=0.72,
+            section_quality_scores={},
+        )
+
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = ocr_only_result
+            mock_factory.return_value = mock_pipeline
+
+            result = extract_study_site_task(
+                item_id=str(item_with_pdf.id),
+                user_id=str(item_with_pdf.owner_id),
+                is_superuser=True,
+                force=False,
+                _test_session=db_session,
+            )
+
+        assert result["status"] == "not_found"
+
+        db_session.expire_all()
+        item = db_session.get(Item, item_with_pdf.id)
+        assert item is not None
+        assert item.data_availability_link == "https://data.example.org/study-42"
+
+    def test_rerun_reuses_cached_parsed_text_when_no_sites(
+        self,
+        db_session: Session,
+        item_with_pdf: Item,
+    ) -> None:
+        """Reruns should skip PDF parsing when parsed text already exists and no sites are stored."""
+        item_with_pdf.parsed_text = "Data availability statement at doi:10.9999/example.data"
+        db_session.add(item_with_pdf)
+        db_session.commit()
+
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            result = extract_study_site_task(
+                item_id=str(item_with_pdf.id),
+                user_id=str(item_with_pdf.owner_id),
+                is_superuser=True,
+                force=False,
+                _test_session=db_session,
+            )
+
+        assert result["status"] == "not_found"
+        assert result["message"] == "No study sites found in cached parsed text"
+        mock_factory.assert_not_called()
+
+        db_session.expire_all()
+        item = db_session.get(Item, item_with_pdf.id)
+        assert item is not None
+        assert item.data_availability_link == "https://doi.org/10.9999/example.data"
+
+    def test_force_rerun_does_not_skip_pdf_parsing_when_cached_text_exists(
+        self,
+        db_session: Session,
+        item_with_pdf: Item,
+        mock_pdf_path: Path,
+    ) -> None:
+        """Force rerun should still execute PDF extraction even with cached parsed text."""
+        item_with_pdf.parsed_text = "Data availability statement at https://cached.example.org"
+        db_session.add(item_with_pdf)
+        db_session.commit()
+
+        empty_result = ExtractionResult(
+            pdf_path=mock_pdf_path,
+            entities=[],
+            total_sections_processed=1,
+            extraction_metadata=make_extraction_metadata(),
+            doc=MagicMock(text="No data availability statement in fresh parse."),
+            title="Force run",
+            cluster_info={},
+            average_text_quality=0.80,
+            section_quality_scores={},
+        )
+
+        with patch("app.tasks.extract.PipelineFactory.create_pipeline_for_api") as mock_factory:
+            mock_pipeline = MagicMock()
+            mock_pipeline.extract_from_pdf.return_value = empty_result
+            mock_factory.return_value = mock_pipeline
+
+            result = extract_study_site_task(
+                item_id=str(item_with_pdf.id),
+                user_id=str(item_with_pdf.owner_id),
+                is_superuser=True,
+                force=True,
+                _test_session=db_session,
+            )
+
+        assert result["status"] == "not_found"
+        assert result["message"] == "No study sites found in document"
+        mock_factory.assert_called_once()
+
+    def test_find_data_availability_link_from_text_detects_url_and_doi(self) -> None:
+        assert (
+            _find_data_availability_link_from_text(
+                "Data availability statement: resources are at https://example.org/data-set."
+            )
+            == "https://example.org/data-set"
+        )
+        assert (
+            _find_data_availability_link_from_text(
+                "Availability of data: see doi:10.5281/zenodo.12345 for downloads."
+            )
+            == "https://doi.org/10.5281/zenodo.12345"
+        )
 
     def test_force_reextraction_clears_stale_results_when_new_run_finds_nothing(
         self,

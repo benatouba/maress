@@ -110,6 +110,7 @@ class ItemBase(SQLModel):
     issn: str | None = Field(default=None, max_length=32, alias="ISSN")
     shortTitle: str = Field(default="", max_length=255)
     url: str = Field(default="", max_length=512)
+    data_availability_link: str | None = Field(default=None, max_length=512)
     archive: str = Field(default="", max_length=128)
     archiveLocation: str = Field(default="", max_length=255)
     libraryCatalog: str | None = Field(default=None, max_length=255)
@@ -156,6 +157,7 @@ class ItemUpdate(SQLModel):
     issn: str | None = Field(default=None, max_length=32, alias="ISSN")
     shortTitle: str | None = Field(default=None, max_length=255)
     url: str | None = Field(default=None, max_length=512)
+    data_availability_link: str | None = Field(default=None, max_length=512)
     archive: str | None = Field(default=None, max_length=128)
     archiveLocation: str | None = Field(default=None, max_length=255)
     libraryCatalog: str | None = Field(default=None, max_length=255)
@@ -220,6 +222,7 @@ class Item(ItemBase, table=True):
 class ItemPublic(ItemBase):
     id: uuid.UUID
     owner_id: uuid.UUID
+    has_parsed_text: bool = False
     creators: list["CreatorPublic"] | None = None
     study_sites: list["StudySitePublic"] | None = None
     tags: list["Tag"] | None = None  # List of tag IDs
@@ -263,6 +266,7 @@ class MapItemSummary(SQLModel):
     publicationTitle: str | None = None
     date: str | None = None
     study_site_count: int = 0
+    has_parsed_text: bool = False
 
 
 class MapItemsPublic(SQLModel):
@@ -534,6 +538,12 @@ class LocationCreate(LocationBase):
 # Generic message
 class Message(SQLModel):
     message: str
+
+
+class ItemParsedTextPublic(SQLModel):
+    item_id: uuid.UUID
+    title: str | None = None
+    parsed_text: str
 
 
 class RelationBase(SQLModel):

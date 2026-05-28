@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,8 +18,63 @@ from app.nlp.model_config import ModelConfig
 
 if TYPE_CHECKING:
     from celery import Task
+    from spacy.tokens import Doc
 
 logger = logging.getLogger(__name__)
+
+DATA_AVAILABILITY_MARKER = re.compile(
+    r"\b(data\s+availability|availability\s+of\s+data|data\s+accessibility|code\s+availability)\b",
+    re.IGNORECASE,
+)
+URL_PATTERN = re.compile(r"\bhttps?://[^\s<>()\[\]{}\"']+|\bwww\.[^\s<>()\[\]{}\"']+", re.IGNORECASE)
+DOI_PATTERN = re.compile(r"\b(?:doi\s*:\s*|https?://(?:dx\.)?doi\.org/)?(10\.\d{4,9}/[-._;()/:A-Z0-9]+)", re.IGNORECASE)
+
+
+def _strip_link_punctuation(value: str) -> str:
+    return value.rstrip(".,;:)]}>")
+
+
+def _sentence_like_chunks(text: str) -> list[str]:
+    chunks = [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", text) if part.strip()]
+    return chunks if chunks else ([text.strip()] if text.strip() else [])
+
+
+def _find_data_availability_link_from_text(text: str) -> str | None:
+    text = str(text or "").strip()
+    if not text:
+        return None
+
+    sentence_texts = _sentence_like_chunks(text)
+
+    marker_indexes = [
+        index for index, sentence in enumerate(sentence_texts) if DATA_AVAILABILITY_MARKER.search(sentence)
+    ]
+    if not marker_indexes:
+        return None
+
+    for index in marker_indexes:
+        start = max(0, index - 1)
+        end = min(len(sentence_texts), index + 2)
+        window = " ".join(sentence_texts[start:end])
+
+        url_match = URL_PATTERN.search(window)
+        if url_match:
+            url = _strip_link_punctuation(url_match.group(0))
+            if url.lower().startswith("www."):
+                return f"https://{url}"
+            return url
+
+        doi_match = DOI_PATTERN.search(window)
+        if doi_match:
+            doi = _strip_link_punctuation(doi_match.group(1))
+            return f"https://doi.org/{doi}"
+
+    return None
+
+
+def _find_data_availability_link(doc: Doc | None) -> str | None:
+    text = str(getattr(doc, "text", "") or "").strip()
+    return _find_data_availability_link_from_text(text)
 
 
 def _read_item(
@@ -61,6 +117,22 @@ def _extract_study_site_impl(
             "count": len(existing_ids),
             "status": "skipped",
             "message": f"Item already has {len(existing_ids)} study site(s)",
+        }
+
+    cached_parsed_text = (item.parsed_text or "").strip()
+    if cached_parsed_text and not item.study_sites and not force:
+        logger.info(
+            "Reusing cached parsed_text for item %s; skipping PDF parse for re-run",
+            item.id,
+        )
+        item.data_availability_link = _find_data_availability_link_from_text(cached_parsed_text)
+        session.commit()
+        return {
+            "item_id": item_id,
+            "study_site_ids": [],
+            "count": 0,
+            "status": "not_found",
+            "message": "No study sites found in cached parsed text",
         }
 
     # Delete existing study sites and extraction results if forcing re-extraction.
@@ -122,6 +194,7 @@ def _extract_study_site_impl(
 
     parsed_text = str(getattr(result.doc, "text", "") or "").strip()
     item.parsed_text = parsed_text or None
+    item.data_availability_link = _find_data_availability_link(getattr(result, "doc", None))
 
     logger.info("Converting extraction results to database models")
     study_sites = StudySiteResultAdapter.to_study_sites(
@@ -131,8 +204,9 @@ def _extract_study_site_impl(
     )
 
     if not study_sites:
-        if force:
-            session.commit()
+        # Persist parsed_text (including OCR-derived text) even when no study
+        # sites are detected from the document.
+        session.commit()
         logger.warning("No study sites found for item %s", item.id)
         return {
             "item_id": item_id,

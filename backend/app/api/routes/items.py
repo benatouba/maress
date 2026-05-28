@@ -24,6 +24,7 @@ from app.models import (
     Item,
     MapItemSummary,
     MapItemsPublic,
+    ItemParsedTextPublic,
     ItemCreate,
     ItemPublic,
     ItemsPublic,
@@ -132,11 +133,30 @@ def _strip_attachment(item: Item, current_user: User | None) -> Item:
     return item
 
 
+def _has_parsed_text(item: Item) -> bool:
+    return bool(item.parsed_text and item.parsed_text.strip())
+
+
+def _to_item_public(item: Item) -> ItemPublic:
+    return ItemPublic.model_validate(
+        item,
+        update={
+            "has_parsed_text": _has_parsed_text(item),
+            "data_availability_link": item.data_availability_link,
+        },
+    )
+
+
 def _strip_attachments(items: Sequence[Item], current_user: User | None) -> Sequence[Item]:
     """Null out attachment field unless caller is allowed to view it."""
     for item in items:
         _strip_attachment(item, current_user)
     return items
+
+
+def _assert_item_read_access(item: Item, current_user: User) -> None:
+    if not current_user.is_superuser and (item.owner_id != current_user.id):
+        raise HTTPException(status_code=404, detail="Item not found")
 
 
 def _assert_item_write_access(item: Item, current_user: User) -> None:
@@ -169,7 +189,8 @@ def read_items(
         include_all=include_all,
     )
     _strip_attachments(items, current_user)
-    return ItemsPublic(data=items, count=count)  # pyright: ignore[reportArgumentType]
+    data = [_to_item_public(item) for item in items]
+    return ItemsPublic(data=data, count=count)
 
 
 @router.get("/map-summary", response_model=MapItemsPublic)
@@ -186,6 +207,16 @@ def read_items_map_summary(
 
     study_site_count = func.count(StudySite.id)
 
+    has_parsed_text_expr = func.max(
+        case(
+            (
+                func.length(func.btrim(func.coalesce(Item.parsed_text, ""))) > 0,
+                1,
+            ),
+            else_=0,
+        ),
+    ).label("has_parsed_text")
+
     statement = (
         select(
             Item.id,
@@ -193,6 +224,7 @@ def read_items_map_summary(
             Item.publicationTitle,
             Item.date,
             study_site_count.label("study_site_count"),
+            has_parsed_text_expr,
         )
         .select_from(Item)
         .outerjoin(StudySite, StudySite.item_id == Item.id)
@@ -225,6 +257,7 @@ def read_items_map_summary(
             publicationTitle=row.publicationTitle,
             date=row.date,
             study_site_count=int(row.study_site_count or 0),
+            has_parsed_text=bool(row.has_parsed_text),
         )
         for row in rows
     ]
@@ -233,7 +266,7 @@ def read_items_map_summary(
 
 
 @router.get("/{id}", response_model=ItemPublic)
-def read_item(session: SessionDep, current_user: OptionalCurrentUser, id: uuid.UUID) -> Item:
+def read_item(session: SessionDep, current_user: OptionalCurrentUser, id: uuid.UUID) -> ItemPublic:
     """Get item by ID."""
     from sqlalchemy.orm import joinedload, selectinload
 
@@ -250,7 +283,30 @@ def read_item(session: SessionDep, current_user: OptionalCurrentUser, id: uuid.U
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     _strip_attachment(item, current_user)
-    return item
+    return _to_item_public(item)
+
+
+@router.get("/{id}/parsed-text", response_model=ItemParsedTextPublic)
+def read_item_parsed_text(
+    session: SessionDep,
+    current_user: CurrentUser,
+    id: uuid.UUID,
+) -> ItemParsedTextPublic:
+    item = session.get(Item, id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    _assert_item_read_access(item, current_user)
+
+    parsed_text = (item.parsed_text or "").strip()
+    if not parsed_text:
+        raise HTTPException(status_code=404, detail="Parsed text not found")
+
+    return ItemParsedTextPublic(
+        item_id=item.id,
+        title=item.title,
+        parsed_text=parsed_text,
+    )
 
 
 @router.get("/search/")
