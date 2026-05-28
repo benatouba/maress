@@ -81,6 +81,30 @@ class ImageOcrSnippet:
     confidence: float | None = None
 
 
+@dataclass(frozen=True)
+class EmbeddedTextAssessment:
+    """Embedded-text coverage assessment captured before OCR stages."""
+
+    page_texts: list[str]
+    low_text_pages: list[int]
+    pages_with_embedded_text: int
+    total_pages: int
+
+    @property
+    def has_embedded_text(self) -> bool:
+        return self.pages_with_embedded_text > 0
+
+
+@dataclass(frozen=True)
+class OcrRuntimeResources:
+    """Initialized OCR runtime objects for page-level OCR calls."""
+
+    rapidocr_reader: Any | None = None
+    easyocr_reader: Any | None = None
+    tesseract_module: Any | None = None
+    tessdata_path: str | None = None
+
+
 class PDFParser(ABC):
     """Abstract interface for PDF parsing."""
 
@@ -103,12 +127,12 @@ class PDFParser(ABC):
 class DoclingPDFParser(PDFParser):
     """PDF parser using Docling with robust OCR fallback chain.
 
-    Automatically tries multiple OCR backends if one fails:
-    1. Tesseract (Python binding)
-    2. PaddleOCR mode (RapidOCR paddle backend)
-    3. EasyOCR
-    4. RapidOCR (onnxruntime)
-    5. Direct full-page OCR with the same backend order
+    Ingestion stage order:
+    1. Embedded-text assessment (first gate)
+    2. Embedded text only (if all pages have enough text)
+    3. Selective page OCR for low-text pages only
+    4. Docling OCR fallback chain (tesseract/easyocr/rapidocr)
+    5. Direct full-page OCR fallback chain
     6. PyMuPDF (no OCR, last resort)
 
     Example:
@@ -130,6 +154,8 @@ class DoclingPDFParser(PDFParser):
         OCRBackend.RAPIDOCR,
     )
     FULL_PAGE_OCR_DPI: ClassVar[int] = 300
+    EMBEDDED_TEXT_MIN_CHARS_PER_PAGE: ClassVar[int] = 120
+    EMBEDDED_TEXT_MIN_WORDS_PER_PAGE: ClassVar[int] = 20
 
     SENTENCE_PIPE_COMPONENTS: ClassVar[tuple[str, ...]] = (
         "sentencizer",
@@ -473,56 +499,246 @@ class DoclingPDFParser(PDFParser):
 
         return ""
 
-    def _try_full_page_ocr(self, pdf_path: Path, backend: OCRBackend) -> ParseResult:
-        """Try direct OCR on rendered PDF pages before giving up to plain text extraction."""
-        rapidocr_reader = None
-        easyocr_reader = None
-        tesseract_module = None
-        tessdata_path = None
+    def _initialize_page_ocr_resources(self, backend: OCRBackend) -> OcrRuntimeResources:
+        """Prepare OCR runtime resources for page-level OCR operations."""
+        if backend in {OCRBackend.RAPIDOCR, OCRBackend.PADDLEOCR}:
+            try:
+                from rapidocr import EngineType, RapidOCR  # type: ignore
+            except ImportError as exc:
+                msg = f"RapidOCR not available for {backend.value}"
+                raise RuntimeError(msg) from exc
+
+            engine_aliases = {
+                OCRBackend.RAPIDOCR: EngineType.ONNXRUNTIME,
+                OCRBackend.PADDLEOCR: EngineType.PADDLE,
+            }
+            engine_type = engine_aliases.get(backend)
+            if engine_type is None:
+                msg = f"Unsupported RapidOCR backend: {backend.value}"
+                raise RuntimeError(msg)
+
+            rapidocr_reader = RapidOCR(
+                params={
+                    "Det.engine_type": engine_type,
+                    "Cls.engine_type": engine_type,
+                    "Rec.engine_type": engine_type,
+                },
+            )
+            return OcrRuntimeResources(rapidocr_reader=rapidocr_reader)
+
+        if backend == OCRBackend.EASYOCR:
+            return OcrRuntimeResources(easyocr_reader=self._create_easyocr_reader())
+
+        if backend == OCRBackend.TESSERACT:
+            try:
+                import tesserocr  # type: ignore
+            except ImportError as exc:
+                msg = "Tesseract Python bindings not available for direct full-page OCR"
+                raise RuntimeError(msg) from exc
+
+            tessdata_path = self._resolve_tessdata_path()
+            if tessdata_path is None:
+                msg = "No valid tessdata path found for direct full-page OCR"
+                raise RuntimeError(msg)
+
+            return OcrRuntimeResources(
+                tesseract_module=tesserocr,
+                tessdata_path=tessdata_path,
+            )
+
+        msg = f"Direct full-page OCR is not supported for {backend.value}"
+        raise RuntimeError(msg)
+
+    @staticmethod
+    def _is_page_text_sufficient(page_text: str) -> bool:
+        """Return True when a page has enough embedded text to avoid OCR."""
+        stripped = page_text.strip()
+        if not stripped:
+            return False
+
+        chars = len(stripped)
+        words = len(re.findall(r"\b[a-zA-Z]{2,}\b", stripped))
+        return (
+            chars >= DoclingPDFParser.EMBEDDED_TEXT_MIN_CHARS_PER_PAGE
+            or words >= DoclingPDFParser.EMBEDDED_TEXT_MIN_WORDS_PER_PAGE
+        )
+
+    def _assess_embedded_text(self, pdf_path: Path) -> EmbeddedTextAssessment:
+        """Assess embedded text coverage before OCR stages begin."""
+        pdf_doc = pymupdf.open(pdf_path)
+        page_texts: list[str] = []
+        low_text_pages: list[int] = []
+        pages_with_embedded_text = 0
 
         try:
-            logger.info("Attempting direct full-page OCR with %s", backend.value)
+            for page_index in range(pdf_doc.page_count):
+                page_text = pdf_doc[page_index].get_text("text").strip()
+                page_texts.append(page_text)
+                if self._is_page_text_sufficient(page_text):
+                    pages_with_embedded_text += 1
+                else:
+                    low_text_pages.append(page_index)
+        finally:
+            pdf_doc.close()
 
-            if backend in {OCRBackend.RAPIDOCR, OCRBackend.PADDLEOCR}:
-                try:
-                    from rapidocr import EngineType, RapidOCR  # type: ignore
-                except ImportError as exc:
-                    msg = f"RapidOCR not available for {backend.value}"
-                    raise RuntimeError(msg) from exc
+        return EmbeddedTextAssessment(
+            page_texts=page_texts,
+            low_text_pages=low_text_pages,
+            pages_with_embedded_text=pages_with_embedded_text,
+            total_pages=len(page_texts),
+        )
 
-                engine_aliases = {
-                    OCRBackend.RAPIDOCR: EngineType.ONNXRUNTIME,
-                    OCRBackend.PADDLEOCR: EngineType.PADDLE,
-                }
-                engine_type = engine_aliases.get(backend)
-                if engine_type is None:
-                    msg = f"Unsupported RapidOCR backend: {backend.value}"
-                    raise RuntimeError(msg)
+    def _try_selective_page_ocr(
+        self,
+        pdf_path: Path,
+        *,
+        backend: OCRBackend,
+        assessment: EmbeddedTextAssessment,
+    ) -> ParseResult:
+        """OCR only low-text pages and keep embedded text for the rest."""
+        if not assessment.low_text_pages:
+            msg = "Selective OCR requested without low-text pages"
+            return ParseResult(
+                doc=None,
+                backend_used=f"embedded+{backend.value}",
+                success=False,
+                error=msg,
+            )
 
-                rapidocr_reader = RapidOCR(
-                    params={
-                        "Det.engine_type": engine_type,
-                        "Cls.engine_type": engine_type,
-                        "Rec.engine_type": engine_type,
-                    },
+        try:
+            logger.info(
+                "Attempting selective page OCR with %s on %d/%d low-text pages",
+                backend.value,
+                len(assessment.low_text_pages),
+                assessment.total_pages,
+            )
+
+            resources = self._initialize_page_ocr_resources(backend)
+            combined_page_texts = list(assessment.page_texts)
+            low_page_set = set(assessment.low_text_pages)
+
+            pdf_doc = pymupdf.open(pdf_path)
+            try:
+                for page_index in range(pdf_doc.page_count):
+                    if page_index not in low_page_set:
+                        continue
+
+                    page = pdf_doc[page_index]
+                    pix = page.get_pixmap(dpi=self.FULL_PAGE_OCR_DPI, alpha=False)
+                    ocr_text = self._ocr_page_pixmap(
+                        pix,
+                        backend,
+                        rapidocr_reader=resources.rapidocr_reader,
+                        easyocr_reader=resources.easyocr_reader,
+                        tesseract_module=resources.tesseract_module,
+                        tessdata_path=resources.tessdata_path,
+                    ).strip()
+
+                    if not ocr_text:
+                        msg = f"Selective OCR returned no text for page {page_index + 1}"
+                        raise ValueError(msg)
+
+                    combined_page_texts[page_index] = ocr_text
+            finally:
+                pdf_doc.close()
+
+            combined_text = "\n\n".join(text for text in combined_page_texts if text)
+            is_valid, error_msg = self._validate_extracted_text(combined_text)
+            if not is_valid:
+                msg = f"Selective OCR output invalid with {backend.value}: {error_msg}"
+                raise ValueError(msg)
+
+            doc = self._build_doc_with_layout_spans(combined_page_texts)
+            logger.info(
+                "Successfully parsed with embedded-text + selective OCR (%s)",
+                backend.value,
+            )
+            return ParseResult(
+                doc=doc,
+                backend_used=f"embedded+{backend.value}",
+                success=True,
+            )
+
+        except Exception as e:
+            logger.warning(
+                "Selective page OCR failed with %s: %s",
+                backend.value,
+                str(e),
+                exc_info=True,
+            )
+            return ParseResult(
+                doc=None,
+                backend_used=f"embedded+{backend.value}",
+                success=False,
+                error=str(e),
+            )
+
+    def _try_embedded_text_first(self, pdf_path: Path, ocr_backends: list[OCRBackend]) -> ParseResult:
+        """First ingestion stage: use embedded text before any OCR-heavy pipeline."""
+        try:
+            assessment = self._assess_embedded_text(pdf_path)
+        except Exception as e:
+            return ParseResult(
+                doc=None,
+                backend_used="embedded_text",
+                success=False,
+                error=f"Embedded-text assessment failed: {e}",
+            )
+
+        if assessment.total_pages == 0 or not assessment.has_embedded_text:
+            return ParseResult(
+                doc=None,
+                backend_used="embedded_text",
+                success=False,
+                error="No usable embedded text detected",
+            )
+
+        if not assessment.low_text_pages:
+            combined_text = "\n\n".join(text for text in assessment.page_texts if text)
+            is_valid, error_msg = self._validate_extracted_text(combined_text)
+            if not is_valid:
+                return ParseResult(
+                    doc=None,
+                    backend_used="embedded_text",
+                    success=False,
+                    error=error_msg,
                 )
-            elif backend == OCRBackend.EASYOCR:
-                easyocr_reader = self._create_easyocr_reader()
-            elif backend == OCRBackend.TESSERACT:
-                try:
-                    import tesserocr  # type: ignore
-                except ImportError as exc:
-                    msg = "Tesseract Python bindings not available for direct full-page OCR"
-                    raise RuntimeError(msg) from exc
 
-                tessdata_path = self._resolve_tessdata_path()
-                if tessdata_path is None:
-                    msg = "No valid tessdata path found for direct full-page OCR"
-                    raise RuntimeError(msg)
-                tesseract_module = tesserocr
-            else:
-                msg = f"Direct full-page OCR is not supported for {backend.value}"
-                raise RuntimeError(msg)
+            doc = self._build_doc_with_layout_spans(assessment.page_texts)
+            logger.info(
+                "Embedded text fully covers PDF (%d/%d pages); skipping OCR stage",
+                assessment.pages_with_embedded_text,
+                assessment.total_pages,
+            )
+            return ParseResult(doc=doc, backend_used="embedded_text", success=True)
+
+        logger.info(
+            "Embedded text covers %d/%d pages; running selective OCR on low-text pages first",
+            assessment.pages_with_embedded_text,
+            assessment.total_pages,
+        )
+
+        for backend in ocr_backends:
+            result = self._try_selective_page_ocr(
+                pdf_path,
+                backend=backend,
+                assessment=assessment,
+            )
+            if result.success and result.doc and result.doc.text.strip():
+                return result
+
+        return ParseResult(
+            doc=None,
+            backend_used="embedded_text",
+            success=False,
+            error="Selective OCR failed for low-text pages",
+        )
+
+    def _try_full_page_ocr(self, pdf_path: Path, backend: OCRBackend) -> ParseResult:
+        """Try direct OCR on rendered PDF pages before giving up to plain text extraction."""
+        try:
+            logger.info("Attempting direct full-page OCR with %s", backend.value)
+            resources = self._initialize_page_ocr_resources(backend)
 
             page_texts: list[str] = []
             pdf_doc = pymupdf.open(pdf_path)
@@ -533,10 +749,10 @@ class DoclingPDFParser(PDFParser):
                     page_text = self._ocr_page_pixmap(
                         pix,
                         backend,
-                        rapidocr_reader=rapidocr_reader,
-                        easyocr_reader=easyocr_reader,
-                        tesseract_module=tesseract_module,
-                        tessdata_path=tessdata_path,
+                        rapidocr_reader=resources.rapidocr_reader,
+                        easyocr_reader=resources.easyocr_reader,
+                        tesseract_module=resources.tesseract_module,
+                        tessdata_path=resources.tessdata_path,
                     ).strip()
                     if page_text:
                         page_texts.append(page_text)
@@ -1114,9 +1330,10 @@ class DoclingPDFParser(PDFParser):
         """Parse PDF with automatic fallback through multiple methods.
 
         Tries methods in order until one succeeds:
-        1. Docling + Tesseract/PaddleOCR/EasyOCR/RapidOCR
-        2. Direct full-page OCR with the same backend order
-        3. PyMuPDF (if pymupdf_fallback enabled)
+        1. Embedded-text-first ingestion gate (full or selective OCR per page)
+        2. Docling + Tesseract/PaddleOCR/EasyOCR/RapidOCR
+        3. Direct full-page OCR with the same backend order
+        4. PyMuPDF (if pymupdf_fallback enabled)
 
         Afterwards, spacy-layout is applied to add layout info.
 
@@ -1137,6 +1354,11 @@ class DoclingPDFParser(PDFParser):
         logger.info(f"Starting PDF parsing for: {pdf_path.name}")
 
         ocr_backends = self._configured_ocr_backends()
+
+        embedded_result = self._try_embedded_text_first(pdf_path, ocr_backends)
+        if embedded_result.success and embedded_result.doc and embedded_result.doc.text.strip():
+            logger.info(f"Parsed {pdf_path.name} using {embedded_result.backend_used}")
+            return embedded_result.doc
 
         if not ocr_backends:
             logger.warning("No usable OCR backends available; skipping directly to PyMuPDF fallback")

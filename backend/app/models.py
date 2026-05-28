@@ -12,7 +12,8 @@ from pydantic import (  # noqa: TC002
     model_validator,
 )
 from pydantic_extra_types.coordinate import Latitude, Longitude  # noqa: TC002
-from sqlalchemy import Index, event
+from sqlalchemy import Index, Text, event
+from sqlalchemy.dialects import postgresql
 from sqlmodel import Column, Enum, Field, Relationship, SQLModel
 
 from app.core.security import cipher_suite
@@ -169,6 +170,10 @@ class ItemUpdate(SQLModel):
 
 
 class Item(ItemBase, table=True):
+    __table_args__ = (
+        Index("ix_item_parsed_text_search", "parsed_text_search", postgresql_using="gin"),
+    )
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     owner_id: uuid.UUID = Field(
         foreign_key="user.id",
@@ -199,6 +204,16 @@ class Item(ItemBase, table=True):
         sa_relationship_kwargs={"cascade": "all, delete-orphan"},
     )
     key: str = Field(min_length=8, max_length=8, regex="^[A-Z0-9]{8}$", index=True)
+    parsed_text: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True),
+        description="Extracted embedded/OCR text for reuse in NLP and search",
+    )
+    parsed_text_search: str | None = Field(
+        default=None,
+        sa_column=Column(postgresql.TSVECTOR(), nullable=True),
+        description="PostgreSQL tsvector built from parsed_text",
+    )
 
 
 # Properties to return via API, id is always required

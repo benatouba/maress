@@ -12,7 +12,12 @@ from app.nlp.domain_models import ExtractionMetadata, ExtractionResult, GeoEntit
 from app.nlp.extractors import BaseEntityExtractor
 from app.nlp.factories import PipelineFactory
 from app.nlp.model_config import ModelConfig
-from app.nlp.pdf_parser import DoclingPDFParser, OCRBackend, ParseResult
+from app.nlp.pdf_parser import (
+    DoclingPDFParser,
+    EmbeddedTextAssessment,
+    OCRBackend,
+    ParseResult,
+)
 from docling.datamodel.base_models import ConversionStatus
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from app.nlp.validation import ExtractionValidator
@@ -215,6 +220,138 @@ def test_parse_uses_filtered_backend_list(
 
     assert doc.text == successful_doc.text
     assert attempted_backends == [OCRBackend.TESSERACT, OCRBackend.EASYOCR]
+
+
+def test_embedded_text_first_short_circuits_ocr(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pdf_path = tmp_path / "placeholder.pdf"
+    pdf_path.write_text("placeholder")
+
+    nlp = spacy.blank("en")
+    nlp.add_pipe("sentencizer")
+    parser = DoclingPDFParser(nlp, enable_image_ocr=False)
+
+    embedded_doc = nlp("Embedded text already covers all pages")
+    monkeypatch.setattr(
+        parser,
+        "_try_embedded_text_first",
+        lambda _pdf_path, _backends: ParseResult(
+            doc=embedded_doc,
+            backend_used="embedded_text",
+            success=True,
+        ),
+    )
+
+    def fail_docling(_pdf_path: Path, _backend: OCRBackend) -> ParseResult:
+        raise AssertionError("Docling OCR stage should not run when embedded text succeeds")
+
+    monkeypatch.setattr(parser, "_try_docling", fail_docling)
+
+    doc = parser.parse(pdf_path)
+
+    assert doc.text == embedded_doc.text
+
+
+def test_assess_embedded_text_identifies_low_text_pages(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pdf_path = tmp_path / "placeholder.pdf"
+    pdf_path.write_text("placeholder")
+
+    nlp = spacy.blank("en")
+    parser = DoclingPDFParser(nlp, enable_image_ocr=False)
+
+    class DummyPage:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        def get_text(self, _mode: str) -> str:
+            return self._text
+
+    class DummyPdf:
+        def __init__(self, texts: list[str]) -> None:
+            self._pages = [DummyPage(text) for text in texts]
+            self.page_count = len(self._pages)
+
+        def __getitem__(self, index: int) -> DummyPage:
+            return self._pages[index]
+
+        def close(self) -> None:
+            return None
+
+    texts = [
+        "Dense embedded text page with substantial words " * 4,
+        " ",
+        "Short page",
+    ]
+    monkeypatch.setattr("app.nlp.pdf_parser.pymupdf.open", lambda _pdf_path: DummyPdf(texts))
+
+    assessment = parser._assess_embedded_text(pdf_path)
+
+    assert assessment.total_pages == 3
+    assert assessment.pages_with_embedded_text == 1
+    assert assessment.low_text_pages == [1, 2]
+    assert assessment.has_embedded_text is True
+
+
+def test_try_embedded_text_first_runs_selective_ocr_for_low_text_pages(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    pdf_path = tmp_path / "placeholder.pdf"
+    pdf_path.write_text("placeholder")
+
+    nlp = spacy.blank("en")
+    nlp.add_pipe("sentencizer")
+    parser = DoclingPDFParser(nlp, enable_image_ocr=False)
+
+    assessment = EmbeddedTextAssessment(
+        page_texts=["Dense embedded text page " * 8, "", ""],
+        low_text_pages=[1, 2],
+        pages_with_embedded_text=1,
+        total_pages=3,
+    )
+    monkeypatch.setattr(parser, "_assess_embedded_text", lambda _pdf_path: assessment)
+
+    selective_attempts: list[OCRBackend] = []
+    selective_doc = nlp("Combined embedded and selective OCR text")
+
+    def fake_selective(
+        _pdf_path: Path,
+        *,
+        backend: OCRBackend,
+        assessment: EmbeddedTextAssessment,
+    ) -> ParseResult:
+        selective_attempts.append(backend)
+        assert assessment.low_text_pages == [1, 2]
+        if backend == OCRBackend.TESSERACT:
+            return ParseResult(
+                doc=selective_doc,
+                backend_used=f"embedded+{backend.value}",
+                success=True,
+            )
+
+        return ParseResult(
+            doc=None,
+            backend_used=f"embedded+{backend.value}",
+            success=False,
+            error="failed",
+        )
+
+    monkeypatch.setattr(parser, "_try_selective_page_ocr", fake_selective)
+
+    result = parser._try_embedded_text_first(
+        pdf_path,
+        [OCRBackend.TESSERACT, OCRBackend.EASYOCR],
+    )
+
+    assert result.success is True
+    assert result.doc is not None
+    assert result.doc.text == selective_doc.text
+    assert selective_attempts == [OCRBackend.TESSERACT]
 
 
 def test_retry_docling_with_backend_text_forces_float32_default(

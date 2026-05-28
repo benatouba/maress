@@ -201,6 +201,8 @@ class TestExtractStudySiteTask:
             assert item is not None
             assert item.study_sites is not None
             assert len(item.study_sites) == 1
+            assert item.parsed_text is not None
+            assert item.parsed_text.strip() != ""
 
             study_site = item.study_sites[0]
             assert study_site.confidence_score == 0.9
@@ -243,6 +245,7 @@ class TestExtractStudySiteTask:
             assert item is not None
             assert item.study_sites is not None
             assert len(item.study_sites) == 4
+            assert item.parsed_text is not None
 
             # Verify all sites have correct data
             sites = item.study_sites
@@ -421,6 +424,11 @@ class TestExtractStudySiteTask:
             assert result["status"] == "not_found"
             assert result["count"] == 0
             assert "No study sites found" in result["message"]
+
+            db_session.expire_all()
+            item = db_session.get(Item, item_with_pdf.id)
+            assert item is not None
+            assert item.parsed_text is not None
 
     def test_force_reextraction_clears_stale_results_when_new_run_finds_nothing(
         self,

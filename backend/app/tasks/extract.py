@@ -120,6 +120,9 @@ def _extract_study_site_impl(
         logger.exception(msg)
         raise RuntimeError(msg) from e
 
+    parsed_text = str(getattr(result.doc, "text", "") or "").strip()
+    item.parsed_text = parsed_text or None
+
     logger.info("Converting extraction results to database models")
     study_sites = StudySiteResultAdapter.to_study_sites(
         result=result,
