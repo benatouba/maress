@@ -20,8 +20,8 @@
     "@vueuse/core": "^14.3.0",
     "axios": "^1.16.1",
     "chart.js": "^4.5.1",
-    "cytoscape": "^3.33.3",
-    "cytoscape-dagre": "^2.5.0",
+    "cytoscape": "^3.33.4",
+    "cytoscape-dagre": "^3.0.0",
     "cytoscape-fcose": "^2.2.0",
     "lodash": "^4.18.1",
     "ol": "^10.9.0",
@@ -33,51 +33,34 @@
   "devDependencies": {
     "@tsconfig/node24": "^24.0.4",
     "@types/lodash": "^4.17.24",
-    "@types/node": "^25.7.0",
-    "@vitejs/plugin-vue": "^6.0.6",
+    "@types/node": "^25.9.1",
+    "@vitejs/plugin-vue": "^6.0.7",
     "@vitest/ui": "4.1.2",
     "@vue/test-utils": "^2.4.10",
     "@vue/tsconfig": "^0.9.1",
-    "eslint": "^10.3.0",
-    "eslint-config-vuetify": "4.4.0",
-    "eslint-plugin-oxlint": "^1.64.0",
+    "eslint": "^10.4.0",
+    "eslint-config-vuetify": "4.6.2",
+    "eslint-plugin-oxlint": "^1.67.0",
     "eslint-plugin-vue": "^10.9.1",
     "eslint-plugin-vuetify": "^2.7.2",
     "jsdom": "^29.1.1",
-    "oxfmt": "^0.42.0",
-    "oxlint": "^1.64.0",
-    "sass": "^1.99.0",
+    "oxfmt": "^0.52.0",
+    "oxlint": "^1.67.0",
+    "sass": "^1.100.0",
     "sharp": "^0.34.5",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.59.3",
+    "typescript-eslint": "^8.60.0",
     "unplugin-auto-import": "^21.0.0",
     "unplugin-fonts": "^1.4.0",
-    "unplugin-vue-components": "^32.0.0",
-    "vite": "^8.0.12",
+    "unplugin-vue-components": "^32.1.0",
+    "vite": "^8.0.14",
     "vite-plugin-image-optimizer": "^2.0.3",
     "vite-plugin-vuetify": "^2.1.3",
-    "vitest": "^4.1.6",
+    "vitest": "^4.1.7",
     "vue-router": "^5.0.7",
-    "vue-tsc": "^3.2.9"
+    "vue-tsc": "^3.3.2"
   },
   "optionalDependencies": {
     "@img/sharp-linux-x64": "^0.34.5"
-  },
-  "pnpm": {
-    "peerDependencyRules": {
-      "ignoreMissing": [
-        "unplugin-fonts"
-      ],
-      "allowedVersions": {
-        "eslint-plugin-vuetify>vuetify": "4"
-      }
-    },
-    "onlyBuiltDependencies": [
-      "@parcel/watcher",
-      "sass-embedded",
-      "sharp",
-      "unrs-resolver",
-      "vue-demi"
-    ]
   }
 }
