@@ -39,6 +39,7 @@ export interface ZoteroStore {
     search?: string,
     searchMode?: 'title' | 'title+fulltext',
   ) => Promise<{ data: any[]; count: number } | null>
+  fetchItemParsedText: (itemId: string) => Promise<{ item_id: string; title: string; parsed_text: string } | null>
   syncLibrary: (reload?: boolean, collectionId?: string | null) => Promise<boolean>
   downloadAttachments: (itemIds?: string[]) => Promise<any | null>
   getLocations: () => Promise<any[]>
@@ -70,6 +71,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     const issn = item?.issn ?? item?.ISSN ?? null
     const publicationTitle = item?.publicationTitle ?? item?.journal ?? ''
     const url = item?.url ?? item?.URL ?? ''
+    const dataAvailabilityLink = item?.data_availability_link ?? item?.dataAvailabilityLink ?? null
 
     return {
       ...item,
@@ -77,6 +79,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       issn,
       publicationTitle,
       url,
+      data_availability_link: dataAvailabilityLink,
     }
   }
 
@@ -186,6 +189,20 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       notificationStore.showNotification(
         'Failed to fetch map papers, with error:' + ((error as any).response?.data?.detail || (error as any).message),
         'error'
+      )
+      return null
+    }
+  }
+
+  const fetchItemParsedText = async (itemId: string): Promise<{ item_id: string; title: string; parsed_text: string } | null> => {
+    try {
+      const response = await axios.get(`/items/${itemId}/parsed-text`)
+      return response.data
+    } catch (error) {
+      const notificationStore = useNotificationStore()
+      notificationStore.showNotification(
+        (error as any).response?.data?.detail || 'Failed to fetch parsed text',
+        'error',
       )
       return null
     }
@@ -353,7 +370,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     } catch (error) {
       const notificationStore = useNotificationStore()
       notificationStore.showNotification(
-        (error as any).response?.data?.detail || 'Failed to extract study sites',
+        (error as any).response?.data?.detail || 'Failed to ingest study sites',
         'error',
       )
       return []
@@ -468,7 +485,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     }
   }
 
-  // Get extraction results (all candidates) for an item
+  // Get ingestion results (all candidates) for an item
   const getExtractionResults = async (itemId: string) => {
     const notificationStore = useNotificationStore()
     loading.value = true
@@ -478,7 +495,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       return response.data
     } catch (error) {
       notificationStore.showNotification(
-        (error as any).response?.data?.detail || 'Failed to fetch extraction results',
+        (error as any).response?.data?.detail || 'Failed to fetch ingestion results',
         'error',
       )
       return null
@@ -487,7 +504,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     }
   }
 
-  // Extract study sites for items
+  // Ingest study sites for items
   // oxlint-disable-next-line no-explicit-any
   const extractStudySites = async (itemIds: string | string[] | null = null, force: boolean = false): Promise<{ count: number; tasks: any[] } | null> => {
     const notificationStore = useNotificationStore()
@@ -510,8 +527,8 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const taskData = response.data.data || []
 
       const message = itemIds
-        ? `Study site extraction queued for ${Array.isArray(itemIds) ? itemIds.length : 1} item(s)`
-        : `Study site extraction queued for ${count} item(s)`
+        ? `Study site ingestion queued for ${Array.isArray(itemIds) ? itemIds.length : 1} item(s)`
+        : `Study site ingestion queued for ${count} item(s)`
 
       notificationStore.showNotification(message, 'info')
 
@@ -524,7 +541,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
       const errorDetail = (error as any).response?.data?.detail
 
       // Format validation errors if present
-      let errorMessage = 'Failed to start extraction'
+      let errorMessage = 'Failed to start ingestion'
       if (Array.isArray(errorDetail)) {
         errorMessage = errorDetail.map(err => `${err.loc.join('.')}: ${err.msg}`).join(', ')
       } else if (typeof errorDetail === 'string') {
@@ -590,6 +607,7 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     fetchZoteroCollections,
     fetchItems,
     fetchMapItems,
+    fetchItemParsedText,
     downloadAttachments,
     getLocations,
     syncLibrary,

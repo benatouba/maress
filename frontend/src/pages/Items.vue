@@ -87,7 +87,7 @@
           :disabled="isProcessing"
           class="mr-2"
         >
-          {{ hasSelectedItems ? `Extract ${selectedItems.length} Selected` : 'Extract All Sites' }}
+          {{ hasSelectedItems ? `Ingest ${selectedItems.length} Selected` : 'Ingest All Sites' }}
         </v-btn>
         <v-btn
           color="info"
@@ -280,6 +280,15 @@
             >
               mdi-paperclip
             </v-icon>
+            <v-icon
+              v-if="canViewParsedText(item)"
+              color="info"
+              size="small"
+              class="mr-2"
+              @click.stop="viewParsedText(item.id)"
+            >
+              mdi-text-box-search-outline
+            </v-icon>
             <span class="text-body-2 font-weight-medium">
               {{ item.title || 'Untitled' }}
             </span>
@@ -340,6 +349,19 @@
           </v-btn>
         </template>
 
+        <!-- Data Availability Resource -->
+        <template #item.data_availability_link="{ item }">
+          <v-btn
+            v-if="item.data_availability_link"
+            icon
+            size="small"
+            variant="text"
+            @click.stop="openDataAvailabilityLink(item.data_availability_link)"
+          >
+            <v-icon size="small">mdi-database</v-icon>
+          </v-btn>
+        </template>
+
         <!-- Actions -->
         <template #item.actions="{ item }">
           <v-menu>
@@ -371,7 +393,7 @@
                 <template #prepend>
                   <v-icon size="small">mdi-format-list-bulleted</v-icon>
                 </template>
-                <v-list-item-title>View Extraction Results</v-list-item-title>
+                <v-list-item-title>View Ingestion Results</v-list-item-title>
               </v-list-item>
               <v-divider v-if="authStore.isAuthenticated" />
               <v-list-item v-if="authStore.isAuthenticated" @click="handleImportFile(item)">
@@ -384,7 +406,7 @@
                 <template #prepend>
                   <v-icon size="small">mdi-map-marker-plus</v-icon>
                 </template>
-                <v-list-item-title>Extract Study Sites</v-list-item-title>
+                <v-list-item-title>Ingest Study Sites</v-list-item-title>
               </v-list-item>
               <v-list-item v-if="authStore.isAuthenticated" @click="handleEnrichItem(item)">
                 <template #prepend>
@@ -474,7 +496,7 @@
                   </v-list-item-subtitle>
                 </v-list-item>
               </v-list>
-              <p v-else class="text-body-2 text-medium-emphasis">No study sites extracted yet</p>
+              <p v-else class="text-body-2 text-medium-emphasis">No study sites ingested yet</p>
             </v-col>
           </v-row>
         </v-card-text>
@@ -491,7 +513,7 @@
       </v-card>
     </v-dialog>
 
-    <!-- Extraction Results Dialog -->
+    <!-- Ingestion Results Dialog -->
     <v-dialog v-model="extractionResultsDialog" max-width="1200">
       <extraction-results
         v-if="extractionResultsDialog && selectedItem"
@@ -568,6 +590,7 @@ const headers = computed(() => {
     { key: 'study_sites_count', title: 'Sites', sortable: false, align: 'center', width: '80px' },
     { key: 'doi', title: 'DOI', sortable: false, align: 'center', width: '60px' },
     { key: 'url', title: 'URL', sortable: false, align: 'center', width: '60px' },
+    { key: 'data_availability_link', title: 'Data', sortable: false, align: 'center', width: '70px' },
   ]
   if (authStore.isAuthenticated) {
     cols.push({ key: 'actions', title: '', sortable: false, align: 'center', width: '60px' })
@@ -711,14 +734,14 @@ const handleExtractAll = async () => {
           taskStore.addTasks(result.tasks)
 
           notificationStore.showNotification(
-            `Queued extraction for ${totalSelected} selected item(s)`,
+            `Queued ingestion for ${totalSelected} selected item(s)`,
             'success'
           )
         }
       } catch (error) {
-        logger.error('Extraction error for selected items:', error)
+        logger.error('Ingestion error for selected items:', error)
         notificationStore.showNotification(
-          `Failed to queue extraction for selected items`,
+          `Failed to queue ingestion for selected items`,
           'error'
         )
       }
@@ -744,7 +767,7 @@ const handleExtractAll = async () => {
       }
     }
   } catch (error) {
-    logger.error('Extraction error:', error)
+    logger.error('Ingestion error:', error)
   }
 }
 
@@ -822,7 +845,7 @@ const handleExtractStudySites = async (item: any) => {
       }, 5000)
     }
   } catch (error) {
-    logger.error('Extraction error:', error)
+    logger.error('Ingestion error:', error)
   }
 }
 
@@ -943,6 +966,14 @@ const viewAttachment = (filePath: string) => {
   window.open(fileUrl, '_blank', 'noopener,noreferrer')
 }
 
+const viewParsedText = (itemId: string) => {
+  router.push(`/items/${itemId}/parsed-text`)
+}
+
+const canViewParsedText = (item: any): boolean => {
+  return authStore.isAuthenticated && Boolean(item.has_parsed_text)
+}
+
 const openInNewTab = (url: string) => {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
@@ -950,6 +981,19 @@ const openInNewTab = (url: string) => {
 const openDoiLink = (doi: string) => {
   const url = getDoiUrl(doi)
   window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+const openDataAvailabilityLink = (resourceLink: string) => {
+  const link = resourceLink.trim()
+  if (!link) return
+
+  const normalized = /^https?:\/\//i.test(link)
+    ? link
+    : /^doi:\s*/i.test(link) || /^10\.\d{4,9}\//i.test(link)
+      ? getDoiUrl(link)
+      : `https://${link}`
+
+  window.open(normalized, '_blank', 'noopener,noreferrer')
 }
 
 const getDoiUrl = (doi: string): string => {

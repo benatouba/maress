@@ -66,6 +66,8 @@ export const mockItem = {
   itemType: 'journalArticle',
   owner_id: 'user-1',
   attachment: 'files/test.pdf',
+  has_parsed_text: true,
+  data_availability_link: 'https://data.example.com/dataset-1',
   study_sites: [mockStudySite],
   dateAdded: '2024-01-01T00:00:00Z',
   dateModified: '2024-01-01T00:00:00Z',
@@ -77,6 +79,8 @@ export const mockItemWithoutSites = {
   ...mockItem,
   id: 'item-2',
   title: 'Test Paper 2',
+  has_parsed_text: false,
+  data_availability_link: null,
   study_sites: []
 }
 

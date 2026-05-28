@@ -380,13 +380,72 @@ describe('Items Page', () => {
     })
   })
 
-  describe('Extract Study Sites', () => {
+  describe('Parsed Text Access', () => {
     beforeEach(async () => {
       wrapper = createWrapper()
       await flushPromises()
     })
 
-    it('should extract study sites for a single item', async () => {
+    it('should allow parsed text icon visibility for authenticated users with parsed text', () => {
+      authStore.token = 'test-token'
+      expect(authStore.isAuthenticated).toBe(true)
+      expect(wrapper.vm.canViewParsedText({ has_parsed_text: true })).toBe(true)
+    })
+
+    it('should hide parsed text icon for items without parsed text', () => {
+      expect(wrapper.vm.canViewParsedText(mockItemWithoutSites)).toBe(false)
+    })
+
+    it('should hide parsed text icon when unauthenticated', () => {
+      authStore.token = null
+      expect(wrapper.vm.canViewParsedText(mockItem)).toBe(false)
+    })
+
+    it('should navigate to parsed text page', async () => {
+      const pushSpy = vi.spyOn(router, 'push')
+
+      await wrapper.vm.viewParsedText(mockItem.id)
+
+      expect(pushSpy).toHaveBeenCalledWith(`/items/${mockItem.id}/parsed-text`)
+    })
+  })
+
+  describe('Data Availability Link', () => {
+    beforeEach(async () => {
+      wrapper = createWrapper()
+      await flushPromises()
+    })
+
+    it('should open data availability URL directly', () => {
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      wrapper.vm.openDataAvailabilityLink('https://data.example.com/dataset')
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://data.example.com/dataset',
+        '_blank',
+        'noopener,noreferrer',
+      )
+      openSpy.mockRestore()
+    })
+
+    it('should normalize DOI-like data availability links', () => {
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+      wrapper.vm.openDataAvailabilityLink('10.1234/dataset.42')
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://doi.org/10.1234/dataset.42',
+        '_blank',
+        'noopener,noreferrer',
+      )
+      openSpy.mockRestore()
+    })
+  })
+
+  describe('Ingest Study Sites', () => {
+    beforeEach(async () => {
+      wrapper = createWrapper()
+      await flushPromises()
+    })
+
+    it('should ingest study sites for a single item', async () => {
       await wrapper.vm.handleExtractStudySites(mockItem)
 
       expect(zoteroStore.extractStudySites).toHaveBeenCalledWith([mockItem.id], false)
