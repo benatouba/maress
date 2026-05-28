@@ -101,6 +101,10 @@ in
     migrate = {
       exec = ''
         while ! pg_isready -q; do sleep 0.2; done
+        db_exists="$(psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='maress'")"
+        if [ "$db_exists" != "1" ]; then
+          createdb maress
+        fi
         cd backend && uv run alembic upgrade head
       '';
     };
@@ -111,7 +115,14 @@ in
       };
     };
     worker = {
-      exec = "cd backend && env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND uv run celery -A app.celery_app worker --loglevel=info";
+      exec = "cd backend && env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND uv run celery -A app.celery_app worker --loglevel=info --concurrency=\${CELERY_WORKER_CONCURRENCY:-2}";
+      watch = {
+        paths = [
+          ./backend/app/tasks
+          ./backend/app/celery_app.py
+        ];
+        extensions = [ "py" ];
+      };
       process-compose = {
         depends_on.migrate.condition = "process_completed_successfully";
       };
@@ -119,11 +130,33 @@ in
     frontend.exec = "cd frontend && pnpm dev";
   };
 
+  scripts.db-drop-maress = {
+    description = "Start postgres, drop maress DB, stop postgres";
+    exec = ''
+      started_here=0
+
+      if ! pg_isready -q; then
+        start-postgres >/tmp/maress-db-drop-postgres.log 2>&1 &
+        postgres_pid=$!
+        started_here=1
+
+        while ! pg_isready -q; do sleep 0.2; done
+      fi
+
+      dropdb --if-exists maress
+
+      if [ "$started_here" = "1" ]; then
+        pg_ctl -D "$PGDATA" -m fast stop
+        wait "$postgres_pid" 2>/dev/null || true
+      fi
+    '';
+  };
+
   enterShell = ''
     echo "maress dev environment"
     echo "  devenv up    — start postgres + redis + backend + worker + frontend"
     echo "  backend:  cd backend && uv run uvicorn app.main:app --reload"
-    echo "  worker:   cd backend && env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND uv run celery -A app.celery_app worker"
+    echo "  worker:   cd backend && env -u CELERY_BROKER_URL -u CELERY_RESULT_BACKEND uv run celery -A app.celery_app worker --concurrency=\$CELERY_WORKER_CONCURRENCY"
     echo "  frontend: cd frontend && pnpm dev"
     echo "  typst:    typst compile project-presentation/nfdi4earth-dresden-2026.typ"
   '';

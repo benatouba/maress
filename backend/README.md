@@ -65,6 +65,8 @@ $ uv run celery -A app.celery_app worker --loglevel=info --concurrency=2
 ```
 
 The `--concurrency` option sets the number of worker processes, you can change it to your needs.
+When using `devenv up`, worker concurrency is read from `CELERY_WORKER_CONCURRENCY`
+(default `2`) from `.env.local`.
 
 To intercept mails sent during development, you can use [MailHog](https://github.com/mailhog/MailHog). It has a web interface at `http://localhost:8025` where you can see the emails sent by the application.
 It intercepts all emails sent to any SMTP server at `localhost:1025`.

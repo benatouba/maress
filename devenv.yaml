@@ -4,3 +4,5 @@ inputs:
   nixpkgs-python:
     url: github:cachix/nixpkgs-python
     follows: nixpkgs
+
+strict_ports: true

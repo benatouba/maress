@@ -8,6 +8,7 @@ from pydantic import (
     AnyUrl,
     BeforeValidator,
     EmailStr,
+    Field,
     PostgresDsn,
     computed_field,
     field_validator,
@@ -113,6 +114,7 @@ class Settings(BaseSettings):
 
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str
+    CELERY_WORKER_CONCURRENCY: Annotated[int, Field(ge=1)] = 2
 
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
