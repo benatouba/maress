@@ -49,6 +49,26 @@
           {{ downloading ? 'Downloading...' : hasSelectedItems ? `Download ${selectedItems.length} Selected` : 'Download Files' }}
         </v-btn>
         <v-btn
+          color="error"
+          prepend-icon="mdi-delete-outline"
+          @click="handleDeleteSelected"
+          variant="outlined"
+          :disabled="isProcessing || !hasSelectedItems"
+          class="mr-2"
+        >
+          Delete Selected{{ hasSelectedItems ? ` (${selectedItems.length})` : '' }}
+        </v-btn>
+        <v-btn
+          color="error"
+          prepend-icon="mdi-delete-sweep"
+          @click="handleDeleteAll"
+          variant="tonal"
+          :disabled="isProcessing || totalItems === 0"
+          class="mr-2"
+        >
+          Delete All
+        </v-btn>
+        <v-btn
           v-if="hasSelectedItems"
           color="error"
           prepend-icon="mdi-close"
@@ -841,11 +861,50 @@ const handleDelete = async (item: any) => {
   if (!confirmed) return
 
   try {
-    // await zoteroStore.deleteItem(item.id)
-    notificationStore.showNotification('Item deleted', 'success')
-    await zoteroStore.fetchItems()
+    const deleted = await zoteroStore.deleteItem(item.id)
+    if (deleted) {
+      await zoteroStore.fetchItems(500, false, itemsScope.value)
+    }
   } catch (error) {
     logger.error('Delete error:', error)
+  }
+}
+
+const handleDeleteSelected = async () => {
+  if (!authStore.isAuthenticated || !hasSelectedItems.value) {
+    return
+  }
+
+  const confirmed = confirm(`Delete ${selectedItems.value.length} selected item(s)?`)
+  if (!confirmed) return
+
+  try {
+    const deleted = await zoteroStore.deleteItemsBulk(selectedItems.value, false)
+    if (deleted) {
+      clearSelection()
+      await zoteroStore.fetchItems(500, false, itemsScope.value)
+    }
+  } catch (error) {
+    logger.error('Bulk delete selected error:', error)
+  }
+}
+
+const handleDeleteAll = async () => {
+  if (!authStore.isAuthenticated || totalItems.value === 0) {
+    return
+  }
+
+  const confirmed = confirm(`Delete all ${totalItems.value} item(s) in the current scope?`)
+  if (!confirmed) return
+
+  try {
+    const deleted = await zoteroStore.deleteItemsBulk(undefined, true)
+    if (deleted) {
+      clearSelection()
+      await zoteroStore.fetchItems(500, false, itemsScope.value)
+    }
+  } catch (error) {
+    logger.error('Bulk delete all error:', error)
   }
 }
 

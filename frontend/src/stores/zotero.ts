@@ -34,6 +34,8 @@ export interface ZoteroStore {
   importItem: (itemId: string) => Promise<any | null>
   updateStudySite: (studySiteId: string, updateData: object) => Promise<any>
   importFileFromZotero: (itemId: string) => Promise<any | null>
+  deleteItem: (itemId: string) => Promise<boolean>
+  deleteItemsBulk: (itemIds?: string[], deleteAll?: boolean) => Promise<boolean>
   getExtractionResults: (itemId: string) => Promise<any | null>
   extractStudySites: (itemIds?: string | string[] | null, force?: boolean) => Promise<any | null>
   enrichItems: (itemIds?: string[]) => Promise<any | null>
@@ -391,6 +393,59 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     }
   }
 
+  const deleteItem = async (itemId: string): Promise<boolean> => {
+    const notificationStore = useNotificationStore()
+    loading.value = true
+
+    try {
+      await axios.delete(`/items/${itemId}`)
+      notificationStore.showNotification('Item deleted', 'success')
+      return true
+    } catch (error) {
+      notificationStore.showNotification(
+        (error as any).response?.data?.detail || 'Failed to delete item',
+        'error',
+      )
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const deleteItemsBulk = async (
+    itemIds?: string[],
+    deleteAll: boolean = false,
+  ): Promise<boolean> => {
+    const notificationStore = useNotificationStore()
+    loading.value = true
+
+    try {
+      const params = new URLSearchParams()
+      if (deleteAll) {
+        params.append('all', 'true')
+      } else {
+        for (const itemId of itemIds || []) {
+          params.append('item_ids', itemId)
+        }
+      }
+
+      const response = await axios.delete(`/items/bulk?${params.toString()}`)
+      notificationStore.showNotification(
+        response.data?.message || 'Items deleted',
+        'success',
+      )
+      return true
+    } catch (error) {
+      notificationStore.showNotification(
+        (error as any).response?.data?.detail || 'Failed to delete items',
+        'error',
+      )
+      return false
+    } finally {
+      loading.value = false
+    }
+  }
+
   // Get extraction results (all candidates) for an item
   const getExtractionResults = async (itemId: string) => {
     const notificationStore = useNotificationStore()
@@ -519,6 +574,8 @@ export const useZoteroStore = defineStore('zotero', (): ZoteroStore => {
     importItem,
     updateStudySite,
     importFileFromZotero,
+    deleteItem,
+    deleteItemsBulk,
     getExtractionResults,
     extractStudySites,
     enrichItems,

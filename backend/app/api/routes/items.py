@@ -534,6 +534,46 @@ def update_item(
     return item
 
 
+@router.delete("/bulk")
+def delete_items_bulk(
+    session: SessionDep,
+    current_user: CurrentUser,
+    delete_all: bool = Query(default=False, alias="all"),
+    item_ids: Annotated[list[uuid.UUID] | None, Query()] = None,
+) -> Message:
+    """Delete selected items or all accessible items."""
+    if delete_all and item_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Use either all=true or item_ids, not both",
+        )
+    if not delete_all and not item_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide item_ids or set all=true",
+        )
+
+    if delete_all:
+        statement = select(Item)
+        if not current_user.is_superuser:
+            statement = statement.where(Item.owner_id == current_user.id)
+        items = session.exec(statement).all()
+    else:
+        assert item_ids is not None
+        unique_ids = list(dict.fromkeys(item_ids))
+        statement = select(Item).where(col(Item.id).in_(unique_ids))
+        items = session.exec(statement).all()
+        if len(items) != len(unique_ids):
+            raise HTTPException(status_code=404, detail="One or more items not found")
+
+    for item in items:
+        _assert_item_write_access(item, current_user)
+        session.delete(item)
+
+    session.commit()
+    return Message(message=f"Deleted {len(items)} item(s) successfully")
+
+
 @router.delete("/{id}")
 def delete_item(
     session: SessionDep,

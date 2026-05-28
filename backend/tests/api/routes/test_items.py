@@ -407,6 +407,72 @@ def test_delete_item_not_enough_permissions(
     assert content["detail"] == "Not enough permissions"
 
 
+def test_delete_items_bulk_selected(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+    db_session: Session,
+) -> None:
+    item_one = create_random_item(db_session)
+    item_two = create_random_item(db_session)
+
+    response = client.delete(
+        f"{settings.API_V1_STR}/items/bulk",
+        headers=superuser_token_headers,
+        params=[("item_ids", str(item_one.id)), ("item_ids", str(item_two.id))],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Deleted 2 item(s) successfully"
+    assert db_session.get(Item, item_one.id) is None
+    assert db_session.get(Item, item_two.id) is None
+
+
+def test_delete_items_bulk_all_deletes_only_owned_for_normal_user(
+    client: TestClient,
+    normal_user_token_headers: dict[str, str],
+    db_session: Session,
+    test_user: User,
+    test_superuser: User,
+) -> None:
+    own_item_in = ItemFactory.build()
+    own_item = crud.create_item(
+        session=db_session,
+        item_in=own_item_in,
+        owner_id=test_user.id,
+    )
+
+    other_item_in = ItemFactory.build()
+    other_item = crud.create_item(
+        session=db_session,
+        item_in=other_item_in,
+        owner_id=test_superuser.id,
+    )
+
+    response = client.delete(
+        f"{settings.API_V1_STR}/items/bulk",
+        headers=normal_user_token_headers,
+        params={"all": "true"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Deleted 1 item(s) successfully"
+    assert db_session.get(Item, own_item.id) is None
+    assert db_session.get(Item, other_item.id) is not None
+
+
+def test_delete_items_bulk_requires_selection_or_all(
+    client: TestClient,
+    superuser_token_headers: dict[str, str],
+) -> None:
+    response = client.delete(
+        f"{settings.API_V1_STR}/items/bulk",
+        headers=superuser_token_headers,
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Provide item_ids or set all=true"
+
+
 def test_start_extract_requires_authentication(client: TestClient) -> None:
     response = client.post(
         f"{settings.API_V1_STR}/items/study_sites/",

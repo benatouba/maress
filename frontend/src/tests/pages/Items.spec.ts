@@ -111,6 +111,8 @@ describe('Items Page', () => {
     vi.spyOn(zoteroStore, 'downloadAttachments').mockResolvedValue(true)
     vi.spyOn(zoteroStore, 'extractStudySites').mockResolvedValue({ count: 1, tasks: [] })
     vi.spyOn(zoteroStore, 'enrichItems').mockResolvedValue({ count: 1, tasks: [] })
+    vi.spyOn(zoteroStore, 'deleteItem').mockResolvedValue(true)
+    vi.spyOn(zoteroStore, 'deleteItemsBulk').mockResolvedValue(true)
 
     notificationStore = useNotificationStore()
     vi.spyOn(notificationStore, 'showNotification')
@@ -392,6 +394,41 @@ describe('Items Page', () => {
       await wrapper.vm.handleDelete(mockItem)
 
       expect(notificationStore.showNotification).not.toHaveBeenCalled()
+    })
+
+    it('should delete single item and refresh when confirmed', async () => {
+      await wrapper.vm.handleDelete(mockItem)
+      await flushPromises()
+
+      expect(zoteroStore.deleteItem).toHaveBeenCalledWith(mockItem.id)
+      expect(zoteroStore.fetchItems).toHaveBeenCalled()
+    })
+
+    it('should delete selected items and clear selection', async () => {
+      wrapper.vm.selectedItems = [mockItem.id, mockItemWithoutSites.id]
+      global.confirm = vi.fn(() => true)
+
+      await wrapper.vm.handleDeleteSelected()
+      await flushPromises()
+
+      expect(global.confirm).toHaveBeenCalledWith('Delete 2 selected item(s)?')
+      expect(zoteroStore.deleteItemsBulk).toHaveBeenCalledWith(
+        [mockItem.id, mockItemWithoutSites.id],
+        false,
+      )
+      expect(wrapper.vm.selectedItems).toEqual([])
+      expect(zoteroStore.fetchItems).toHaveBeenCalled()
+    })
+
+    it('should delete all items in current scope', async () => {
+      global.confirm = vi.fn(() => true)
+
+      await wrapper.vm.handleDeleteAll()
+      await flushPromises()
+
+      expect(global.confirm).toHaveBeenCalledWith('Delete all 2 item(s) in the current scope?')
+      expect(zoteroStore.deleteItemsBulk).toHaveBeenCalledWith(undefined, true)
+      expect(zoteroStore.fetchItems).toHaveBeenCalled()
     })
   })
 
