@@ -46,9 +46,9 @@ export default defineConfig({
     // https://github.com/vuetifyjs/vuetify-loader/tree/master/packages/vite-plugin#readme
     Vuetify({
       autoImport: true,
-      styles: {
-        configFile: 'src/styles/settings.scss',
-      },
+      // Work around Vite 8 + vuetify virtual style resolution issues.
+      // `sass` resolves concrete style files instead of virtual modules.
+      styles: 'sass',
     }),
     Fonts({
       custom: {
