@@ -3,7 +3,7 @@
     <v-card-title>
       <div class="d-flex align-center justify-space-between">
         <div>
-          <span>Extraction Results</span>
+          <span>Ingestion Results</span>
           <v-chip v-if="results" size="small" class="ml-2">
             {{ results.count }} candidate{{ results.count !== 1 ? 's' : '' }} found
           </v-chip>
@@ -21,7 +21,7 @@
       <div class="d-flex align-center gap-2 mt-2">
         <v-icon size="small" color="info">mdi-information-outline</v-icon>
         <span class="text-caption">
-          Shows all {{ results.count }} location candidates detected during extraction.
+          Shows all {{ results.count }} location candidates detected during ingestion.
           The top {{ results.top_10_count }} with highest confidence were saved as study sites.
         </span>
       </div>
@@ -33,7 +33,7 @@
       <!-- Loading State -->
       <div v-if="loading" class="text-center py-8">
         <v-progress-circular indeterminate color="primary" size="48" />
-        <p class="text-body-2 text-medium-emphasis mt-4">Loading extraction results...</p>
+        <p class="text-body-2 text-medium-emphasis mt-4">Loading ingestion results...</p>
       </div>
 
       <!-- Error State -->
@@ -48,7 +48,7 @@
       <!-- Empty State -->
       <div v-else-if="!results || results.count === 0" class="text-center py-8">
         <v-icon size="64" color="grey-lighten-1" class="mb-4">mdi-map-marker-off-outline</v-icon>
-        <div class="text-h6 text-medium-emphasis">No extraction results found</div>
+        <div class="text-h6 text-medium-emphasis">No ingestion results found</div>
         <p class="text-body-2 text-medium-emphasis mt-2">
           This item hasn't been processed yet or no coordinates were detected.
         </p>
@@ -286,7 +286,7 @@ const filteredResults = computed(() => {
   if (!results.value) return []
 
   return results.value.data.filter((result) => {
-    // Filter by saved status
+  // Filter by saved status
     if (filterSaved.value === 'saved' && !result.is_saved) return false
     if (filterSaved.value === 'not_saved' && result.is_saved) return false
 
@@ -346,11 +346,11 @@ const loadResults = async () => {
     if (data) {
       results.value = data
     } else {
-      error.value = 'Failed to load extraction results'
+      error.value = 'Failed to load ingestion results'
     }
   } catch (err) {
-    logger.error('Error loading extraction results:', err)
-    error.value = 'An error occurred while loading extraction results'
+    logger.error('Error loading ingestion results:', err)
+    error.value = 'An error occurred while loading ingestion results'
   } finally {
     loading.value = false
   }

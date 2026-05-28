@@ -267,8 +267,8 @@
               <div class="text-caption">
                 <v-icon size="small" class="mr-1">mdi-information</v-icon>
                 {{ authStore.isAuthenticated
-                  ? 'Study sites appear after extraction tasks complete. Click refresh to see new sites.'
-                  : 'Browse extracted study sites and map output. Sign in to run extraction tasks.' }}
+                  ? 'Study sites appear after ingestion tasks complete. Click refresh to see new sites.'
+                  : 'Browse ingested study sites and map output. Sign in to run ingestion tasks.' }}
               </div>
             </v-alert>
 
@@ -905,7 +905,7 @@
             type="info"
             variant="tonal"
             class="mb-4">
-            No study sites have been extracted for this paper yet.
+            No study sites have been ingested for this paper yet.
           </v-alert>
 
           <v-list

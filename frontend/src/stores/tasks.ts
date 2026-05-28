@@ -194,13 +194,13 @@ export const useTaskStore = defineStore('tasks', () => {
       const count = taskInfo.study_site_count || 0
       const message =
         count > 0 ?
-          `Extraction complete: ${count} study site(s) found`
-        : 'Extraction complete: No study sites found'
+          `Ingestion complete: ${count} study site(s) found`
+        : 'Ingestion complete: No study sites found'
 
       notificationStore.showNotification(message, 'success', 8000)
     } else {
       const errorMsg = taskInfo.error || 'Unknown error'
-      notificationStore.showNotification(`Extraction failed: ${errorMsg}`, 'error', 10000)
+      notificationStore.showNotification(`Ingestion failed: ${errorMsg}`, 'error', 10000)
     }
   }
 

@@ -6,7 +6,7 @@
       variant="tonal"
       class="mb-4"
     >
-      Sign in to monitor or manage extraction jobs.
+      Sign in to monitor or manage ingestion jobs.
     </v-alert>
 
     <v-row>
@@ -15,7 +15,7 @@
           <div>
             <h1 class="text-h4 font-weight-bold">Task Monitor</h1>
             <p class="text-subtitle-1 text-medium-emphasis">
-              Monitor and manage study site extraction tasks
+              Monitor and manage study site ingestion tasks
             </p>
           </div>
           <div v-if="authStore.isAuthenticated" class="d-flex gap-2">
@@ -148,7 +148,7 @@
             <v-icon size="64" color="grey-lighten-1" class="mb-4">mdi-checkbox-marked-circle-outline</v-icon>
             <div class="text-h6 text-medium-emphasis">No active tasks</div>
             <p class="text-body-2 text-medium-emphasis mt-2">
-              Start an extraction from the Papers page to see tasks here
+              Start an ingestion from the Papers page to see tasks here
             </p>
             <v-btn color="primary" class="mt-4" to="/items">
               Go to Papers
@@ -363,8 +363,8 @@
               </v-list-item-subtitle>
             </v-list-item>
 
-            <v-list-item v-if="selectedTask.extraction_status">
-              <v-list-item-title class="font-weight-bold">Extraction Status</v-list-item-title>
+              <v-list-item v-if="selectedTask.extraction_status">
+               <v-list-item-title class="font-weight-bold">Ingestion Status</v-list-item-title>
               <v-list-item-subtitle>
                 {{ selectedTask.extraction_status }}
               </v-list-item-subtitle>

@@ -881,7 +881,7 @@ describe('Map Page', () => {
       await wrapper.vm.showPaperStudySites(mockPaperWithoutSites)
       await flushPromises()
 
-      expect(wrapper.text()).toContain('No study sites have been extracted')
+      expect(wrapper.text()).toContain('No study sites have been ingested')
     })
   })
 

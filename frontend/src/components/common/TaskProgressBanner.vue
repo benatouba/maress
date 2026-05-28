@@ -23,7 +23,7 @@
 
             <div>
               <div class="text-subtitle-2 font-weight-bold">
-                Processing Study Site Extractions
+                Processing Study Site Ingestion
                 <v-icon
                   size="small"
                   class="ml-1"
