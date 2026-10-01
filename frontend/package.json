@@ -18,7 +18,7 @@
     "@mdi/font": "^7.4.47",
     "@unhead/vue": "^2.1.15",
     "@vueuse/core": "^14.3.0",
-    "axios": "^1.16.1",
+    "axios": "^1.20.0",
     "chart.js": "^4.5.1",
     "cytoscape": "^3.33.4",
     "cytoscape-dagre": "^3.0.0",
